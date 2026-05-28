@@ -59,3 +59,10 @@ AIM IO is provided by `aimio-py` through `py_aimio`.
 This first pass provides the clean Python API, HDF5 input writing, solver
 command construction, result reading, `.nii.gz` scalar export, and validation
 helpers. FAIM-ish command-line compatibility is planned as a second pass.
+
+## Validation
+
+The test suite includes optional FAIM 10.0 reference checks. When FAIM and a
+packaged ParOSol executable are available, a tiny axial-compression cube is
+generated with `n88modelgenerator`, solved with FAIM, solved with ParOSol, and
+the dense SED fields are compared.

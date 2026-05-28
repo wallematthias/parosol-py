@@ -29,27 +29,36 @@ def axial_compression(
     node_max = int(dims[axis_index])
     displacement = float(strain) * float(node_max)
 
-    coords: list[list[int]] = []
-    values: list[float] = []
-
     occupied = stiffness > 0.0
     lateral_axes = [idx for idx in range(3) if idx != axis_index]
-    projected = np.any(occupied, axis=axis_index)
-    for lateral_index in np.argwhere(projected):
-        base = [0, 0, 0]
-        base[lateral_axes[0]] = int(lateral_index[0])
-        base[lateral_axes[1]] = int(lateral_index[1])
-        bottom = base.copy()
-        bottom[axis_index] = 0
-        for direction in range(3):
-            coords.append([*bottom, direction])
-            values.append(1e-16)
+    bottom_slice = np.take(occupied, indices=0, axis=axis_index)
+    top_slice = np.take(occupied, indices=node_max - 1, axis=axis_index)
+    constraints: dict[tuple[int, int, int, int], float] = {}
 
-        top = base.copy()
-        top[axis_index] = int(node_max)
-        coords.append([*top, axis_index])
-        values.append(float(displacement))
+    def add_face_constraints(surface, *, node_axis_value: int, top: bool) -> None:
+        for lateral_index in np.argwhere(surface):
+            base = [0, 0, 0]
+            base[axis_index] = int(node_axis_value)
+            base[lateral_axes[0]] = int(lateral_index[0])
+            base[lateral_axes[1]] = int(lateral_index[1])
+            for du in (0, 1):
+                for dv in (0, 1):
+                    node = base.copy()
+                    node[lateral_axes[0]] += du
+                    node[lateral_axes[1]] += dv
+                    if top:
+                        for direction in lateral_axes:
+                            constraints[(*node, direction)] = 1e-16
+                        constraints[(*node, axis_index)] = float(displacement)
+                    else:
+                        for direction in range(3):
+                            constraints[(*node, direction)] = 1e-16
 
-    if not coords:
+    add_face_constraints(bottom_slice, node_axis_value=0, top=False)
+    add_face_constraints(top_slice, node_axis_value=node_max, top=True)
+
+    if not constraints:
         raise ValueError("No non-zero stiffness voxels found for boundary conditions")
+    coords = [list(coord) for coord in sorted(constraints)]
+    values = [constraints[tuple(coord)] for coord in coords]
     return np.asarray(coords, dtype=np.uint16), np.asarray(values, dtype=np.float32)

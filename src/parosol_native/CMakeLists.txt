@@ -16,6 +16,9 @@ set(PAROSOL_SOURCES
 
 add_executable(parosol ${PAROSOL_SOURCES})
 target_compile_features(parosol PRIVATE cxx_std_11)
+set_target_properties(parosol PROPERTIES
+    BUILD_WITH_INSTALL_RPATH TRUE
+    INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 find_package(MPI REQUIRED COMPONENTS CXX)
 find_package(HDF5 REQUIRED COMPONENTS CXX)

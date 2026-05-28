@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import subprocess
 from dataclasses import dataclass
+from importlib import metadata
 from importlib import resources
 from pathlib import Path
 
@@ -35,7 +36,18 @@ class RunResult:
 
 
 def packaged_executable() -> Path:
-    return resources.files("parosol_py").joinpath("bin/parosol")
+    executable = Path(resources.files("parosol_py").joinpath("bin/parosol"))
+    if executable.exists():
+        return executable
+    try:
+        installed = Path(
+            metadata.distribution("parosol-py").locate_file("parosol_py/bin/parosol")
+        )
+    except metadata.PackageNotFoundError:
+        return executable
+    if installed.exists():
+        return installed
+    return executable
 
 
 def build_parosol_command(

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from parosol_py.runner import build_parosol_command, parse_run_summary
+from parosol_py.runner import build_parosol_command, packaged_executable, parse_run_summary
 
 
 def test_build_parosol_command_maps_outputs():
@@ -37,3 +37,7 @@ def test_parse_run_summary_extracts_solver_metrics():
     assert summary.relative_residual == pytest.approx(4.5e-8)
     assert summary.absolute_residual == pytest.approx(2.3e-4)
     assert summary.overall_time_seconds == pytest.approx(1.25)
+
+
+def test_packaged_executable_returns_path():
+    assert packaged_executable().name == "parosol"
