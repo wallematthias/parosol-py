@@ -1,0 +1,33 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "parosol-py"
+version = "0.1.0"
+description = "Python package and API wrapper for the ParOSol micro-FE solver"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-2.0-or-later" }
+authors = [{ name = "Matthias Walle" }]
+dependencies = [
+  "numpy>=1.24",
+  "h5py>=3.10",
+  "SimpleITK>=2.3",
+  "aimio-py>=0.1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-cov>=5",
+  "build>=1",
+]
+
+[tool.scikit-build]
+cmake.version = ">=3.18"
+wheel.packages = ["src/parosol_py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
