@@ -13,11 +13,12 @@ OUTPUT_DATASETS = {
     "deviatoric_strain": "e_dev",
     "volumetric_strain": "e_vol",
 }
+DEFAULT_OUTPUTS = ("sed", "effective_strain", "von_mises")
 TENSOR_AXES = ("xx", "yy", "zz", "xy", "yz", "xz")
 
 
 def read_solution_fields(
-    path: str | Path, *, outputs: tuple[str, ...] = ("sed",)
+    path: str | Path, *, outputs: tuple[str, ...] = DEFAULT_OUTPUTS
 ) -> dict[str, Any]:
     requested = tuple(output.strip().lower() for output in outputs)
     fields: dict[str, Any] = {}
