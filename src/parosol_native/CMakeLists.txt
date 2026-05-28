@@ -19,6 +19,7 @@ target_compile_features(parosol PRIVATE cxx_std_11)
 
 find_package(MPI REQUIRED COMPONENTS CXX)
 find_package(HDF5 REQUIRED COMPONENTS CXX)
+find_package(Eigen3 REQUIRED)
 
 target_include_directories(parosol PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -27,4 +28,5 @@ target_include_directories(parosol PRIVATE
 
 target_link_libraries(parosol PRIVATE
     ${HDF5_LIBRARIES}
-    MPI::MPI_CXX)
+    MPI::MPI_CXX
+    Eigen3::Eigen)
