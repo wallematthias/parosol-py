@@ -15,7 +15,7 @@
 Create this package structure:
 
 ```text
-/Users/matthias.walle/Documents/fea/
+/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/
   pyproject.toml
   CMakeLists.txt
   README.md
@@ -52,31 +52,31 @@ Keep `framework-main/` untracked exploration material. Copy only `framework-main
 ## Task 1: Package Scaffold and Native Source Copy
 
 **Files:**
-- Create: `/Users/matthias.walle/Documents/fea/pyproject.toml`
-- Create: `/Users/matthias.walle/Documents/fea/CMakeLists.txt`
-- Create: `/Users/matthias.walle/Documents/fea/README.md`
-- Create: `/Users/matthias.walle/Documents/fea/src/parosol_py/__init__.py`
-- Create: `/Users/matthias.walle/Documents/fea/src/parosol_py/_version.py`
-- Create: `/Users/matthias.walle/Documents/fea/src/parosol_native/CMakeLists.txt`
-- Copy: `/Users/matthias.walle/Documents/fea/framework-main/src/parOsol/LICENSE` to `/Users/matthias.walle/Documents/fea/src/parosol_native/LICENSE`
-- Copy: `/Users/matthias.walle/Documents/fea/framework-main/src/parOsol/src/*` to `/Users/matthias.walle/Documents/fea/src/parosol_native/src/`
-- Test: `/Users/matthias.walle/Documents/fea/tests/test_api.py`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/pyproject.toml`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/CMakeLists.txt`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/README.md`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/__init__.py`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/_version.py`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_native/CMakeLists.txt`
+- Copy: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/framework-main/src/parOsol/LICENSE` to `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_native/LICENSE`
+- Copy: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/framework-main/src/parOsol/src/*` to `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_native/src/`
+- Test: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py`
 
 - [ ] **Step 1: Copy the ParOSol native source**
 
 Run:
 
 ```bash
-mkdir -p /Users/matthias.walle/Documents/fea/src/parosol_native
-cp -R /Users/matthias.walle/Documents/fea/framework-main/src/parOsol/src /Users/matthias.walle/Documents/fea/src/parosol_native/src
-cp /Users/matthias.walle/Documents/fea/framework-main/src/parOsol/LICENSE /Users/matthias.walle/Documents/fea/src/parosol_native/LICENSE
+mkdir -p /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_native
+cp -R /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/framework-main/src/parOsol/src /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_native/src
+cp /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/framework-main/src/parOsol/LICENSE /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_native/LICENSE
 ```
 
-Expected: `/Users/matthias.walle/Documents/fea/src/parosol_native/src/main.cpp` exists.
+Expected: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_native/src/main.cpp` exists.
 
 - [ ] **Step 2: Create packaging files**
 
-Create `/Users/matthias.walle/Documents/fea/pyproject.toml`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/pyproject.toml`:
 
 ```toml
 [build-system]
@@ -114,7 +114,7 @@ testpaths = ["tests"]
 addopts = "-ra"
 ```
 
-Create `/Users/matthias.walle/Documents/fea/CMakeLists.txt`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/CMakeLists.txt`:
 
 ```cmake
 cmake_minimum_required(VERSION 3.18)
@@ -126,7 +126,7 @@ install(TARGETS parosol
         RUNTIME DESTINATION parosol_py/bin)
 ```
 
-Create `/Users/matthias.walle/Documents/fea/src/parosol_native/CMakeLists.txt`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_native/CMakeLists.txt`:
 
 ```cmake
 cmake_minimum_required(VERSION 3.18)
@@ -161,7 +161,7 @@ target_link_libraries(parosol PRIVATE
     MPI::MPI_CXX)
 ```
 
-Create `/Users/matthias.walle/Documents/fea/README.md`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/README.md`:
 
 ```markdown
 # parosol-py
@@ -177,13 +177,13 @@ First-pass scope:
 - Synthetic validation against FAIM fixtures
 ```
 
-Create `/Users/matthias.walle/Documents/fea/src/parosol_py/_version.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/_version.py`:
 
 ```python
 __version__ = "0.1.0"
 ```
 
-Create `/Users/matthias.walle/Documents/fea/src/parosol_py/__init__.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/__init__.py`:
 
 ```python
 from ._version import __version__
@@ -193,7 +193,7 @@ __all__ = ["__version__"]
 
 - [ ] **Step 3: Write import smoke test**
 
-Create `/Users/matthias.walle/Documents/fea/tests/test_api.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py`:
 
 ```python
 import parosol_py
@@ -208,7 +208,7 @@ def test_package_imports():
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_api.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py -v
 ```
 
 Expected: PASS.
@@ -218,7 +218,7 @@ Expected: PASS.
 Run:
 
 ```bash
-python -m pip install -e /Users/matthias.walle/Documents/fea
+python -m pip install -e /Users/matthias.walle/Documents/14_GitHub/active/parosol-py
 ```
 
 Expected: package installs. If CMake cannot find MPI or HDF5, record the missing dependency in the final task notes and continue with pure-Python tests by setting the build dependency issue aside.
@@ -233,12 +233,12 @@ git commit -m "feat: scaffold parosol-py package"
 ## Task 2: Image Axis Normalization and Export
 
 **Files:**
-- Create: `/Users/matthias.walle/Documents/fea/src/parosol_py/images.py`
-- Test: `/Users/matthias.walle/Documents/fea/tests/test_images.py`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/images.py`
+- Test: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_images.py`
 
 - [ ] **Step 1: Write failing image tests**
 
-Create `/Users/matthias.walle/Documents/fea/tests/test_images.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_images.py`:
 
 ```python
 from pathlib import Path
@@ -297,14 +297,14 @@ def test_export_scalar_image_roundtrips_nii_gz(tmp_path: Path):
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_images.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_images.py -v
 ```
 
 Expected: FAIL with `ModuleNotFoundError` or missing `parosol_py.images`.
 
 - [ ] **Step 3: Implement image module**
 
-Create `/Users/matthias.walle/Documents/fea/src/parosol_py/images.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/images.py`:
 
 ```python
 from __future__ import annotations
@@ -378,7 +378,7 @@ def export_scalar_image(grid: ImageGrid, output_path: str | Path) -> Path:
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_images.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_images.py -v
 ```
 
 Expected: PASS.
@@ -393,12 +393,12 @@ git commit -m "feat: add image normalization and export"
 ## Task 3: Material Conversion
 
 **Files:**
-- Create: `/Users/matthias.walle/Documents/fea/src/parosol_py/materials.py`
-- Test: `/Users/matthias.walle/Documents/fea/tests/test_materials.py`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/materials.py`
+- Test: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_materials.py`
 
 - [ ] **Step 1: Write failing material tests**
 
-Create `/Users/matthias.walle/Documents/fea/tests/test_materials.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_materials.py`:
 
 ```python
 import numpy as np
@@ -443,14 +443,14 @@ MaterialTable:
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_materials.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_materials.py -v
 ```
 
 Expected: FAIL with missing module.
 
 - [ ] **Step 3: Implement material module**
 
-Create `/Users/matthias.walle/Documents/fea/src/parosol_py/materials.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/materials.py`:
 
 ```python
 from __future__ import annotations
@@ -521,7 +521,7 @@ def parse_linear_isotropic_materials(text: str) -> LinearIsotropicMaterials:
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_materials.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_materials.py -v
 ```
 
 Expected: PASS.
@@ -536,14 +536,14 @@ git commit -m "feat: add material conversion helpers"
 ## Task 4: Boundary Conditions and HDF5 Input Writer
 
 **Files:**
-- Create: `/Users/matthias.walle/Documents/fea/src/parosol_py/boundary_conditions.py`
-- Create: `/Users/matthias.walle/Documents/fea/src/parosol_py/hdf5_io.py`
-- Test: `/Users/matthias.walle/Documents/fea/tests/test_boundary_conditions.py`
-- Test: `/Users/matthias.walle/Documents/fea/tests/test_hdf5_io.py`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/boundary_conditions.py`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/hdf5_io.py`
+- Test: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_boundary_conditions.py`
+- Test: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_hdf5_io.py`
 
 - [ ] **Step 1: Write failing boundary condition tests**
 
-Create `/Users/matthias.walle/Documents/fea/tests/test_boundary_conditions.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_boundary_conditions.py`:
 
 ```python
 import numpy as np
@@ -580,7 +580,7 @@ def test_axial_compression_ignores_empty_columns():
 
 - [ ] **Step 2: Write failing HDF5 IO test**
 
-Create `/Users/matthias.walle/Documents/fea/tests/test_hdf5_io.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_hdf5_io.py`:
 
 ```python
 from pathlib import Path
@@ -626,14 +626,14 @@ def test_write_parosol_input_schema(tmp_path: Path):
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_boundary_conditions.py /Users/matthias.walle/Documents/fea/tests/test_hdf5_io.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_boundary_conditions.py /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_hdf5_io.py -v
 ```
 
 Expected: FAIL with missing modules.
 
 - [ ] **Step 4: Implement boundary conditions**
 
-Create `/Users/matthias.walle/Documents/fea/src/parosol_py/boundary_conditions.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/boundary_conditions.py`:
 
 ```python
 from __future__ import annotations
@@ -680,7 +680,7 @@ def axial_compression(stiffness_gpa_xyz, *, axis: str = "z", strain: float = -0.
 
 - [ ] **Step 5: Implement HDF5 writer**
 
-Create `/Users/matthias.walle/Documents/fea/src/parosol_py/hdf5_io.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/hdf5_io.py`:
 
 ```python
 from __future__ import annotations
@@ -728,7 +728,7 @@ def write_parosol_input(
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_boundary_conditions.py /Users/matthias.walle/Documents/fea/tests/test_hdf5_io.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_boundary_conditions.py /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_hdf5_io.py -v
 ```
 
 Expected: PASS.
@@ -743,14 +743,14 @@ git commit -m "feat: write parosol hdf5 inputs"
 ## Task 5: Runner and Result Reader
 
 **Files:**
-- Create: `/Users/matthias.walle/Documents/fea/src/parosol_py/runner.py`
-- Create: `/Users/matthias.walle/Documents/fea/src/parosol_py/results.py`
-- Test: `/Users/matthias.walle/Documents/fea/tests/test_runner.py`
-- Test: `/Users/matthias.walle/Documents/fea/tests/test_results.py`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/runner.py`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/results.py`
+- Test: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_runner.py`
+- Test: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_results.py`
 
 - [ ] **Step 1: Write failing result tests**
 
-Create `/Users/matthias.walle/Documents/fea/tests/test_results.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_results.py`:
 
 ```python
 from pathlib import Path
@@ -782,7 +782,7 @@ def test_read_solution_fields_scalar_and_tensor(tmp_path: Path):
 
 - [ ] **Step 2: Write failing runner tests**
 
-Create `/Users/matthias.walle/Documents/fea/tests/test_runner.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_runner.py`:
 
 ```python
 from pathlib import Path
@@ -831,14 +831,14 @@ def test_parse_run_summary_extracts_solver_metrics():
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_runner.py /Users/matthias.walle/Documents/fea/tests/test_results.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_runner.py /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_results.py -v
 ```
 
 Expected: FAIL with missing modules.
 
 - [ ] **Step 4: Implement result reader**
 
-Create `/Users/matthias.walle/Documents/fea/src/parosol_py/results.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/results.py`:
 
 ```python
 from __future__ import annotations
@@ -897,7 +897,7 @@ def _read_tensor(solution, *, prefix: str) -> dict[str, np.ndarray]:
 
 - [ ] **Step 5: Implement runner**
 
-Create `/Users/matthias.walle/Documents/fea/src/parosol_py/runner.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/runner.py`:
 
 ```python
 from __future__ import annotations
@@ -987,7 +987,7 @@ def run_parosol(command: list[str], *, cwd: str | Path | None = None) -> RunResu
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_runner.py /Users/matthias.walle/Documents/fea/tests/test_results.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_runner.py /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_results.py -v
 ```
 
 Expected: PASS.
@@ -1002,13 +1002,13 @@ git commit -m "feat: add parosol runner and result reader"
 ## Task 6: Public API Integration
 
 **Files:**
-- Modify: `/Users/matthias.walle/Documents/fea/src/parosol_py/__init__.py`
-- Create: `/Users/matthias.walle/Documents/fea/src/parosol_py/api.py`
-- Modify: `/Users/matthias.walle/Documents/fea/tests/test_api.py`
+- Modify: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/__init__.py`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/api.py`
+- Modify: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py`
 
 - [ ] **Step 1: Replace API tests with dry-run integration tests**
 
-Modify `/Users/matthias.walle/Documents/fea/tests/test_api.py`:
+Modify `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py`:
 
 ```python
 from pathlib import Path
@@ -1053,14 +1053,14 @@ def test_solve_dry_run_writes_input_and_returns_result(tmp_path: Path):
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_api.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py -v
 ```
 
 Expected: FAIL with missing `solve`.
 
 - [ ] **Step 3: Implement API module**
 
-Create `/Users/matthias.walle/Documents/fea/src/parosol_py/api.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/api.py`:
 
 ```python
 from __future__ import annotations
@@ -1156,7 +1156,7 @@ def solve(
 
 - [ ] **Step 4: Export API from package**
 
-Modify `/Users/matthias.walle/Documents/fea/src/parosol_py/__init__.py`:
+Modify `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/__init__.py`:
 
 ```python
 from ._version import __version__
@@ -1170,7 +1170,7 @@ __all__ = ["SolveResult", "SolveSummary", "__version__", "solve"]
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_api.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py -v
 ```
 
 Expected: PASS.
@@ -1185,14 +1185,14 @@ git commit -m "feat: add dry-run solve api"
 ## Task 7: AIM Entry Point and Validation Helpers
 
 **Files:**
-- Modify: `/Users/matthias.walle/Documents/fea/src/parosol_py/api.py`
-- Create: `/Users/matthias.walle/Documents/fea/src/parosol_py/validation.py`
-- Test: `/Users/matthias.walle/Documents/fea/tests/test_validation.py`
-- Modify: `/Users/matthias.walle/Documents/fea/tests/test_api.py`
+- Modify: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/api.py`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/validation.py`
+- Test: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_validation.py`
+- Modify: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py`
 
 - [ ] **Step 1: Add failing validation tests**
 
-Create `/Users/matthias.walle/Documents/fea/tests/test_validation.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_validation.py`:
 
 ```python
 import numpy as np
@@ -1225,7 +1225,7 @@ def test_compare_field_fails_outside_tolerance():
 
 - [ ] **Step 2: Add failing `solve_aim` API test with monkeypatch**
 
-Append to `/Users/matthias.walle/Documents/fea/tests/test_api.py`:
+Append to `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py`:
 
 ```python
 def test_solve_aim_delegates_to_py_aimio(monkeypatch, tmp_path: Path):
@@ -1252,14 +1252,14 @@ def test_solve_aim_delegates_to_py_aimio(monkeypatch, tmp_path: Path):
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_validation.py /Users/matthias.walle/Documents/fea/tests/test_api.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_validation.py /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py -v
 ```
 
 Expected: FAIL with missing `validation` and missing `solve_aim`.
 
 - [ ] **Step 4: Implement validation helpers**
 
-Create `/Users/matthias.walle/Documents/fea/src/parosol_py/validation.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/validation.py`:
 
 ```python
 from __future__ import annotations
@@ -1295,7 +1295,7 @@ def compare_field(reference, candidate, *, rtol: float = 1e-5, atol: float = 1e-
 
 - [ ] **Step 5: Implement `solve_aim`**
 
-Modify `/Users/matthias.walle/Documents/fea/src/parosol_py/api.py` imports:
+Modify `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/api.py` imports:
 
 ```python
 from py_aimio import read_aim
@@ -1315,7 +1315,7 @@ def solve_aim(path: str | Path, **kwargs: Any) -> SolveResult:
     return solve(material=arr, spacing=spacing, origin=origin, array_order="zyx", **kwargs)
 ```
 
-Modify `/Users/matthias.walle/Documents/fea/src/parosol_py/__init__.py`:
+Modify `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/__init__.py`:
 
 ```python
 from ._version import __version__
@@ -1329,7 +1329,7 @@ __all__ = ["SolveResult", "SolveSummary", "__version__", "solve", "solve_aim"]
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_validation.py /Users/matthias.walle/Documents/fea/tests/test_api.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_validation.py /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py -v
 ```
 
 Expected: PASS.
@@ -1344,13 +1344,13 @@ git commit -m "feat: add aim entry point and validation helpers"
 ## Task 8: Real Solver Smoke Test and Exported Field Support
 
 **Files:**
-- Modify: `/Users/matthias.walle/Documents/fea/src/parosol_py/api.py`
-- Test: `/Users/matthias.walle/Documents/fea/tests/test_api.py`
-- Test: `/Users/matthias.walle/Documents/fea/tests/test_solver_smoke.py`
+- Modify: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/api.py`
+- Test: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py`
+- Test: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_solver_smoke.py`
 
 - [ ] **Step 1: Add export support test**
 
-Append to `/Users/matthias.walle/Documents/fea/tests/test_api.py`:
+Append to `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py`:
 
 ```python
 def test_solve_dry_run_accepts_export_dir(tmp_path: Path):
@@ -1368,7 +1368,7 @@ def test_solve_dry_run_accepts_export_dir(tmp_path: Path):
 
 - [ ] **Step 2: Add optional real solver smoke test**
 
-Create `/Users/matthias.walle/Documents/fea/tests/test_solver_smoke.py`:
+Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_solver_smoke.py`:
 
 ```python
 from pathlib import Path
@@ -1408,14 +1408,14 @@ def test_real_solver_cube_smoke(tmp_path: Path):
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_api.py::test_solve_dry_run_accepts_export_dir -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py::test_solve_dry_run_accepts_export_dir -v
 ```
 
 Expected: FAIL with unexpected `export_dir` argument.
 
 - [ ] **Step 4: Add export_dir argument and post-run scalar export**
 
-Modify `solve` signature in `/Users/matthias.walle/Documents/fea/src/parosol_py/api.py`:
+Modify `solve` signature in `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/api.py`:
 
 ```python
     export_dir: str | Path | None = None,
@@ -1457,7 +1457,7 @@ Replace the final return block after reading fields:
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests/test_api.py /Users/matthias.walle/Documents/fea/tests/test_solver_smoke.py -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_api.py /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests/test_solver_smoke.py -v
 ```
 
 Expected: API tests PASS. Smoke test either PASS if native executable builds, or SKIP if executable is unavailable.
@@ -1467,7 +1467,7 @@ Expected: API tests PASS. Smoke test either PASS if native executable builds, or
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests -v
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests -v
 ```
 
 Expected: PASS, with the real solver smoke test allowed to SKIP only when the packaged executable is unavailable.
@@ -1482,13 +1482,13 @@ git commit -m "feat: add field export and solver smoke test"
 ## Task 9: Documentation and Final Verification
 
 **Files:**
-- Modify: `/Users/matthias.walle/Documents/fea/README.md`
-- Create: `/Users/matthias.walle/Documents/fea/docs/superpowers/specs/2026-05-28-parosol-py-design.md` already exists
-- Create: `/Users/matthias.walle/Documents/fea/docs/superpowers/plans/2026-05-28-parosol-py-implementation.md` already exists
+- Modify: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/README.md`
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/docs/superpowers/specs/2026-05-28-parosol-py-design.md` already exists
+- Create: `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/docs/superpowers/plans/2026-05-28-parosol-py-implementation.md` already exists
 
 - [ ] **Step 1: Update README usage example**
 
-Modify `/Users/matthias.walle/Documents/fea/README.md`:
+Modify `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/README.md`:
 
 ```markdown
 # parosol-py
@@ -1550,8 +1550,8 @@ This first pass provides the clean Python API. FAIM-ish command-line compatibili
 Run:
 
 ```bash
-python -m pytest /Users/matthias.walle/Documents/fea/tests -v
-python -m pip install -e /Users/matthias.walle/Documents/fea
+python -m pytest /Users/matthias.walle/Documents/14_GitHub/active/parosol-py/tests -v
+python -m pip install -e /Users/matthias.walle/Documents/14_GitHub/active/parosol-py
 python - <<'PY'
 import parosol_py
 print(parosol_py.__version__)
