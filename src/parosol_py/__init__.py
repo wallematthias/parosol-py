@@ -1,3 +1,4 @@
 from ._version import __version__
+from .api import SolveResult, SolveSummary, solve
 
-__all__ = ["__version__"]
+__all__ = ["SolveResult", "SolveSummary", "__version__", "solve"]
