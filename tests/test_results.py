@@ -6,6 +6,18 @@ import numpy as np
 from parosol_py.results import read_solution_fields
 
 
+def test_read_solution_fields_defaults_to_sed(tmp_path: Path):
+    h5_path = tmp_path / "solved.h5"
+    with h5py.File(h5_path, "w") as h5:
+        sol = h5.create_group("Solution")
+        sol.create_dataset("SED", data=np.array([1.0, 2.0], dtype=np.float32))
+
+    fields = read_solution_fields(h5_path)
+
+    assert set(fields) == {"sed"}
+    assert np.allclose(fields["sed"], [1.0, 2.0])
+
+
 def test_read_solution_fields_scalar_and_tensor(tmp_path: Path):
     h5_path = tmp_path / "solved.h5"
     with h5py.File(h5_path, "w") as h5:

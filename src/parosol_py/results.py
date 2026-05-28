@@ -16,7 +16,9 @@ OUTPUT_DATASETS = {
 TENSOR_AXES = ("xx", "yy", "zz", "xy", "yz", "xz")
 
 
-def read_solution_fields(path: str | Path, *, outputs: tuple[str, ...]) -> dict[str, Any]:
+def read_solution_fields(
+    path: str | Path, *, outputs: tuple[str, ...] = ("sed",)
+) -> dict[str, Any]:
     requested = tuple(output.strip().lower() for output in outputs)
     fields: dict[str, Any] = {}
 
