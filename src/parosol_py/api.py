@@ -14,6 +14,16 @@ from .materials import material_to_stiffness_gpa
 from .results import read_solution_fields
 from .runner import RunSummary, build_parosol_command, packaged_executable, run_parosol
 
+try:
+    from py_aimio import read_aim
+except ImportError:
+
+    def read_aim(path):
+        raise ImportError(
+            "py_aimio is required to read AIM files. Install py_aimio or "
+            "pass material arrays directly to solve()."
+        ) from None
+
 
 @dataclass(frozen=True)
 class SolveSummary:
@@ -126,6 +136,23 @@ def solve(
         ),
         stdout=run.stdout,
         stderr=run.stderr,
+    )
+
+
+def solve_aim(path: str | Path, **kwargs: Any) -> SolveResult:
+    spacing = kwargs.pop("spacing", None)
+
+    material, meta = read_aim(str(path))
+    if spacing is None:
+        spacing = meta.get("element_size", (1.0, 1.0, 1.0))
+    origin = kwargs.pop("origin", meta.get("position", (0.0, 0.0, 0.0)))
+
+    return solve(
+        material=material,
+        spacing=spacing,
+        origin=origin,
+        array_order="zyx",
+        **kwargs,
     )
 
 
