@@ -20,6 +20,12 @@ def axial_compression(
 
     axis_index = AXIS_TO_INDEX[token]
     dims = np.asarray(stiffness.shape, dtype=np.int64)
+    uint16_max = np.iinfo(np.uint16).max
+    if np.any(dims > uint16_max):
+        raise ValueError(
+            f"stiffness dimensions must be within uint16 coordinate range "
+            f"(<= {uint16_max}), got shape {stiffness.shape}"
+        )
     node_max = int(dims[axis_index])
     displacement = float(strain) * float(node_max)
 
