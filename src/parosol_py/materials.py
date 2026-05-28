@@ -16,6 +16,8 @@ def material_to_stiffness_gpa(material, *, material_unit: str = "MPa") -> np.nda
     arr = np.asarray(material, dtype=np.float64)
     if arr.ndim != 3:
         raise ValueError(f"material must be 3D, got shape {arr.shape}")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("material values must be finite")
     if np.any(arr < 0.0):
         raise ValueError("material values must be non-negative")
     unit = material_unit.strip().lower()
@@ -39,15 +41,19 @@ def parse_linear_isotropic_materials(text: str) -> LinearIsotropicMaterials:
     if not definitions:
         raise ValueError("No LinearIsotropic material definitions found")
 
-    table_match = re.search(r"MaterialTable:\s*(?P<table>.*)", text, flags=re.S)
+    table_match = re.search(r"^MaterialTable:[ \t]*$", text, flags=re.M)
     if table_match is None:
         raise ValueError("MaterialTable section not found")
 
     youngs: dict[int, float] = {}
     poisson: dict[int, float] = {}
-    for line in table_match.group("table").splitlines():
+    for line in text[table_match.end() :].splitlines():
         stripped = line.strip()
-        if not stripped or ":" not in stripped:
+        if not stripped:
+            continue
+        if line == line.lstrip(" \t"):
+            break
+        if ":" not in stripped:
             continue
         label_text, name = [part.strip() for part in stripped.split(":", 1)]
         if not label_text.isdigit():

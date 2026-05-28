@@ -16,6 +16,12 @@ def test_material_to_stiffness_gpa_rejects_negative_values():
         material_to_stiffness_gpa(np.array([[[-1.0]]]), material_unit="MPa")
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_material_to_stiffness_gpa_rejects_non_finite_values(value):
+    with pytest.raises(ValueError, match="finite"):
+        material_to_stiffness_gpa(np.array([[[value]]]), material_unit="MPa")
+
+
 def test_parse_linear_isotropic_materials():
     text = """MaterialDefinitions:
     Material_001:
@@ -33,3 +39,19 @@ MaterialTable:
     parsed = parse_linear_isotropic_materials(text)
     assert parsed.youngs_modulus_mpa == {1: 8748.0, 2: 10000.0}
     assert parsed.poisson_ratio == {1: 0.3, 2: 0.25}
+
+
+def test_parse_linear_isotropic_materials_stops_table_at_next_top_level_section():
+    text = """MaterialDefinitions:
+    Material_001:
+        Type: LinearIsotropic
+        E: 8748
+        nu: 0.3
+MaterialTable:
+    1: Material_001
+OtherSection:
+    2: NotAMaterial
+"""
+    parsed = parse_linear_isotropic_materials(text)
+    assert parsed.youngs_modulus_mpa == {1: 8748.0}
+    assert parsed.poisson_ratio == {1: 0.3}
