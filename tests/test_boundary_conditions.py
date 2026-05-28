@@ -19,6 +19,8 @@ def test_axial_compression_z_generates_bottom_and_top_constraints():
     assert np.any(top_z)
     assert np.all(values[bottom_z] == 1e-16)
     assert np.allclose(values[top_z], -0.04)
+    assert set(coords[bottom_z, 3]) == {0, 1, 2}
+    assert set(coords[top_z, 3]) == {2}
 
 
 def test_axial_compression_ignores_empty_columns():

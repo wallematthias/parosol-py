@@ -39,12 +39,16 @@ def axial_compression(
         base = [0, 0, 0]
         base[lateral_axes[0]] = int(lateral_index[0])
         base[lateral_axes[1]] = int(lateral_index[1])
-        for node_coord, value in ((0, 1e-16), (node_max, displacement)):
-            coord = base.copy()
-            coord[axis_index] = int(node_coord)
-            coord.append(axis_index)
-            coords.append(coord)
-            values.append(float(value))
+        bottom = base.copy()
+        bottom[axis_index] = 0
+        for direction in range(3):
+            coords.append([*bottom, direction])
+            values.append(1e-16)
+
+        top = base.copy()
+        top[axis_index] = int(node_max)
+        coords.append([*top, axis_index])
+        values.append(float(displacement))
 
     if not coords:
         raise ValueError("No non-zero stiffness voxels found for boundary conditions")
