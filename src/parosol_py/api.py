@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from .boundary_conditions import axial_compression
 from .hdf5_io import write_parosol_input
 from .images import normalize_array
@@ -59,6 +61,10 @@ def solve(
         origin=origin,
         array_order=array_order,
     )
+    if not np.allclose(grid.spacing, grid.spacing[0], rtol=1e-9, atol=1e-12):
+        raise ValueError(
+            "solve() requires isotropic spacing; anisotropic spacing is not supported"
+        )
     stiffness_gpa_xyz = material_to_stiffness_gpa(
         grid.array_xyz,
         material_unit=material_unit,
