@@ -31,8 +31,8 @@ def test_axial_compression_ignores_empty_columns():
     assert unique_xy == {(0, 0)}
 
 
-def test_axial_compression_rejects_dimensions_outside_uint16_range():
-    stiffness = np.ones((65536, 1, 1), dtype=np.float32)
+def test_axial_compression_rejects_dimensions_outside_native_coordinate_range():
+    stiffness = np.ones((32768, 1, 1), dtype=np.float32)
 
-    with pytest.raises(ValueError, match="uint16|range"):
+    with pytest.raises(ValueError, match="native|int16|range"):
         axial_compression(stiffness, axis="x", strain=-0.01)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 AXIS_TO_INDEX = {"x": 0, "y": 1, "z": 2}
+MAX_NATIVE_COORDINATE = np.iinfo(np.int16).max
 
 
 def axial_compression(
@@ -20,11 +21,10 @@ def axial_compression(
 
     axis_index = AXIS_TO_INDEX[token]
     dims = np.asarray(stiffness.shape, dtype=np.int64)
-    uint16_max = np.iinfo(np.uint16).max
-    if np.any(dims > uint16_max):
+    if np.any(dims > MAX_NATIVE_COORDINATE):
         raise ValueError(
-            f"stiffness dimensions must be within uint16 coordinate range "
-            f"(<= {uint16_max}), got shape {stiffness.shape}"
+            f"stiffness dimensions must be within native int16 coordinate range "
+            f"(<= {MAX_NATIVE_COORDINATE}), got shape {stiffness.shape}"
         )
     node_max = int(dims[axis_index])
     displacement = float(strain) * float(node_max)

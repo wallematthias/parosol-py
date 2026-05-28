@@ -5,6 +5,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+MAX_NATIVE_COORDINATE = np.iinfo(np.int16).max
+
 
 def write_parosol_input(
     path: str | Path,
@@ -37,9 +39,10 @@ def write_parosol_input(
         raise ValueError("fixed_displacement_coordinates must contain only non-negative values")
     if not np.all(coords == np.floor(coords)):
         raise ValueError("fixed_displacement_coordinates must contain integer values")
-    uint16_max = np.iinfo(np.uint16).max
-    if np.any(coords > uint16_max):
-        raise ValueError("fixed_displacement_coordinates exceed uint16 storage range")
+    if np.any(coords[:, :3] > MAX_NATIVE_COORDINATE):
+        raise ValueError(
+            "fixed_displacement_coordinates exceed native int16 coordinate range"
+        )
     if not np.all(np.isin(coords[:, 3], [0, 1, 2])):
         raise ValueError("fixed_displacement_coordinates direction must be one of {0, 1, 2}")
 
