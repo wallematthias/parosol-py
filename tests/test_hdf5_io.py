@@ -73,6 +73,22 @@ def test_write_parosol_input_rejects_coordinate_outside_node_bounds(tmp_path: Pa
         )
 
 
+def test_write_parosol_input_rejects_coordinates_outside_uint16_range(tmp_path: Path):
+    stiffness_xyz = np.ones((65536, 1, 1), dtype=np.float32)
+    coords = np.array([[65536, 0, 0, 0]], dtype=np.int64)
+    values = np.array([1e-16], dtype=np.float32)
+
+    with pytest.raises(ValueError, match="uint16|range"):
+        write_parosol_input(
+            tmp_path / "bad_uint16_coords.h5",
+            stiffness_gpa_xyz=stiffness_xyz,
+            fixed_displacement_coordinates=coords,
+            fixed_displacement_values=values,
+            voxel_size_mm=0.061,
+            poisson_ratio=0.3,
+        )
+
+
 def test_write_parosol_input_rejects_non_finite_stiffness(tmp_path: Path):
     stiffness_xyz = np.ones((3, 2, 4), dtype=np.float32)
     stiffness_xyz[0, 0, 0] = np.nan
