@@ -129,11 +129,17 @@ def solve(
     if export_dir is not None:
         export_root = Path(export_dir).expanduser().resolve()
         for name, field_values in fields.items():
-            field_array = np.asarray(field_values)
-            if field_array.ndim == 1 and field_array.size == stiffness_gpa_xyz.size:
+            field_array = _native_scalar_field(
+                field_values,
+                expected_size=stiffness_gpa_xyz.size,
+            )
+            if field_array is not None:
                 exported[name] = export_scalar_image(
                     ImageGrid(
-                        array_xyz=field_array.reshape(stiffness_gpa_xyz.shape),
+                        array_xyz=_native_scalar_to_dense_xyz(
+                            field_array,
+                            dimensions_xyz=stiffness_gpa_xyz.shape,
+                        ),
                         spacing=grid.spacing,
                         origin=grid.origin,
                     ),
@@ -179,3 +185,41 @@ def _prepare_work_dir(work_dir: str | Path | None) -> Path:
     out = Path(work_dir).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
     return out
+
+
+def _native_scalar_field(values, expected_size: int) -> np.ndarray | None:
+    array = np.asarray(values)
+    if array.shape == (expected_size,):
+        return array.reshape(-1)
+    if array.shape == (expected_size, 1):
+        return array.reshape(-1)
+    return None
+
+
+def _morton_key(x: int, y: int, z: int) -> int:
+    key = 0
+    bit_index = 0
+    limit = max(x, y, z)
+    while (1 << bit_index) <= limit:
+        key |= ((x >> bit_index) & 1) << (3 * bit_index)
+        key |= ((y >> bit_index) & 1) << (3 * bit_index + 1)
+        key |= ((z >> bit_index) & 1) << (3 * bit_index + 2)
+        bit_index += 1
+    return key
+
+
+def _native_scalar_to_dense_xyz(
+    values: np.ndarray,
+    dimensions_xyz: tuple[int, int, int],
+) -> np.ndarray:
+    x_dim, y_dim, z_dim = dimensions_xyz
+    coords = [
+        (x, y, z)
+        for x in range(x_dim)
+        for y in range(y_dim)
+        for z in range(z_dim)
+    ]
+    dense = np.empty(dimensions_xyz, dtype=np.asarray(values).dtype)
+    for index, (x, y, z) in enumerate(sorted(coords, key=lambda c: _morton_key(*c))):
+        dense[x, y, z] = values[index]
+    return dense

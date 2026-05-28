@@ -4,6 +4,7 @@ import pytest
 import parosol_py
 from parosol_py import solve
 from parosol_py.api import solve_aim
+from parosol_py.runner import RunResult, RunSummary
 
 
 def test_package_imports():
@@ -48,6 +49,67 @@ def test_solve_dry_run_accepts_export_dir(tmp_path):
     )
 
     assert result.exported == {}
+
+
+def test_solve_exports_native_scalar_field_in_dense_xyz_order(monkeypatch, tmp_path):
+    material_zyx = np.ones((2, 2, 3)) * 1000.0
+    dimensions_xyz = (3, 2, 2)
+    dense = np.empty(dimensions_xyz, dtype=np.float32)
+    coords = []
+    for x in range(dimensions_xyz[0]):
+        for y in range(dimensions_xyz[1]):
+            for z in range(dimensions_xyz[2]):
+                dense[x, y, z] = 100 * x + 10 * y + z
+                coords.append((x, y, z))
+
+    def morton_key(x, y, z):
+        key = 0
+        bit = 1
+        while bit <= max(x, y, z):
+            key += (x & bit) * bit * bit
+            key += (y & bit) * bit * bit * 2
+            key += (z & bit) * bit * bit * 4
+            bit <<= 1
+        return key
+
+    native_values = np.asarray(
+        [dense[x, y, z] for x, y, z in sorted(coords, key=lambda c: morton_key(*c))],
+        dtype=np.float32,
+    ).reshape((-1, 1))
+    captured = {}
+
+    def fake_run_parosol(command, *, cwd=None):
+        return RunResult(
+            command=command,
+            stdout="",
+            stderr="",
+            returncode=0,
+            summary=RunSummary(),
+        )
+
+    def fake_export_scalar_image(grid, output_path):
+        captured["grid"] = grid
+        captured["path"] = output_path
+        return output_path
+
+    monkeypatch.setattr("parosol_py.api.run_parosol", fake_run_parosol)
+    monkeypatch.setattr(
+        "parosol_py.api.read_solution_fields",
+        lambda input_file, *, outputs: {"sed": native_values},
+    )
+    monkeypatch.setattr("parosol_py.api.export_scalar_image", fake_export_scalar_image)
+
+    result = solve(
+        material=material_zyx,
+        spacing=(1, 1, 1),
+        outputs=("sed",),
+        work_dir=tmp_path,
+        export_dir=tmp_path / "exports",
+    )
+
+    assert result.exported["sed"].name == "sed.nii.gz"
+    np.testing.assert_array_equal(captured["grid"].array_xyz, dense)
+    assert result.fields == {"sed": native_values}
 
 
 def test_solve_rejects_anisotropic_spacing_in_dry_run(tmp_path):
