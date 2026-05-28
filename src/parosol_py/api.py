@@ -9,7 +9,7 @@ import numpy as np
 
 from .boundary_conditions import axial_compression
 from .hdf5_io import write_parosol_input
-from .images import normalize_array
+from .images import ImageGrid, export_scalar_image, normalize_array
 from .materials import material_to_stiffness_gpa
 from .results import read_solution_fields
 from .runner import RunSummary, build_parosol_command, packaged_executable, run_parosol
@@ -60,6 +60,7 @@ def solve(
     level: int = 6,
     executable: str | Path | None = None,
     work_dir: str | Path | None = None,
+    export_dir: str | Path | None = None,
     dry_run: bool = False,
 ) -> SolveResult:
     if test.strip().lower() != "axial":
@@ -124,6 +125,21 @@ def solve(
         )
 
     fields = read_solution_fields(input_file, outputs=tuple(outputs))
+    exported: dict[str, Path] = {}
+    if export_dir is not None:
+        export_root = Path(export_dir).expanduser().resolve()
+        for name, field_values in fields.items():
+            field_array = np.asarray(field_values)
+            if field_array.ndim == 1 and field_array.size == stiffness_gpa_xyz.size:
+                exported[name] = export_scalar_image(
+                    ImageGrid(
+                        array_xyz=field_array.reshape(stiffness_gpa_xyz.shape),
+                        spacing=grid.spacing,
+                        origin=grid.origin,
+                    ),
+                    export_root / f"{name}.nii.gz",
+                )
+
     return SolveResult(
         input_file=input_file,
         command=run.command,
@@ -136,6 +152,7 @@ def solve(
         ),
         stdout=run.stdout,
         stderr=run.stderr,
+        exported=exported,
     )
 
 
