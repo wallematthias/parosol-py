@@ -112,6 +112,75 @@ def test_solve_exports_native_scalar_field_in_dense_xyz_order(monkeypatch, tmp_p
     assert result.fields == {"sed": native_values}
 
 
+def test_solve_exports_sparse_native_scalar_field_to_dense_xyz(monkeypatch, tmp_path):
+    material_zyx = np.zeros((1, 2, 3), dtype=np.float32)
+    active_coords_xyz = [(2, 0, 0), (0, 1, 0), (1, 1, 0)]
+    for x, y, z in active_coords_xyz:
+        material_zyx[z, y, x] = 1000.0
+
+    def morton_key(x, y, z):
+        key = 0
+        bit = 1
+        while bit <= max(x, y, z):
+            key += (x & bit) * bit * bit
+            key += (y & bit) * bit * bit * 2
+            key += (z & bit) * bit * bit * 4
+            bit <<= 1
+        return key
+
+    expected_dense = np.zeros((3, 2, 1), dtype=np.float32)
+    values_by_coord = {
+        (0, 1, 0): 21.0,
+        (1, 1, 0): 31.0,
+        (2, 0, 0): 40.0,
+    }
+    for coord, value in values_by_coord.items():
+        expected_dense[coord] = value
+    native_values = np.asarray(
+        [
+            values_by_coord[coord]
+            for coord in sorted(active_coords_xyz, key=lambda c: morton_key(*c))
+        ],
+        dtype=np.float32,
+    ).reshape((-1, 1))
+    captured = {}
+
+    def fake_run_parosol(command, *, cwd=None):
+        return RunResult(
+            command=command,
+            stdout="",
+            stderr="",
+            returncode=0,
+            summary=RunSummary(),
+        )
+
+    def fake_export_scalar_image(grid, output_path):
+        captured["grid"] = grid
+        captured["path"] = output_path
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text("exported")
+        return output_path
+
+    monkeypatch.setattr("parosol_py.api.run_parosol", fake_run_parosol)
+    monkeypatch.setattr(
+        "parosol_py.api.read_solution_fields",
+        lambda input_file, *, outputs: {"sed": native_values},
+    )
+    monkeypatch.setattr("parosol_py.api.export_scalar_image", fake_export_scalar_image)
+
+    result = solve(
+        material=material_zyx,
+        spacing=(1, 1, 1),
+        outputs=("sed",),
+        work_dir=tmp_path,
+        export_dir=tmp_path / "exports",
+    )
+
+    assert result.exported["sed"].exists()
+    np.testing.assert_array_equal(captured["grid"].array_xyz, expected_dense)
+    assert result.fields == {"sed": native_values}
+
+
 def test_solve_rejects_anisotropic_spacing_in_dry_run(tmp_path):
     material_zyx = np.zeros((4, 3, 2))
     material_zyx[:, 1, 1] = 1000.0

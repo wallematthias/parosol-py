@@ -128,17 +128,18 @@ def solve(
     exported: dict[str, Path] = {}
     if export_dir is not None:
         export_root = Path(export_dir).expanduser().resolve()
+        active_size = int(np.count_nonzero(stiffness_gpa_xyz > 0))
         for name, field_values in fields.items():
             field_array = _native_scalar_field(
                 field_values,
-                expected_size=stiffness_gpa_xyz.size,
+                expected_sizes=(stiffness_gpa_xyz.size, active_size),
             )
             if field_array is not None:
                 exported[name] = export_scalar_image(
                     ImageGrid(
                         array_xyz=_native_scalar_to_dense_xyz(
                             field_array,
-                            dimensions_xyz=stiffness_gpa_xyz.shape,
+                            stiffness_gpa_xyz=stiffness_gpa_xyz,
                         ),
                         spacing=grid.spacing,
                         origin=grid.origin,
@@ -187,11 +188,15 @@ def _prepare_work_dir(work_dir: str | Path | None) -> Path:
     return out
 
 
-def _native_scalar_field(values, expected_size: int) -> np.ndarray | None:
+def _native_scalar_field(
+    values,
+    expected_sizes: tuple[int, ...],
+) -> np.ndarray | None:
     array = np.asarray(values)
-    if array.shape == (expected_size,):
+    expected_sizes = tuple(int(size) for size in expected_sizes)
+    if array.ndim == 1 and array.shape[0] in expected_sizes:
         return array.reshape(-1)
-    if array.shape == (expected_size, 1):
+    if array.ndim == 2 and array.shape[1] == 1 and array.shape[0] in expected_sizes:
         return array.reshape(-1)
     return None
 
@@ -210,16 +215,25 @@ def _morton_key(x: int, y: int, z: int) -> int:
 
 def _native_scalar_to_dense_xyz(
     values: np.ndarray,
-    dimensions_xyz: tuple[int, int, int],
+    stiffness_gpa_xyz: np.ndarray,
 ) -> np.ndarray:
-    x_dim, y_dim, z_dim = dimensions_xyz
-    coords = [
-        (x, y, z)
-        for x in range(x_dim)
-        for y in range(y_dim)
-        for z in range(z_dim)
-    ]
-    dense = np.empty(dimensions_xyz, dtype=np.asarray(values).dtype)
+    values = np.asarray(values)
+    dimensions_xyz = tuple(int(v) for v in stiffness_gpa_xyz.shape)
+    if values.size == stiffness_gpa_xyz.size:
+        x_dim, y_dim, z_dim = dimensions_xyz
+        coords = [
+            (x, y, z)
+            for x in range(x_dim)
+            for y in range(y_dim)
+            for z in range(z_dim)
+        ]
+    else:
+        coords = [
+            tuple(int(v) for v in coord)
+            for coord in np.argwhere(stiffness_gpa_xyz > 0)
+        ]
+
+    dense = np.zeros(dimensions_xyz, dtype=values.dtype)
     for index, (x, y, z) in enumerate(sorted(coords, key=lambda c: _morton_key(*c))):
         dense[x, y, z] = values[index]
     return dense
