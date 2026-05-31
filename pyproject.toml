@@ -47,12 +47,12 @@ environment = { PATH="/usr/lib64/openmpi/bin:/usr/lib/openmpi/bin:$PATH", LD_LIB
 
 [tool.cibuildwheel.macos]
 before-all = "brew install eigen hdf5 open-mpi"
-environment = { CMAKE_PREFIX_PATH="$(brew --prefix eigen):$(brew --prefix hdf5):$(brew --prefix open-mpi)" }
+environment = { CMAKE_PREFIX_PATH="$(brew --prefix eigen):$(brew --prefix hdf5):$(brew --prefix open-mpi)", MACOSX_DEPLOYMENT_TARGET="15.0" }
 repair-wheel-command = "python -m pip install delocate && delocate-wheel --require-archs {delocate_archs} -w {dest_dir} {wheel}"
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
-before-all = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$ErrorActionPreference = 'Stop'; if (-not (Test-Path 'C:\\vcpkg')) { git clone --depth 1 https://github.com/microsoft/vcpkg C:\\vcpkg }; & C:\\vcpkg\\bootstrap-vcpkg.bat; & C:\\vcpkg\\vcpkg.exe install eigen3:x64-windows hdf5[cpp]:x64-windows msmpi:x64-windows --disable-metrics\""
+before-all = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$ErrorActionPreference = 'Stop'; winget install --id Microsoft.msmpi --exact --silent --accept-package-agreements --accept-source-agreements; if (-not (Test-Path 'C:\\Program Files\\Microsoft MPI\\Bin\\mpiexec.exe')) { throw 'MS-MPI redistributable install did not produce mpiexec.exe' }; if (-not (Test-Path 'C:\\vcpkg')) { git clone --depth 1 https://github.com/microsoft/vcpkg C:\\vcpkg }; & C:\\vcpkg\\bootstrap-vcpkg.bat; & C:\\vcpkg\\vcpkg.exe install eigen3:x64-windows hdf5[cpp]:x64-windows msmpi:x64-windows --disable-metrics\""
 environment = { CMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake", VCPKG_TARGET_TRIPLET="x64-windows" }
 repair-wheel-command = "python -m pip install delvewheel && delvewheel repair -w {dest_dir} {wheel}"
 
