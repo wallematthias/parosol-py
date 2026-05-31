@@ -28,6 +28,8 @@ def test_write_parosol_input_schema(tmp_path: Path):
             "Fixed_Displacement_Coordinates",
             "Fixed_Displacement_Values",
             "Image",
+            "Loaded_Nodes_Coordinates",
+            "Loaded_Nodes_Values",
             "Poisons_ratio",
             "Voxelsize",
         }
@@ -57,6 +59,27 @@ def test_write_parosol_input_reorders_bc_coordinates_for_native_reader(tmp_path:
             h5["Image_Data/Fixed_Displacement_Coordinates"][...],
             np.array([[4, 1, 2, 2], [0, 0, 0, 2]], dtype=np.uint16),
         )
+
+
+def test_write_parosol_input_writes_loaded_nodes(tmp_path: Path):
+    path = write_parosol_input(
+        tmp_path / "case.h5",
+        stiffness_gpa_xyz=np.ones((2, 2, 2), dtype=np.float32),
+        fixed_displacement_coordinates=np.array([[0, 0, 0, 0]], dtype=np.uint16),
+        fixed_displacement_values=np.array([1e-16], dtype=np.float32),
+        loaded_node_coordinates=np.array([[2, 2, 2, 2]], dtype=np.uint16),
+        loaded_node_values=np.array([-10.0], dtype=np.float32),
+        voxel_size_mm=1.0,
+        poisson_ratio=0.3,
+    )
+
+    with h5py.File(path, "r") as h5:
+        group = h5["Image_Data"]
+        np.testing.assert_array_equal(
+            group["Loaded_Nodes_Coordinates"][...],
+            np.array([[2, 2, 2, 2]], dtype=np.uint16),
+        )
+        np.testing.assert_allclose(group["Loaded_Nodes_Values"][...], [-10.0])
 
 
 def test_write_parosol_input_rejects_coordinate_outside_node_bounds(tmp_path: Path):
