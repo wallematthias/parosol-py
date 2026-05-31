@@ -44,6 +44,65 @@ print(result.exported)
 Use `dry_run=True` to write the ParOSol HDF5 input and inspect the generated
 command without launching the solver.
 
+## Command Line
+
+Create a case config:
+
+```yaml
+case:
+  name: VITD_0003_RL_M06_HOM_LS
+  work_dir: outputs/VITD_0003_RL_M06_HOM_LS
+
+input:
+  image: VITD_0003_RL_M06_HOM_LS.AIM
+  image_type: material_labels
+  spacing: [0.061, 0.061, 0.061]
+
+materials:
+  file: material_cort_trab.txt
+  units: MPa
+  poisson_ratio: 0.3
+
+load_case:
+  type: axial
+  axis: z
+  strain: -0.01
+
+solver:
+  tolerance: 1e-6
+  level: 6
+  outputs: [sed]
+
+failure:
+  criterion: pistoia
+  critical_volume_percent: 2.0
+  critical_strain: 0.007
+
+output:
+  summary: outputs/VITD_0003_RL_M06_HOM_LS/summary.json
+```
+
+Run it:
+
+```bash
+parosol run case.yaml
+```
+
+Dry-run without launching the solver:
+
+```bash
+parosol run case.yaml --dry-run
+```
+
+Convert old FAIM text outputs into compact JSON:
+
+```bash
+parosol summarize-faim \
+  --analysis VITD_0003_RL_M06_HOM_LS_analysis.txt \
+  --pistoia VITD_0003_RL_M06_HOM_LS_pistoia.txt \
+  -o VITD_0003_RL_M06_HOM_LS_summary.json
+```
+
 ## AIM Input
 
 ```python

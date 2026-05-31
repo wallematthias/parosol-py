@@ -15,7 +15,11 @@ dependencies = [
   "h5py>=3.10",
   "SimpleITK>=2.3",
   "aimio-py>=0.1.1",
+  "PyYAML>=6",
 ]
+
+[project.scripts]
+parosol = "parosol_py.cli:main"
 
 [project.optional-dependencies]
 dev = [
