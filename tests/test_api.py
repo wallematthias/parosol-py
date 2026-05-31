@@ -264,6 +264,39 @@ def test_solve_derives_summary_diagnostics_from_fea_fields(monkeypatch, tmp_path
     )
 
 
+def test_solve_accepts_explicit_boundary_condition_set(monkeypatch, tmp_path):
+    from parosol_py import BoundaryConditionSet
+
+    captured = {}
+    bc = BoundaryConditionSet(
+        fixed_coordinates=np.array([[0, 0, 0, 0]], dtype=np.uint16),
+        fixed_values=np.array([1e-16], dtype=np.float32),
+        loaded_coordinates=np.array([[2, 2, 2, 2]], dtype=np.uint16),
+        loaded_values=np.array([-10.0], dtype=np.float32),
+    )
+
+    def fake_write_parosol_input(**kwargs):
+        captured.update(kwargs)
+        path = kwargs["path"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("h5")
+        return path
+
+    monkeypatch.setattr("parosol_py.api.write_parosol_input", fake_write_parosol_input)
+
+    result = solve(
+        material=np.ones((2, 2, 2)),
+        spacing=(1, 1, 1),
+        boundary_conditions=bc,
+        work_dir=tmp_path,
+        dry_run=True,
+    )
+
+    assert result.input_file.exists()
+    np.testing.assert_array_equal(captured["loaded_node_coordinates"], bc.loaded_coordinates)
+    np.testing.assert_array_equal(captured["loaded_node_values"], bc.loaded_values)
+
+
 def test_solve_rejects_anisotropic_spacing_in_dry_run(tmp_path):
     material_zyx = np.zeros((4, 3, 2))
     material_zyx[:, 1, 1] = 1000.0

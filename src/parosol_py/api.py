@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from .boundary_conditions import axial_compression
+from .core import BoundaryConditionSet
 from .diagnostics import build_fea_diagnostics
 from .hdf5_io import write_parosol_input
 from .images import ImageGrid, export_scalar_image, normalize_array
@@ -68,6 +69,7 @@ def solve(
     failure_criterion: str = "pistoia",
     critical_strain: float | None = 0.007,
     critical_volume_percent: float | None = 2.0,
+    boundary_conditions: BoundaryConditionSet | None = None,
     dry_run: bool = False,
 ) -> SolveResult:
     if test.strip().lower() != "axial":
@@ -87,21 +89,31 @@ def solve(
         grid.array_xyz,
         material_unit=material_unit,
     )
-    fixed_coords, fixed_values = axial_compression(
-        stiffness_gpa_xyz,
-        axis=test_axis,
-        strain=strain,
-        voxel_size_mm=float(grid.spacing[0]),
-    )
+    if boundary_conditions is None:
+        fixed_coords, fixed_values = axial_compression(
+            stiffness_gpa_xyz,
+            axis=test_axis,
+            strain=strain,
+            voxel_size_mm=float(grid.spacing[0]),
+        )
+        loaded_coords = None
+        loaded_values = None
+    else:
+        fixed_coords = boundary_conditions.fixed_coordinates
+        fixed_values = boundary_conditions.fixed_values
+        loaded_coords = boundary_conditions.loaded_coordinates
+        loaded_values = boundary_conditions.loaded_values
 
     case_dir = _prepare_work_dir(work_dir)
     input_file = write_parosol_input(
-        case_dir / "parosol_input.h5",
+        path=case_dir / "parosol_input.h5",
         stiffness_gpa_xyz=stiffness_gpa_xyz,
         fixed_displacement_coordinates=fixed_coords,
         fixed_displacement_values=fixed_values,
         voxel_size_mm=float(grid.spacing[0]),
         poisson_ratio=poisson_ratio,
+        loaded_node_coordinates=loaded_coords,
+        loaded_node_values=loaded_values,
     )
     command = build_parosol_command(
         executable=executable if executable is not None else packaged_executable(),
