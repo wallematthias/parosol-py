@@ -10,6 +10,7 @@ import SimpleITK as sitk
 
 from .api import SolveResult, solve, solve_aim
 from .materials import parse_linear_isotropic_materials
+from .profiles import get_output_profile, get_solver_profile
 from .reports import solve_summary_dict, write_summary_json
 
 
@@ -47,6 +48,8 @@ def run_case_config(
     solver_cfg = _section(config, "solver")
     output_cfg = _section(config, "output")
     failure_cfg = _section(config, "failure")
+    solver_profile = get_solver_profile(config.get("solver_profile"))
+    output_profile = get_output_profile(config.get("output_profile"))
 
     case_name = str(case_cfg.get("name") or config_path.stem)
     run_dir = _resolve_path(
@@ -57,7 +60,10 @@ def run_case_config(
     )
     export_dir = _resolve_path(output_cfg.get("fields_dir", run_dir), base_dir=base_dir)
     export_fields = bool(
-        output_cfg.get("export_fields", output_cfg.get("fields", True))
+        output_cfg.get(
+            "export_fields",
+            output_cfg.get("fields", output_profile.export_fields),
+        )
     )
     summary_path = _resolve_path(
         output_cfg.get("summary", run_dir / f"{case_name}_summary.json"),
@@ -71,7 +77,7 @@ def run_case_config(
         )
 
     dry = bool(output_cfg.get("dry_run", False) if dry_run is None else dry_run)
-    outputs = tuple(str(v) for v in solver_cfg.get("outputs", ("sed",)))
+    outputs = tuple(str(v) for v in solver_cfg.get("outputs", solver_profile.outputs))
     image_path = _resolve_path(input_cfg["image"], base_dir=base_dir)
 
     common = {
@@ -88,13 +94,19 @@ def run_case_config(
         ),
         "outputs": outputs,
         "tolerance": float(
-            solver_cfg.get("tolerance", solver_cfg.get("convergence_tolerance", 1e-6))
+            solver_cfg.get(
+                "tolerance",
+                solver_cfg.get("convergence_tolerance", solver_profile.tolerance),
+            )
         ),
-        "level": int(solver_cfg.get("level", 6)),
+        "level": int(solver_cfg.get("level", solver_profile.level)),
         "mpi_processes": int(
-            solver_cfg.get("mpi_processes", solver_cfg.get("processes", 1))
+            solver_cfg.get(
+                "mpi_processes",
+                solver_cfg.get("processes", solver_profile.mpi_processes),
+            )
         ),
-        "mpi_launcher": str(solver_cfg.get("mpi_launcher", "mpirun")),
+        "mpi_launcher": str(solver_cfg.get("mpi_launcher", solver_profile.mpi_launcher)),
         "work_dir": run_dir,
         "export_dir": export_dir if export_fields and not dry else None,
         "failure_criterion": str(failure_cfg.get("criterion", "pistoia")),
