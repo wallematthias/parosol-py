@@ -10,6 +10,7 @@ import numpy as np
 from .boundary_conditions import axial_compression
 from .core import BoundaryConditionSet
 from .diagnostics import build_fea_diagnostics
+from .field_export import NativeFieldMapper
 from .hdf5_io import write_parosol_input
 from .images import ImageGrid, export_scalar_image, normalize_array
 from .materials import material_to_stiffness_gpa
@@ -152,6 +153,7 @@ def solve(
     if export_dir is not None:
         export_root = Path(export_dir).expanduser().resolve()
         active_size = int(np.count_nonzero(stiffness_gpa_xyz > 0))
+        mapper = NativeFieldMapper(stiffness_gpa_xyz)
         for name, field_values in fields.items():
             field_array = _native_scalar_field(
                 field_values,
@@ -160,10 +162,7 @@ def solve(
             if field_array is not None:
                 exported[name] = export_scalar_image(
                     ImageGrid(
-                        array_xyz=_native_scalar_to_dense_xyz(
-                            field_array,
-                            stiffness_gpa_xyz=stiffness_gpa_xyz,
-                        ),
+                        array_xyz=mapper.scalar_to_dense(field_array),
                         spacing=grid.spacing,
                         origin=grid.origin,
                     ),
@@ -244,36 +243,3 @@ def _native_scalar_field(
         return array.reshape(-1)
     return None
 
-
-def _morton_key(x: int, y: int, z: int) -> int:
-    key = 0
-    bit_index = 0
-    limit = max(x, y, z)
-    while (1 << bit_index) <= limit:
-        key |= ((x >> bit_index) & 1) << (3 * bit_index)
-        key |= ((y >> bit_index) & 1) << (3 * bit_index + 1)
-        key |= ((z >> bit_index) & 1) << (3 * bit_index + 2)
-        bit_index += 1
-    return key
-
-
-def _native_scalar_to_dense_xyz(
-    values: np.ndarray,
-    stiffness_gpa_xyz: np.ndarray,
-) -> np.ndarray:
-    values = np.asarray(values)
-    dimensions_xyz = tuple(int(v) for v in stiffness_gpa_xyz.shape)
-    if values.size == stiffness_gpa_xyz.size:
-        x_dim, y_dim, z_dim = dimensions_xyz
-        coords = [
-            (x, y, z) for x in range(x_dim) for y in range(y_dim) for z in range(z_dim)
-        ]
-    else:
-        coords = [
-            tuple(int(v) for v in coord) for coord in np.argwhere(stiffness_gpa_xyz > 0)
-        ]
-
-    dense = np.zeros(dimensions_xyz, dtype=values.dtype)
-    for index, (x, y, z) in enumerate(sorted(coords, key=lambda c: _morton_key(*c))):
-        dense[x, y, z] = values[index]
-    return dense
