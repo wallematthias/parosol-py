@@ -75,20 +75,35 @@ def run_case_config(
         "spacing": _spacing(input_cfg, image_path=image_path),
         "origin": _origin(input_cfg, image_path=image_path),
         "material_unit": str(material_cfg.get("units", "MPa")),
-        "poisson_ratio": float(material_cfg.get("poisson_ratio", material_cfg.get("nu", 0.3))),
+        "poisson_ratio": float(
+            material_cfg.get("poisson_ratio", material_cfg.get("nu", 0.3))
+        ),
         "test": "axial",
         "test_axis": str(load_case_cfg.get("axis", "z")),
-        "strain": float(load_case_cfg.get("strain", load_case_cfg.get("normal_strain", -0.01))),
+        "strain": float(
+            load_case_cfg.get("strain", load_case_cfg.get("normal_strain", -0.01))
+        ),
         "outputs": outputs,
-        "tolerance": float(solver_cfg.get("tolerance", solver_cfg.get("convergence_tolerance", 1e-6))),
+        "tolerance": float(
+            solver_cfg.get("tolerance", solver_cfg.get("convergence_tolerance", 1e-6))
+        ),
         "level": int(solver_cfg.get("level", 6)),
         "work_dir": run_dir,
         "export_dir": None if dry else export_dir,
+        "failure_criterion": str(failure_cfg.get("criterion", "pistoia")),
+        "critical_strain": _optional_float(failure_cfg.get("critical_strain", 0.007)),
+        "critical_volume_percent": _optional_float(
+            failure_cfg.get("critical_volume_percent", 2.0)
+        ),
         "dry_run": dry,
     }
 
     image_type = str(input_cfg.get("image_type", "material_mpa")).strip().lower()
-    if image_path.suffix.lower() == ".aim" and image_type in {"material_mpa", "mpa", "gpa"}:
+    if image_path.suffix.lower() == ".aim" and image_type in {
+        "material_mpa",
+        "mpa",
+        "gpa",
+    }:
         result = solve_aim(image_path, **common)
     else:
         material = _load_material_array(
@@ -99,23 +114,22 @@ def run_case_config(
         )
         result = solve(material=material, array_order="zyx", **common)
 
-    summary = solve_summary_dict(
-        result,
-        extra={
-            "case": {"name": case_name},
-            "load_case": {
-                "type": load_type,
-                "axis": common["test_axis"],
-                "strain": common["strain"],
-            },
-            "failure": {
-                "criterion": failure_cfg.get("criterion", "pistoia"),
-                "critical_strain": failure_cfg.get("critical_strain"),
-                "critical_volume_percent": failure_cfg.get("critical_volume_percent"),
-                "status": "not_computed",
-            },
+    extra: dict[str, Any] = {
+        "case": {"name": case_name},
+        "load_case": {
+            "type": load_type,
+            "axis": common["test_axis"],
+            "strain": common["strain"],
         },
-    )
+    }
+    if dry:
+        extra["failure"] = {
+            "criterion": common["failure_criterion"],
+            "critical_strain": common["critical_strain"],
+            "critical_volume_percent": common["critical_volume_percent"],
+            "status": "not_computed",
+        }
+    summary = solve_summary_dict(result, extra=extra)
     write_summary_json(summary_path, summary)
     return result
 
@@ -139,7 +153,9 @@ def _load_material_array(
 
     materials_file = material_cfg.get("file")
     if materials_file is None:
-        raise ValueError("materials.file is required when input.image_type is material_labels")
+        raise ValueError(
+            "materials.file is required when input.image_type is material_labels"
+        )
     table = parse_linear_isotropic_materials(
         _resolve_path(materials_file, base_dir=base_dir).read_text(encoding="utf-8")
     )
@@ -178,17 +194,23 @@ def _resolve_path(value, *, base_dir: Path) -> Path:
     return (base_dir / path).resolve()
 
 
-def _spacing(input_cfg: dict[str, Any], *, image_path: Path) -> tuple[float, float, float]:
+def _spacing(
+    input_cfg: dict[str, Any], *, image_path: Path
+) -> tuple[float, float, float]:
     value = input_cfg.get("spacing", (1.0, 1.0, 1.0))
     if str(value).strip().lower() == "auto":
         spacing, _origin = _image_metadata(image_path)
         if spacing is None:
-            raise ValueError("spacing='auto' is available only for image formats with metadata")
+            raise ValueError(
+                "spacing='auto' is available only for image formats with metadata"
+            )
         return spacing
     return _triple(value, "input.spacing")
 
 
-def _origin(input_cfg: dict[str, Any], *, image_path: Path) -> tuple[float, float, float]:
+def _origin(
+    input_cfg: dict[str, Any], *, image_path: Path
+) -> tuple[float, float, float]:
     value = input_cfg.get("origin", (0.0, 0.0, 0.0))
     if str(value).strip().lower() == "auto":
         _spacing, origin = _image_metadata(image_path)
@@ -202,11 +224,21 @@ def _triple(value, name: str) -> tuple[float, float, float]:
     return tuple(float(v) for v in value)
 
 
-def _image_metadata(path: Path) -> tuple[tuple[float, float, float] | None, tuple[float, float, float] | None]:
+def _optional_float(value) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _image_metadata(
+    path: Path,
+) -> tuple[tuple[float, float, float] | None, tuple[float, float, float] | None]:
     suffixes = "".join(path.suffixes).lower()
     if suffixes.endswith((".mha", ".mhd", ".nii", ".nii.gz")):
         image = sitk.ReadImage(str(path))
-        return _triple(image.GetSpacing(), "image spacing"), _triple(image.GetOrigin(), "image origin")
+        return _triple(image.GetSpacing(), "image spacing"), _triple(
+            image.GetOrigin(), "image origin"
+        )
     if suffixes.endswith(".aim"):
         from .api import read_aim
 

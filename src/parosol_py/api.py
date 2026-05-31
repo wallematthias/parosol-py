@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from .boundary_conditions import axial_compression
+from .diagnostics import build_fea_diagnostics
 from .hdf5_io import write_parosol_input
 from .images import ImageGrid, export_scalar_image, normalize_array
 from .materials import material_to_stiffness_gpa
@@ -42,6 +43,7 @@ class SolveResult:
     stdout: str = ""
     stderr: str = ""
     exported: dict[str, Path] = field(default_factory=dict)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 def solve(
@@ -61,6 +63,9 @@ def solve(
     executable: str | Path | None = None,
     work_dir: str | Path | None = None,
     export_dir: str | Path | None = None,
+    failure_criterion: str = "pistoia",
+    critical_strain: float | None = 0.007,
+    critical_volume_percent: float | None = 2.0,
     dry_run: bool = False,
 ) -> SolveResult:
     if test.strip().lower() != "axial":
@@ -124,7 +129,8 @@ def solve(
             f"stderr:\n{run.stderr}"
         )
 
-    fields = read_solution_fields(input_file, outputs=tuple(outputs))
+    result_outputs = _summary_outputs(outputs)
+    fields = read_solution_fields(input_file, outputs=result_outputs)
     exported: dict[str, Path] = {}
     if export_dir is not None:
         export_root = Path(export_dir).expanduser().resolve()
@@ -147,6 +153,16 @@ def solve(
                     export_root / f"{name}.nii.gz",
                 )
 
+    diagnostics = build_fea_diagnostics(
+        fields=fields,
+        stiffness_gpa_xyz=stiffness_gpa_xyz,
+        axis=test_axis,
+        strain=strain,
+        failure_criterion=failure_criterion,
+        critical_strain=critical_strain,
+        critical_volume_percent=critical_volume_percent,
+    )
+
     return SolveResult(
         input_file=input_file,
         command=run.command,
@@ -160,6 +176,7 @@ def solve(
         stdout=run.stdout,
         stderr=run.stderr,
         exported=exported,
+        diagnostics=diagnostics,
     )
 
 
@@ -186,6 +203,15 @@ def _prepare_work_dir(work_dir: str | Path | None) -> Path:
     out = Path(work_dir).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
     return out
+
+
+def _summary_outputs(outputs: tuple[str, ...]) -> tuple[str, ...]:
+    requested: list[str] = []
+    for output in (*outputs, "forces", "displacements"):
+        token = str(output).strip().lower()
+        if token not in requested:
+            requested.append(token)
+    return tuple(requested)
 
 
 def _native_scalar_field(
@@ -222,15 +248,11 @@ def _native_scalar_to_dense_xyz(
     if values.size == stiffness_gpa_xyz.size:
         x_dim, y_dim, z_dim = dimensions_xyz
         coords = [
-            (x, y, z)
-            for x in range(x_dim)
-            for y in range(y_dim)
-            for z in range(z_dim)
+            (x, y, z) for x in range(x_dim) for y in range(y_dim) for z in range(z_dim)
         ]
     else:
         coords = [
-            tuple(int(v) for v in coord)
-            for coord in np.argwhere(stiffness_gpa_xyz > 0)
+            tuple(int(v) for v in coord) for coord in np.argwhere(stiffness_gpa_xyz > 0)
         ]
 
     dense = np.zeros(dimensions_xyz, dtype=values.dtype)

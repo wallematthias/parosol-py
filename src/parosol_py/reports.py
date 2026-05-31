@@ -8,7 +8,9 @@ from typing import Any
 import numpy as np
 
 
-def field_statistics(values, *, percentiles: tuple[float, ...] = (5, 25, 50, 75, 95)) -> dict[str, Any]:
+def field_statistics(
+    values, *, percentiles: tuple[float, ...] = (5, 25, 50, 75, 95)
+) -> dict[str, Any]:
     array = np.asarray(values, dtype=np.float64)
     finite = array[np.isfinite(array)]
     out: dict[str, Any] = {
@@ -42,7 +44,9 @@ def field_statistics(values, *, percentiles: tuple[float, ...] = (5, 25, 50, 75,
     return out
 
 
-def solve_summary_dict(result, *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+def solve_summary_dict(
+    result, *, extra: dict[str, Any] | None = None
+) -> dict[str, Any]:
     run = result.summary.run
     data: dict[str, Any] = {
         "solver": {
@@ -62,6 +66,8 @@ def solve_summary_dict(result, *, extra: dict[str, Any] | None = None) -> dict[s
         },
         "fields": _summarize_fields(result.fields),
     }
+    if getattr(result, "diagnostics", None):
+        data.update(_jsonable(result.diagnostics))
     if extra:
         data.update(_jsonable(extra))
     return data
@@ -70,11 +76,15 @@ def solve_summary_dict(result, *, extra: dict[str, Any] | None = None) -> dict[s
 def write_summary_json(path: str | Path, data: dict[str, Any]) -> Path:
     out = Path(path).expanduser().resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(_jsonable(data), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    out.write_text(
+        json.dumps(_jsonable(data), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return out
 
 
-def write_solve_summary_json(result, path: str | Path, *, extra: dict[str, Any] | None = None) -> Path:
+def write_solve_summary_json(
+    result, path: str | Path, *, extra: dict[str, Any] | None = None
+) -> Path:
     return write_summary_json(path, solve_summary_dict(result, extra=extra))
 
 
@@ -82,9 +92,15 @@ def parse_faim_analysis_text(text: str) -> dict[str, Any]:
     return {
         "model_input": _parse_key_value_table(text, "Table 1: Model Input"),
         "materials": _parse_materials(text),
-        "strain_energy_density": _parse_scalar_stats_table(text, "Table 6: Strain Energy Density"),
-        "von_mises_stress": _parse_scalar_stats_table(text, "Table 7: Von Mises Stress"),
-        "nodal_displacements": _parse_vector_node_table(text, "Table 8: Nodal Displacements"),
+        "strain_energy_density": _parse_scalar_stats_table(
+            text, "Table 6: Strain Energy Density"
+        ),
+        "von_mises_stress": _parse_scalar_stats_table(
+            text, "Table 7: Von Mises Stress"
+        ),
+        "nodal_displacements": _parse_vector_node_table(
+            text, "Table 8: Nodal Displacements"
+        ),
         "nodal_forces": _parse_vector_node_table(text, "Table 9: Nodal Forces"),
     }
 
@@ -124,9 +140,13 @@ def parse_pistoia_text(text: str) -> dict[str, Any]:
         elif "Axial stiffness:" in line:
             out["axial_stiffness"] = _xyz_from_line(line, ("x", "y", "z"))
         else:
-            stat_match = re.match(r"^\s*(average|std_dev|minimum|maximum|median)\s+(\S+)\s*$", line)
+            stat_match = re.match(
+                r"^\s*(average|std_dev|minimum|maximum|median)\s+(\S+)\s*$", line
+            )
             if stat_match:
-                out["ees_distribution"][stat_match.group(1)] = _to_number(stat_match.group(2))
+                out["ees_distribution"][stat_match.group(1)] = _to_number(
+                    stat_match.group(2)
+                )
                 continue
             failed_match = re.match(r"^\s*(\d+)\s+(\d+)\s+([-\d.]+)\s*$", line)
             if failed_match:
@@ -172,7 +192,9 @@ def _parse_key_value_table(text: str, title: str) -> dict[str, Any]:
 def _parse_materials(text: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for line in _table_lines(text, "Table 2: Materials"):
-        match = re.match(r"^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+([-\d.E+]+)\s+(\d+)\s*$", line)
+        match = re.match(
+            r"^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+([-\d.E+]+)\s+(\d+)\s*$", line
+        )
         if not match:
             continue
         out.append(
@@ -198,9 +220,13 @@ def _parse_scalar_stats_table(text: str, title: str) -> dict[str, dict[str, Any]
             current = "all" if token.upper() == "ALL" else token
             groups.setdefault(current, {})
             continue
-        stat_match = re.match(r"^\s*(average|std_dev|minimum|maximum|median|perc\d+)\s+(\S+)\s*$", line)
+        stat_match = re.match(
+            r"^\s*(average|std_dev|minimum|maximum|median|perc\d+)\s+(\S+)\s*$", line
+        )
         if stat_match:
-            groups.setdefault(current, {})[stat_match.group(1)] = _to_number(stat_match.group(2))
+            groups.setdefault(current, {})[stat_match.group(1)] = _to_number(
+                stat_match.group(2)
+            )
     return groups
 
 
@@ -211,14 +237,21 @@ def _parse_vector_node_table(text: str, title: str) -> list[dict[str, Any]]:
         if "Node set:" in line:
             if current is not None:
                 out.append(current)
-            current = {"node_set": int(line.split(":")[-1].strip()), "name": "", "stats": {}}
+            current = {
+                "node_set": int(line.split(":")[-1].strip()),
+                "name": "",
+                "stats": {},
+            }
             continue
         if current is None:
             continue
         if "Name:" in line:
             current["name"] = line.split(":")[-1].strip()
             continue
-        match = re.match(r"^\s*(total|average|std_dev|minimum|maximum|median)\s+(\S+)\s+(\S+)\s+(\S+)\s*$", line)
+        match = re.match(
+            r"^\s*(total|average|std_dev|minimum|maximum|median)\s+(\S+)\s+(\S+)\s+(\S+)\s*$",
+            line,
+        )
         if match:
             current["stats"][match.group(1)] = {
                 "x": _to_number(match.group(2)),
@@ -242,7 +275,11 @@ def _table_lines(text: str, title: str) -> list[str]:
     for line in section:
         if line.startswith("====") and seen_content:
             break
-        if line.startswith("----") or line.startswith("....") or line.startswith("===="):
+        if (
+            line.startswith("----")
+            or line.startswith("....")
+            or line.startswith("====")
+        ):
             continue
         if line.strip():
             seen_content = True
@@ -251,7 +288,9 @@ def _table_lines(text: str, title: str) -> list[str]:
 
 
 def _xyz_from_line(line: str, keys: tuple[str, str, str]) -> dict[str, Any]:
-    values = re.findall(r"[-+]?(?:INF|\d+\.\d+E[-+]?\d+|\d+\.\d+|\d+)", line, flags=re.I)
+    values = re.findall(
+        r"[-+]?(?:INF|\d+\.\d+E[-+]?\d+|\d+\.\d+|\d+)", line, flags=re.I
+    )
     return {key: _to_number(value) for key, value in zip(keys, values[-3:])}
 
 

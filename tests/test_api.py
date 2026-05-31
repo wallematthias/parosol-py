@@ -4,6 +4,7 @@ import pytest
 import parosol_py
 from parosol_py import solve
 from parosol_py.api import solve_aim
+from parosol_py.reports import solve_summary_dict
 from parosol_py.runner import RunResult, RunSummary
 
 
@@ -179,6 +180,88 @@ def test_solve_exports_sparse_native_scalar_field_to_dense_xyz(monkeypatch, tmp_
     assert result.exported["sed"].exists()
     np.testing.assert_array_equal(captured["grid"].array_xyz, expected_dense)
     assert result.fields == {"sed": native_values}
+
+
+def test_solve_derives_summary_diagnostics_from_fea_fields(monkeypatch, tmp_path):
+    material_zyx = np.ones((2, 2, 2), dtype=np.float32) * 1000.0
+    dimensions_xyz = (2, 2, 2)
+    node_coords = [
+        (x, y, z)
+        for x in range(dimensions_xyz[0] + 1)
+        for y in range(dimensions_xyz[1] + 1)
+        for z in range(dimensions_xyz[2] + 1)
+    ]
+
+    def morton_key(x, y, z):
+        key = 0
+        bit = 1
+        while bit <= max(x, y, z):
+            key += (x & bit) * bit * bit
+            key += (y & bit) * bit * bit * 2
+            key += (z & bit) * bit * bit * 4
+            bit <<= 1
+        return key
+
+    forces = np.zeros((len(node_coords), 3), dtype=np.float64)
+    displacements = np.zeros((len(node_coords), 3), dtype=np.float64)
+    for index, (_x, _y, z) in enumerate(
+        sorted(node_coords, key=lambda c: morton_key(*c))
+    ):
+        if z == dimensions_xyz[2]:
+            forces[index, 2] = -2.0
+            displacements[index, 2] = -0.02
+
+    read_calls = {}
+
+    def fake_run_parosol(command, *, cwd=None):
+        return RunResult(
+            command=command,
+            stdout="",
+            stderr="",
+            returncode=0,
+            summary=RunSummary(iterations=12, relative_residual=1e-7),
+        )
+
+    def fake_read_solution_fields(input_file, *, outputs):
+        read_calls["outputs"] = outputs
+        return {
+            "sed": np.full((8, 1), 1e-4, dtype=np.float64),
+            "forces": forces,
+            "displacements": displacements,
+        }
+
+    monkeypatch.setattr("parosol_py.api.run_parosol", fake_run_parosol)
+    monkeypatch.setattr(
+        "parosol_py.api.read_solution_fields", fake_read_solution_fields
+    )
+
+    result = solve(
+        material=material_zyx,
+        spacing=(1, 1, 1),
+        outputs=("sed",),
+        test_axis="z",
+        strain=-0.01,
+        critical_strain=0.007,
+        critical_volume_percent=12.5,
+        work_dir=tmp_path,
+    )
+
+    assert read_calls["outputs"] == ("sed", "forces", "displacements")
+    summary = solve_summary_dict(result)
+
+    assert summary["mechanics"]["reaction_force"]["z"] == pytest.approx(-18.0)
+    assert summary["mechanics"]["applied_displacement"]["z"] == pytest.approx(-0.02)
+    assert summary["mechanics"]["stiffness"]["z"] == pytest.approx(900.0)
+    assert summary["failure"]["criterion"] == "pistoia"
+    assert summary["failure"]["critical_strain"] == pytest.approx(0.007)
+    assert summary["failure"]["critical_volume_percent"] == pytest.approx(12.5)
+    assert summary["failure"]["ees_at_critical_volume"] == pytest.approx(
+        np.sqrt(2e-4 / 1000.0)
+    )
+    assert summary["failure"]["factor"] == pytest.approx(0.007 / np.sqrt(2e-4 / 1000.0))
+    assert summary["failure"]["failure_load"]["z"] == pytest.approx(
+        -18.0 * 0.007 / np.sqrt(2e-4 / 1000.0)
+    )
 
 
 def test_solve_rejects_anisotropic_spacing_in_dry_run(tmp_path):
