@@ -8,13 +8,14 @@ from parosol_py.faim_validation import (
     discover_faim_cases,
 )
 
+FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "faim"
+
 
 def test_discover_faim_cases_finds_local_reference_set():
-    cases = discover_faim_cases(Path("/Users/matthias.walle/Documents/10_Data/fea_test"))
+    cases = discover_faim_cases(FIXTURE_ROOT)
 
     names = {case.name for case in cases}
-    assert "VITD_0003_RL_M06_HOM_LS" in names
-    assert "CABHS_5001_RL_V1_HOM_LS" in names
+    assert "SAMPLE_HOM_LS" in names
 
 
 def test_compare_pistoia_summary_reports_relative_errors():

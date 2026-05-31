@@ -11,6 +11,8 @@ from parosol_py.reports import (
     write_summary_json,
 )
 
+FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "faim"
+
 
 def test_field_statistics_are_json_friendly():
     stats = field_statistics(np.array([1.0, 2.0, 3.0]))
@@ -21,12 +23,8 @@ def test_field_statistics_are_json_friendly():
 
 
 def test_parse_old_faim_outputs_to_compact_json(tmp_path: Path):
-    analysis = parse_faim_analysis_file(
-        "/Users/matthias.walle/Documents/10_Data/fea_test/VITD_0003_RL_M06_HOM_LS_analysis.txt"
-    )
-    pistoia = parse_pistoia_file(
-        "/Users/matthias.walle/Documents/10_Data/fea_test/VITD_0003_RL_M06_HOM_LS_pistoia.txt"
-    )
+    analysis = parse_faim_analysis_file(FIXTURE_ROOT / "SAMPLE_HOM_LS_analysis.txt")
+    pistoia = parse_pistoia_file(FIXTURE_ROOT / "SAMPLE_HOM_LS_pistoia.txt")
 
     assert analysis["model_input"]["number_of_elements"] == 5205150
     assert analysis["strain_energy_density"]["all"]["average"] == pytest.approx(0.3292)

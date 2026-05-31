@@ -7,6 +7,8 @@ import SimpleITK as sitk
 from parosol_py.cli import main
 from parosol_py.config import run_case_config
 
+FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "faim"
+
 
 def test_run_case_config_dry_run_writes_summary_json(tmp_path: Path):
     material = np.ones((3, 3, 3), dtype=np.float64) * 1000.0
@@ -226,16 +228,15 @@ def test_cli_run_and_summarize_faim(tmp_path: Path):
     assert main(["run", str(config_path), "--dry-run"]) == 0
     assert (tmp_path / "summary.json").exists()
 
-    old_root = Path("/Users/matthias.walle/Documents/10_Data/fea_test")
     out = tmp_path / "old_summary.json"
     assert (
         main(
             [
                 "summarize-faim",
                 "--analysis",
-                str(old_root / "VITD_0003_RL_M06_HOM_LS_analysis.txt"),
+                str(FIXTURE_ROOT / "SAMPLE_HOM_LS_analysis.txt"),
                 "--pistoia",
-                str(old_root / "VITD_0003_RL_M06_HOM_LS_pistoia.txt"),
+                str(FIXTURE_ROOT / "SAMPLE_HOM_LS_pistoia.txt"),
                 "-o",
                 str(out),
             ]
