@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
-import tomllib
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import SimpleITK as sitk
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
 
 from .api import SolveResult, solve, solve_aim
 from .images import normalize_array
