@@ -57,7 +57,11 @@ def build_parosol_command(
     outputs: tuple[str, ...],
     tolerance: float = 1e-6,
     level: int = 6,
+    mpi_processes: int = 1,
+    mpi_launcher: str | Path = "mpirun",
 ) -> list[str]:
+    if int(mpi_processes) < 1:
+        raise ValueError("mpi_processes must be >= 1")
     cmd = [str(Path(executable))]
     for output in outputs:
         token = output.strip().lower()
@@ -70,8 +74,16 @@ def build_parosol_command(
             cmd.append(flag)
 
     cmd.extend(
-        ["--tol", f"{float(tolerance):g}", "--level", str(int(level)), str(Path(input_file))]
+        [
+            "--tol",
+            f"{float(tolerance):g}",
+            "--level",
+            str(int(level)),
+            str(Path(input_file)),
+        ]
     )
+    if int(mpi_processes) > 1:
+        cmd = [str(mpi_launcher), "-np", str(int(mpi_processes)), *cmd]
     return cmd
 
 

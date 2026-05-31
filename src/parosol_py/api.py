@@ -60,6 +60,8 @@ def solve(
     outputs: tuple[str, ...] = ("sed",),
     tolerance: float = 1e-6,
     level: int = 6,
+    mpi_processes: int = 1,
+    mpi_launcher: str | Path = "mpirun",
     executable: str | Path | None = None,
     work_dir: str | Path | None = None,
     export_dir: str | Path | None = None,
@@ -89,6 +91,7 @@ def solve(
         stiffness_gpa_xyz,
         axis=test_axis,
         strain=strain,
+        voxel_size_mm=float(grid.spacing[0]),
     )
 
     case_dir = _prepare_work_dir(work_dir)
@@ -106,6 +109,8 @@ def solve(
         outputs=tuple(outputs),
         tolerance=tolerance,
         level=level,
+        mpi_processes=mpi_processes,
+        mpi_launcher=mpi_launcher,
     )
     summary = SolveSummary(
         dimensions_xyz=tuple(int(v) for v in grid.array_xyz.shape),
@@ -158,6 +163,7 @@ def solve(
         stiffness_gpa_xyz=stiffness_gpa_xyz,
         axis=test_axis,
         strain=strain,
+        voxel_size_mm=float(grid.spacing[0]),
         failure_criterion=failure_criterion,
         critical_strain=critical_strain,
         critical_volume_percent=critical_volume_percent,

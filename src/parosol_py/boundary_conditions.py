@@ -11,6 +11,7 @@ def axial_compression(
     *,
     axis: str = "z",
     strain: float = -0.01,
+    voxel_size_mm: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     stiffness = np.asarray(stiffness_gpa_xyz)
     if stiffness.ndim != 3:
@@ -27,7 +28,9 @@ def axial_compression(
             f"(<= {MAX_NATIVE_COORDINATE}), got shape {stiffness.shape}"
         )
     node_max = int(dims[axis_index])
-    displacement = float(strain) * float(node_max)
+    if not np.isfinite(voxel_size_mm) or voxel_size_mm <= 0:
+        raise ValueError("voxel_size_mm must be positive")
+    displacement = float(strain) * float(node_max) * float(voxel_size_mm)
 
     occupied = stiffness > 0.0
     lateral_axes = [idx for idx in range(3) if idx != axis_index]

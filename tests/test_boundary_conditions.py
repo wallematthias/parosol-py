@@ -6,7 +6,12 @@ from parosol_py.boundary_conditions import axial_compression
 
 def test_axial_compression_z_generates_bottom_and_top_constraints():
     stiffness = np.ones((3, 2, 4), dtype=np.float32)
-    coords, values = axial_compression(stiffness, axis="z", strain=-0.01)
+    coords, values = axial_compression(
+        stiffness,
+        axis="z",
+        strain=-0.01,
+        voxel_size_mm=0.061,
+    )
 
     assert coords.shape[1] == 4
     assert values.shape == (coords.shape[0],)
@@ -18,7 +23,7 @@ def test_axial_compression_z_generates_bottom_and_top_constraints():
     assert np.any(bottom_z)
     assert np.any(top_z)
     assert np.all(values[bottom_z] == 1e-16)
-    assert np.allclose(values[top_z & (coords[:, 3] == 2)], -0.04)
+    assert np.allclose(values[top_z & (coords[:, 3] == 2)], -0.00244)
     assert np.all(values[top_z & (coords[:, 3] != 2)] == 1e-16)
     assert set(coords[bottom_z, 3]) == {0, 1, 2}
     assert set(coords[top_z, 3]) == {0, 1, 2}

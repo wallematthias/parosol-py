@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from parosol_py.runner import build_parosol_command, packaged_executable, parse_run_summary
+from parosol_py.runner import (
+    build_parosol_command,
+    packaged_executable,
+    parse_run_summary,
+)
 
 
 def test_build_parosol_command_maps_outputs():
@@ -22,6 +26,31 @@ def test_build_parosol_command_maps_outputs():
         "1e-07",
         "--level",
         "4",
+        "/tmp/case.h5",
+    ]
+
+
+def test_build_parosol_command_can_launch_with_mpi():
+    cmd = build_parosol_command(
+        executable=Path("/opt/parosol"),
+        input_file=Path("/tmp/case.h5"),
+        outputs=("sed",),
+        tolerance=1e-6,
+        level=6,
+        mpi_processes=4,
+        mpi_launcher="mpirun",
+    )
+
+    assert cmd == [
+        "mpirun",
+        "-np",
+        "4",
+        "/opt/parosol",
+        "--SED",
+        "--tol",
+        "1e-06",
+        "--level",
+        "6",
         "/tmp/case.h5",
     ]
 

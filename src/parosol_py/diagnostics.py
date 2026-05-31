@@ -15,6 +15,7 @@ def build_fea_diagnostics(
     stiffness_gpa_xyz,
     axis: str,
     strain: float,
+    voxel_size_mm: float = 1.0,
     critical_strain: float | None = 0.007,
     critical_volume_percent: float | None = 2.0,
     failure_criterion: str = "pistoia",
@@ -30,6 +31,7 @@ def build_fea_diagnostics(
         stiffness_gpa_xyz=stiffness,
         axis=axis_token,
         strain=strain,
+        voxel_size_mm=voxel_size_mm,
     )
     failure = _pistoia_failure(
         fields=fields,
@@ -49,10 +51,11 @@ def _mechanics_from_node_fields(
     stiffness_gpa_xyz: np.ndarray,
     axis: str,
     strain: float,
+    voxel_size_mm: float,
 ) -> dict[str, Any]:
     axis_index = AXIS_TO_INDEX[axis]
     dimensions = tuple(int(v) for v in stiffness_gpa_xyz.shape)
-    applied = float(strain) * float(dimensions[axis_index])
+    applied = float(strain) * float(dimensions[axis_index]) * float(voxel_size_mm)
 
     result: dict[str, Any] = {
         "axis": axis,

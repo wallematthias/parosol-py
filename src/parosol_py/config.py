@@ -56,6 +56,9 @@ def run_case_config(
         base_dir=base_dir,
     )
     export_dir = _resolve_path(output_cfg.get("fields_dir", run_dir), base_dir=base_dir)
+    export_fields = bool(
+        output_cfg.get("export_fields", output_cfg.get("fields", True))
+    )
     summary_path = _resolve_path(
         output_cfg.get("summary", run_dir / f"{case_name}_summary.json"),
         base_dir=base_dir,
@@ -88,8 +91,12 @@ def run_case_config(
             solver_cfg.get("tolerance", solver_cfg.get("convergence_tolerance", 1e-6))
         ),
         "level": int(solver_cfg.get("level", 6)),
+        "mpi_processes": int(
+            solver_cfg.get("mpi_processes", solver_cfg.get("processes", 1))
+        ),
+        "mpi_launcher": str(solver_cfg.get("mpi_launcher", "mpirun")),
         "work_dir": run_dir,
-        "export_dir": None if dry else export_dir,
+        "export_dir": export_dir if export_fields and not dry else None,
         "failure_criterion": str(failure_cfg.get("criterion", "pistoia")),
         "critical_strain": _optional_float(failure_cfg.get("critical_strain", 0.007)),
         "critical_volume_percent": _optional_float(

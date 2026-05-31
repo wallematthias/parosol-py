@@ -33,7 +33,9 @@ def test_run_case_config_dry_run_writes_summary_json(tmp_path: Path):
     result = run_case_config(config_path)
 
     assert result.input_file.exists()
-    summary = json.loads((tmp_path / "run" / "cube_summary.json").read_text(encoding="utf-8"))
+    summary = json.loads(
+        (tmp_path / "run" / "cube_summary.json").read_text(encoding="utf-8")
+    )
     assert summary["case"]["name"] == "cube"
     assert summary["load_case"]["axis"] == "z"
     assert summary["failure"]["status"] == "not_computed"
@@ -66,6 +68,43 @@ def test_run_case_config_reads_image_metadata_for_auto_spacing(tmp_path: Path):
 
     assert result.summary.spacing == (0.5, 0.5, 0.5)
     assert result.summary.origin == (1.0, 2.0, 3.0)
+
+
+def test_run_case_config_can_disable_field_export(monkeypatch, tmp_path: Path):
+    material = np.ones((2, 2, 2), dtype=np.float64) * 1000.0
+    np.save(tmp_path / "material.npy", material)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "output": {"summary": "summary.json", "export_fields": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary(
+                dimensions_xyz=(2, 2, 2),
+                spacing=(1.0, 1.0, 1.0),
+                origin=(0.0, 0.0, 0.0),
+            ),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    assert captured["export_dir"] is None
 
 
 def test_cli_run_and_summarize_faim(tmp_path: Path):
