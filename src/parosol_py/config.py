@@ -322,6 +322,18 @@ def _read_image_array_zyx(path: Path) -> np.ndarray:
     suffixes = "".join(path.suffixes).lower()
     if suffixes.endswith(".npy"):
         return np.load(path)
+    if suffixes.endswith(".npz"):
+        with np.load(path) as data:
+            if "labels" in data:
+                return np.asarray(data["labels"])
+            if "image" in data:
+                return np.asarray(data["image"])
+            keys = list(data.files)
+            if len(keys) == 1:
+                return np.asarray(data[keys[0]])
+            raise ValueError(
+                f"NPZ image files must contain 'labels', 'image', or one array; got {keys}"
+            )
     if suffixes.endswith((".mha", ".mhd", ".nii", ".nii.gz")):
         return sitk.GetArrayFromImage(sitk.ReadImage(str(path)))
     if suffixes.endswith(".aim"):
@@ -386,6 +398,11 @@ def _image_metadata(
     path: Path,
 ) -> tuple[tuple[float, float, float] | None, tuple[float, float, float] | None]:
     suffixes = "".join(path.suffixes).lower()
+    if suffixes.endswith(".npz"):
+        with np.load(path) as data:
+            spacing = _npz_metadata_triple(data, "spacing_xyz", "spacing")
+            origin = _npz_metadata_triple(data, "origin_xyz", "origin")
+            return spacing, origin
     if suffixes.endswith((".mha", ".mhd", ".nii", ".nii.gz")):
         image = sitk.ReadImage(str(path))
         return _triple(image.GetSpacing(), "image spacing"), _triple(
@@ -402,3 +419,15 @@ def _image_metadata(
             None if origin is None else _triple(origin, "AIM position"),
         )
     return None, None
+
+
+def _npz_metadata_triple(
+    data: np.lib.npyio.NpzFile,
+    preferred_key: str,
+    fallback_key: str,
+) -> tuple[float, float, float] | None:
+    key = preferred_key if preferred_key in data else fallback_key
+    if key not in data:
+        return None
+    values = np.asarray(data[key]).reshape(-1)
+    return _triple(values.tolist(), key)

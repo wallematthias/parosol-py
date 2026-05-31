@@ -1,0 +1,7 @@
+MaterialDefinitions:
+    Bone:
+        Type: LinearIsotropic
+        E: 10000
+        nu: 0.3
+MaterialTable:
+    1: Bone

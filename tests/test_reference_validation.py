@@ -2,24 +2,24 @@ from pathlib import Path
 
 import pytest
 
-from parosol_py.faim_validation import (
-    FAIMCase,
+from parosol_py.reference_validation import (
+    ReferenceCase,
     compare_pistoia_summary,
-    discover_faim_cases,
+    discover_reference_cases,
 )
 
-FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "faim"
+FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "reference"
 
 
-def test_discover_faim_cases_finds_local_reference_set():
-    cases = discover_faim_cases(FIXTURE_ROOT)
+def test_discover_reference_cases_finds_local_reference_set():
+    cases = discover_reference_cases(FIXTURE_ROOT)
 
     names = {case.name for case in cases}
     assert "SAMPLE_HOM_LS" in names
 
 
 def test_compare_pistoia_summary_reports_relative_errors():
-    case = FAIMCase(
+    case = ReferenceCase(
         name="sample",
         aim_path=Path("sample.AIM"),
         analysis_path=Path("sample_analysis.txt"),
@@ -35,7 +35,7 @@ def test_compare_pistoia_summary_reports_relative_errors():
         },
         "mechanics": {"stiffness": {"z": 1000.0}, "reaction_force": {"z": -200.0}},
     }
-    faim = {
+    reference = {
         "factor": 0.4,
         "ees_at_critical_volume": 0.01,
         "failure_load": {"fz": -80.0},
@@ -43,7 +43,7 @@ def test_compare_pistoia_summary_reports_relative_errors():
         "reaction_force_node_set_1": {"fz": -160.0},
     }
 
-    comparison = compare_pistoia_summary(case, parosol, faim)
+    comparison = compare_pistoia_summary(case, parosol, reference)
 
     assert comparison["factor"]["absolute_error"] == pytest.approx(0.1)
     assert comparison["failure_load_z"]["relative_error"] == pytest.approx(0.25)

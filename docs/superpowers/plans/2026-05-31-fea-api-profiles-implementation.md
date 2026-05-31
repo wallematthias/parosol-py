@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a modular FEA API with explicit models, boundary conditions, load cases, solver/output profiles, fast field export hooks, and FAIM validation scaffolding.
+**Goal:** Build a modular FEA API with explicit models, boundary conditions, load cases, solver/output profiles, fast field export hooks, and legacy solver validation scaffolding.
 
 **Architecture:** Add typed core objects beside the existing compatibility API, then progressively route existing `solve()` and CLI config through those objects. Keep ParOSol HDF5 writing and result parsing as the solver adapter, while load cases generate inspectable `BoundaryConditionSet` instances.
 
@@ -16,13 +16,13 @@
 - Create `src/parosol_py/load_cases.py`: `AxialCompression`, `SimpleShear`, and force distribution helpers that generate `BoundaryConditionSet`.
 - Create `src/parosol_py/field_export.py`: native-to-dense field mapping cache and fast scalar image export.
 - Create `src/parosol_py/profiles.py`: built-in solver/output profile registry.
-- Create `src/parosol_py/faim_validation.py`: local validation manifest, FAIM reference parsing, ParOSol summary comparison.
+- Create `src/parosol_py/reference_validation.py`: local validation manifest, legacy solver reference parsing, ParOSol summary comparison.
 - Modify `src/parosol_py/hdf5_io.py`: write optional `Loaded_Nodes_*` datasets.
 - Modify `src/parosol_py/api.py`: accept core objects and preserve existing `solve()` compatibility.
 - Modify `src/parosol_py/config.py`: load profile names and new `model:` config shape while preserving current `input:` shape.
-- Modify `src/parosol_py/cli.py`: add `validate-faim` after validation helpers exist.
+- Modify `src/parosol_py/cli.py`: add `validate-reference` after validation helpers exist.
 - Modify `src/parosol_py/__init__.py`: export public core/load/profile classes.
-- Add tests in `tests/test_core.py`, `tests/test_load_cases.py`, `tests/test_hdf5_io.py`, `tests/test_field_export.py`, `tests/test_profiles.py`, and `tests/test_faim_validation.py`.
+- Add tests in `tests/test_core.py`, `tests/test_load_cases.py`, `tests/test_hdf5_io.py`, `tests/test_field_export.py`, `tests/test_profiles.py`, and `tests/test_reference_validation.py`.
 
 ---
 
@@ -690,7 +690,7 @@ from parosol_py import get_output_profile, get_solver_profile
 
 
 def test_builtin_profiles_are_available():
-    solver = get_solver_profile("faim_compat")
+    solver = get_solver_profile("legacy_axial")
     output = get_output_profile("quick_summary")
 
     assert solver.tolerance == 1e-6
@@ -710,7 +710,7 @@ def test_run_case_config_applies_named_profiles(monkeypatch, tmp_path: Path):
         json.dumps(
             {
                 "input": {"image": "material.npy", "spacing": [1, 1, 1]},
-                "solver_profile": "faim_compat",
+                "solver_profile": "legacy_axial",
                 "output_profile": "quick_summary",
                 "output": {"summary": "summary.json"},
             }
@@ -758,7 +758,7 @@ from __future__ import annotations
 from .core import OutputProfile, SolverProfile
 
 SOLVER_PROFILES = {
-    "faim_compat": SolverProfile(tolerance=1e-6, level=6, mpi_processes=1, outputs=("sed",)),
+    "legacy_axial": SolverProfile(tolerance=1e-6, level=6, mpi_processes=1, outputs=("sed",)),
     "batch": SolverProfile(tolerance=1e-6, level=6, mpi_processes=6, outputs=("sed",)),
     "debug": SolverProfile(
         tolerance=1e-6,
@@ -919,25 +919,25 @@ git commit -m "feat: add cached native field mapper"
 
 ---
 
-### Task 7: FAIM Validation Manifest and Comparison
+### Task 7: legacy solver Validation Manifest and Comparison
 
 **Files:**
-- Create: `src/parosol_py/faim_validation.py`
+- Create: `src/parosol_py/reference_validation.py`
 - Modify: `src/parosol_py/cli.py`
-- Test: `tests/test_faim_validation.py`
+- Test: `tests/test_reference_validation.py`
 
 - [ ] **Step 1: Write failing validation tests**
 
-Create `tests/test_faim_validation.py`:
+Create `tests/test_reference_validation.py`:
 
 ```python
 from pathlib import Path
 
-from parosol_py.faim_validation import FAIMCase, compare_pistoia_summary, discover_faim_cases
+from parosol_py.reference_validation import ReferenceCase, compare_pistoia_summary, discover_reference_cases
 
 
-def test_discover_faim_cases_finds_local_reference_set():
-    cases = discover_faim_cases(Path("/Users/matthias.walle/Documents/10_Data/fea_test"))
+def test_discover_reference_cases_finds_local_reference_set():
+    cases = discover_reference_cases(Path("/Users/matthias.walle/Documents/10_Data/fea_test"))
 
     names = {case.name for case in cases}
     assert "VITD_0003_RL_M06_HOM_LS" in names
@@ -945,7 +945,7 @@ def test_discover_faim_cases_finds_local_reference_set():
 
 
 def test_compare_pistoia_summary_reports_relative_errors():
-    case = FAIMCase(
+    case = ReferenceCase(
         name="sample",
         aim_path=Path("sample.AIM"),
         analysis_path=Path("sample_analysis.txt"),
@@ -961,7 +961,7 @@ def test_compare_pistoia_summary_reports_relative_errors():
         },
         "mechanics": {"stiffness": {"z": 1000.0}, "reaction_force": {"z": -200.0}},
     }
-    faim = {
+    reference = {
         "factor": 0.4,
         "ees_at_critical_volume": 0.01,
         "failure_load": {"fz": -80.0},
@@ -969,7 +969,7 @@ def test_compare_pistoia_summary_reports_relative_errors():
         "reaction_force_node_set_1": {"fz": -160.0},
     }
 
-    comparison = compare_pistoia_summary(case, parosol, faim)
+    comparison = compare_pistoia_summary(case, parosol, reference)
 
     assert comparison["factor"]["absolute_error"] == 0.1
     assert comparison["failure_load_z"]["relative_error"] == 0.25
@@ -980,41 +980,41 @@ def test_compare_pistoia_summary_reports_relative_errors():
 Run:
 
 ```bash
-PYTHONPATH=src pytest tests/test_faim_validation.py -q
+PYTHONPATH=src pytest tests/test_reference_validation.py -q
 ```
 
 Expected: missing module import failure.
 
 - [ ] **Step 3: Implement validation helpers**
 
-Create `src/parosol_py/faim_validation.py` with:
+Create `src/parosol_py/reference_validation.py` with:
 
-- `FAIMCase` dataclass;
-- `discover_faim_cases(root)` that pairs `*.AIM`, `*_analysis.txt`, and `*_pistoia.txt`;
+- `ReferenceCase` dataclass;
+- `discover_reference_cases(root)` that pairs `*.AIM`, `*_analysis.txt`, and `*_pistoia.txt`;
 - critical volume parsed from pistoia file using existing parser;
-- `compare_pistoia_summary(case, parosol_summary, faim_pistoia)` returning absolute and relative errors for factor, EES critical volume, failure load z, stiffness z, and reaction force z.
+- `compare_pistoia_summary(case, parosol_summary, reference_pistoia)` returning absolute and relative errors for factor, EES critical volume, failure load z, stiffness z, and reaction force z.
 
 - [ ] **Step 4: Run tests and commit**
 
 Run:
 
 ```bash
-PYTHONPATH=src pytest tests/test_faim_validation.py -q
+PYTHONPATH=src pytest tests/test_reference_validation.py -q
 PYTHONPATH=src python -m ruff check src tests
 ```
 
 Commit:
 
 ```bash
-git add src/parosol_py/faim_validation.py tests/test_faim_validation.py
-git commit -m "feat: add faim validation manifest helpers"
+git add src/parosol_py/reference_validation.py tests/test_reference_validation.py
+git commit -m "feat: add reference validation manifest helpers"
 ```
 
 ---
 
 ## Self-Review
 
-- Spec coverage: Tasks cover core objects, explicit BCs, loaded node force support, load cases, profiles, fast field mapping, and FAIM validation scaffolding.
+- Spec coverage: Tasks cover core objects, explicit BCs, loaded node force support, load cases, profiles, fast field mapping, and legacy solver validation scaffolding.
 - Known deferred item: full Slicer integration remains a file-format/API design path, not implemented in this first plan.
 - Known deferred item: bending and curved surface projection are named in load case design but not implemented beyond API direction; this plan implements axial, body-weight force compression, and simple shear first.
 - Placeholder scan: no task uses `TBD` or an undefined implementation step.

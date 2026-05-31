@@ -1,0 +1,36 @@
+{
+  "description": "Connected-component-filtered trabecular segmentation axial z compression reference.",
+  "model": {
+    "axis": "z",
+    "material_labels": {
+      "1": "Bone"
+    },
+    "poisson_ratio": 0.3,
+    "strain": -0.01,
+    "youngs_modulus_mpa": 10000.0
+  },
+  "name": "trab1240_axial_z",
+  "reference": {
+    "applied_displacement_z": -0.07648012042045593,
+    "critical_strain": 0.007,
+    "critical_volume_percent": 2.0,
+    "ees_at_critical_volume": 0.00982926692824061,
+    "elements": 179421,
+    "failure_load_z": -50.93281486004229,
+    "nodes": 334817,
+    "pistoia_factor": 0.7121589077907934,
+    "reaction_force_z": -71.51889038085938,
+    "stiffness_z": 935.1304625002971,
+    "top_node_count": 1671
+  },
+  "source": {
+    "filtered_active_voxels": 179421,
+    "original_filename": "TRAB_1240_SEG.AIM",
+    "raw_active_voxels": 189509,
+    "spacing_xyz": [
+      0.06069965288043022,
+      0.06069965288043022,
+      0.060698509216308594
+    ]
+  }
+}

@@ -4,13 +4,13 @@
 
 Transform `parosol-py` from a thin ParOSol wrapper into a modular Python FEA API
 with friendly command-line profiles. The core package should stay general and
-testable, while bone-specific helpers and FAIM-compatible workflows are layered
+testable, while bone-specific helpers and legacy solver-compatible workflows are layered
 on top.
 
 The main user workflows are:
 
 - Run standard 1% axial compression on segmented bone images.
-- Match FAIM stiffness, reaction force, Pistoia factor, and failure load for
+- Match legacy solver stiffness, reaction force, Pistoia factor, and failure load for
   legacy cases.
 - Export useful standard outputs, including compressed `.nii.gz` field images
   and compact summary JSON.
@@ -26,7 +26,7 @@ The main user workflows are:
 - Make bone helpers generate core boundary-condition objects rather than writing
   solver files directly.
 - Keep the CLI as a profile/config adapter over the Python API.
-- Treat FAIM outputs as validation references, not as the internal data model.
+- Treat legacy solver outputs as validation references, not as the internal data model.
 - Make field image export a standard output, but avoid unnecessary dense
   reconstruction when a profile only asks for summary metrics.
 
@@ -74,7 +74,7 @@ Initial helpers:
 
 The CLI should load a case config and profile files, instantiate the same Python
 objects, and run the same core API. Inexperienced users should be able to select
-profiles such as `faim_compat`, `standard_fields`, or `batch_summary` without
+profiles such as `legacy_axial`, `standard_fields`, or `batch_summary` without
 knowing every solver option.
 
 Example config direction:
@@ -97,7 +97,7 @@ load_case:
   strain: -0.01
   surfaces: auto_extrema
 
-solver_profile: faim_compat
+solver_profile: legacy_axial
 output_profile: standard_fields
 ```
 
@@ -142,8 +142,8 @@ batch of similar bones.
 
 Profiles should be named bundles, with all fields overridable by a case config.
 
-- `faim_compat`: axial compression defaults, FAIM-like material parsing, Pistoia
-  JSON metrics, tolerance `1e-6`, standard FAIM validation fields.
+- `legacy_axial`: axial compression defaults, legacy-compatible material parsing, Pistoia
+  JSON metrics, tolerance `1e-6`, standard legacy solver validation fields.
 - `quick_summary`: SED and force/displacement fields only, no dense image export,
   summary JSON only.
 - `standard_fields`: summary JSON plus compressed `.nii.gz` for SED and selected
@@ -163,7 +163,7 @@ Every complete run should be able to produce:
 - retained ParOSol HDF5 input/output when requested;
 - captured solver stdout/stderr logs for reproducibility.
 
-The summary JSON should be generated directly from ParOSol results. Old FAIM
+The summary JSON should be generated directly from ParOSol results. Old legacy solver
 text parsing remains useful only for validation and migration.
 
 ## Fast Field Reconstruction
@@ -183,9 +183,9 @@ The old `BoneMechanoregulation` fast extractor used vectorized element-center
 mapping for `.n88model` fields. `parosol-py` should use the equivalent idea for
 ParOSol HDF5 native element order.
 
-## FAIM Validation Matrix
+## legacy solver Validation Matrix
 
-The current local validation folder contains five real FAIM reference cases:
+The current local validation folder contains five real legacy solver reference cases:
 
 - `VITD_0003_RL_M06_HOM_LS`
 - `CABHS_5001_RL_V1_HOM_LS`
@@ -230,7 +230,7 @@ threading is added.
    - keep MPI launch support;
    - keep physical displacement scaling;
    - keep summary-only output profiles;
-   - finish a successful FAIM comparison run on at least one sample case.
+   - finish a successful legacy solver comparison run on at least one sample case.
 
 2. Introduce explicit core data objects:
    - `Model`;
@@ -257,7 +257,7 @@ threading is added.
 
 6. Add profiles and validation CLI:
    - profile files or built-in profile registry;
-   - `parosol validate-faim` over the five local references;
+   - `parosol validate-reference` over the five local references;
    - JSON and table outputs.
 
 ## Acceptance Criteria
@@ -270,8 +270,8 @@ threading is added.
   than the current per-field reconstruction path.
 - Summary-only runs do not reconstruct dense images.
 - At least one full local sample case completes and reports comparison against
-  FAIM pistoia values.
-- The five local FAIM cases are represented in a validation manifest.
+  legacy solver pistoia values.
+- The five local legacy solver cases are represented in a validation manifest.
 - The CLI can run a named profile without requiring inexperienced users to
   understand the lower-level API.
 

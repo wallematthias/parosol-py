@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .config_templates import available_config_profiles, read_config_template
 from .config import run_case_config
-from .reports import parse_faim_analysis_file, parse_pistoia_file, write_summary_json
+from .reports import parse_legacy_analysis_file, parse_pistoia_file, write_summary_json
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,13 +30,13 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.set_defaults(func=_run)
 
     summary_parser = subparsers.add_parser(
-        "summarize-faim",
-        help="Convert old FAIM analysis/Pistoia text outputs to compact JSON",
+        "summarize-legacy",
+        help="Convert old legacy solver analysis/Pistoia text outputs to compact JSON",
     )
     summary_parser.add_argument("--analysis", help="Path to old *_analysis.txt")
     summary_parser.add_argument("--pistoia", help="Path to old *_pistoia.txt")
     summary_parser.add_argument("-o", "--output", required=True, help="Output JSON path")
-    summary_parser.set_defaults(func=_summarize_faim)
+    summary_parser.set_defaults(func=_summarize_legacy)
 
     template_parser = subparsers.add_parser(
         "config-template",
@@ -60,12 +60,12 @@ def _run(args: argparse.Namespace) -> int:
     return 0
 
 
-def _summarize_faim(args: argparse.Namespace) -> int:
-    summary = {"faim": {}}
+def _summarize_legacy(args: argparse.Namespace) -> int:
+    summary = {"reference": {}}
     if args.analysis:
-        summary["faim"]["analysis"] = parse_faim_analysis_file(Path(args.analysis))
+        summary["reference"]["analysis"] = parse_legacy_analysis_file(Path(args.analysis))
     if args.pistoia:
-        summary["faim"]["pistoia"] = parse_pistoia_file(Path(args.pistoia))
+        summary["reference"]["pistoia"] = parse_pistoia_file(Path(args.pistoia))
     write_summary_json(args.output, summary)
     print(args.output)
     return 0

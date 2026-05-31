@@ -94,10 +94,10 @@ Dry-run without launching the solver:
 parosol run case.yaml --dry-run
 ```
 
-Convert old FAIM text outputs into compact JSON:
+Convert old legacy solver text outputs into compact JSON:
 
 ```bash
-parosol summarize-faim \
+parosol summarize-legacy \
   --analysis VITD_0003_RL_M06_HOM_LS_analysis.txt \
   --pistoia VITD_0003_RL_M06_HOM_LS_pistoia.txt \
   -o VITD_0003_RL_M06_HOM_LS_summary.json
@@ -117,11 +117,12 @@ AIM IO is provided by `aimio-py` through `py_aimio`.
 
 This first pass provides the clean Python API, HDF5 input writing, solver
 command construction, result reading, `.nii.gz` scalar export, and validation
-helpers. FAIM-ish command-line compatibility is planned as a second pass.
+helpers. Legacy-compatible command-line compatibility is planned as a second pass.
 
 ## Validation
 
-The test suite includes optional FAIM 10.0 reference checks. When FAIM and a
-packaged ParOSol executable are available, a tiny axial-compression cube is
-generated with `n88modelgenerator`, solved with FAIM, solved with ParOSol, and
-the dense SED fields are compared.
+The test suite includes a connected-component-filtered TRAB_1240 reference fixture.
+By default, tests validate the compressed fixture metadata without running the solver.
+Set `PAROSOL_RUN_REFERENCE_TESTS=1` to run the ParOSol axial-compression regression
+and compare stiffness, reaction force, and Pistoia failure load against the fixed
+reference JSON.

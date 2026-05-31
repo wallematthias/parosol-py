@@ -7,7 +7,7 @@ import SimpleITK as sitk
 from parosol_py.cli import main
 from parosol_py.config import run_case_config
 
-FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "faim"
+FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "reference"
 
 
 def test_run_case_config_dry_run_writes_summary_json(tmp_path: Path):
@@ -72,6 +72,48 @@ def test_run_case_config_reads_image_metadata_for_auto_spacing(tmp_path: Path):
     assert result.summary.origin == (1.0, 2.0, 3.0)
 
 
+def test_run_case_config_reads_compressed_npz_label_image(tmp_path: Path):
+    labels = np.ones((2, 2, 2), dtype=np.uint8)
+    np.savez_compressed(
+        tmp_path / "labels.npz",
+        labels=labels,
+        spacing_xyz=np.asarray([0.5, 0.5, 0.5], dtype=np.float64),
+        origin_xyz=np.asarray([1.0, 2.0, 3.0], dtype=np.float64),
+    )
+    (tmp_path / "materials.yaml").write_text(
+        "MaterialDefinitions:\n"
+        "    Bone:\n"
+        "        Type: LinearIsotropic\n"
+        "        E: 10000\n"
+        "        nu: 0.3\n"
+        "MaterialTable:\n"
+        "    1: Bone\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "labels.npz",
+                    "image_type": "material_labels",
+                    "spacing": "auto",
+                    "origin": "auto",
+                },
+                "materials": {"file": "materials.yaml"},
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_case_config(config_path)
+
+    assert result.summary.dimensions_xyz == (2, 2, 2)
+    assert result.summary.spacing == (0.5, 0.5, 0.5)
+    assert result.summary.origin == (1.0, 2.0, 3.0)
+
+
 def test_run_case_config_can_disable_field_export(monkeypatch, tmp_path: Path):
     material = np.ones((2, 2, 2), dtype=np.float64) * 1000.0
     np.save(tmp_path / "material.npy", material)
@@ -117,7 +159,7 @@ def test_run_case_config_applies_named_profiles(monkeypatch, tmp_path: Path):
         json.dumps(
             {
                 "input": {"image": "material.npy", "spacing": [1, 1, 1]},
-                "solver_profile": "faim_compat",
+                "solver_profile": "legacy_axial",
                 "output_profile": "quick_summary",
                 "output": {"summary": "summary.json"},
             }
@@ -211,7 +253,7 @@ def test_run_case_config_builds_boundary_conditions_from_voxel_nodeset_labels(
     assert np.any((bc.fixed_coordinates[:, 2] == 0) & (bc.fixed_values == 0.0))
 
 
-def test_cli_run_and_summarize_faim(tmp_path: Path):
+def test_cli_run_and_summarize_legacy(tmp_path: Path):
     material = np.ones((2, 2, 2), dtype=np.float64) * 1000.0
     np.save(tmp_path / "material.npy", material)
     config_path = tmp_path / "case.json"
@@ -232,7 +274,7 @@ def test_cli_run_and_summarize_faim(tmp_path: Path):
     assert (
         main(
             [
-                "summarize-faim",
+                "summarize-legacy",
                 "--analysis",
                 str(FIXTURE_ROOT / "SAMPLE_HOM_LS_analysis.txt"),
                 "--pistoia",
@@ -244,4 +286,4 @@ def test_cli_run_and_summarize_faim(tmp_path: Path):
         == 0
     )
     summary = json.loads(out.read_text(encoding="utf-8"))
-    assert summary["faim"]["pistoia"]["failure_load"]["fz"] == -4741.0
+    assert summary["reference"]["pistoia"]["failure_load"]["fz"] == -4741.0

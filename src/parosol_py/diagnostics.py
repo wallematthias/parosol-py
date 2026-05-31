@@ -20,7 +20,7 @@ def build_fea_diagnostics(
     critical_volume_percent: float | None = 2.0,
     failure_criterion: str = "pistoia",
 ) -> dict[str, Any]:
-    """Derive compact FAIM-style mechanics summaries from ParOSol solution fields."""
+    """Derive compact mechanics summaries from ParOSol solution fields."""
     stiffness = np.asarray(stiffness_gpa_xyz, dtype=np.float64)
     axis_token = axis.strip().lower()
     if axis_token not in AXIS_TO_INDEX:

@@ -2,12 +2,12 @@
 
 ## Goal
 
-Create `parosol-py`, a standalone, pip-installable Python package that extracts ParOSol from the old `framework-main` repository and makes it usable as a modern finite-element solver library. The first pass focuses on a clean Python API and reproducible FAIM-vs-ParOSol validation. A FAIM-like command-line compatibility layer is a second pass built on top of the validated API.
+Create `parosol-py`, a standalone, pip-installable Python package that extracts ParOSol from the old `framework-main` repository and makes it usable as a modern finite-element solver library. The first pass focuses on a clean Python API and reproducible legacy solver-vs-ParOSol validation. A legacy-compatible command-line compatibility layer is a second pass built on top of the validated API.
 
 The migration should let existing workflows move from:
 
 ```text
-input image + material.txt -> FAIM 10.0 -> .txt + .n88model outputs
+input image + material.txt -> legacy solver 10.0 -> .txt + .n88model outputs
 ```
 
 to:
@@ -16,7 +16,7 @@ to:
 input image or material array -> parosol-py -> structured Python results + .nii.gz image outputs
 ```
 
-`aimio-py` owns AIM input/output. `parosol-py` owns FE preparation, ParOSol execution, result extraction, image export, and validation against FAIM.
+`aimio-py` owns AIM input/output. `parosol-py` owns FE preparation, ParOSol execution, result extraction, image export, and validation against legacy solver.
 
 ## Scope
 
@@ -28,22 +28,22 @@ input image or material array -> parosol-py -> structured Python results + .nii.
 - Run ParOSol locally and capture logs, timings, iterations, and residuals.
 - Read ParOSol output fields into structured Python objects.
 - Export scalar and tensor-derived fields as `.nii.gz`, with `.mha` allowed as a debugging or comparison format.
-- Build synthetic FAIM golden fixtures from small examples in `BoneMechanoregulation`.
-- Compare ParOSol outputs against FAIM outputs using explicit numeric tolerances.
+- Build synthetic legacy solver golden fixtures from small examples in `BoneMechanoregulation`.
+- Compare ParOSol outputs against legacy solver outputs using explicit numeric tolerances.
 
 ### Second Pass
 
-- Add FAIM-ish command-line entry points using the Python API.
-- Support existing FAIM-style options where they map cleanly, such as test type, test axis, strain, material definitions, convergence tolerance, maximum iterations, and output fields.
-- Keep the CLI as a thin adapter so FAIM naming and `.n88model` assumptions do not leak into the core API.
+- Add legacy-compatible command-line entry points using the Python API.
+- Support existing legacy solver-style options where they map cleanly, such as test type, test axis, strain, material definitions, convergence tolerance, maximum iterations, and output fields.
+- Keep the CLI as a thin adapter so legacy solver naming and `.n88model` assumptions do not leak into the core API.
 
 ## Non-Goals
 
-- Reimplement all of FAIM 10.0 in the first pass.
+- Reimplement all of legacy solver 10.0 in the first pass.
 - Preserve `.n88model` as the primary output format.
 - Copy old `ifb_framework` AIM IO into the new package.
 - Build a GUI.
-- Support every FAIM material model immediately. The first pass targets linear isotropic material definitions needed by the synthetic validation fixtures.
+- Support every legacy solver material model immediately. The first pass targets linear isotropic material definitions needed by the synthetic validation fixtures.
 
 ## Package Boundaries
 
@@ -75,13 +75,13 @@ Module responsibilities:
 
 - `api.py`: public `solve`, `solve_aim`, and dataclasses.
 - `images.py`: axis-order normalization, spacing/origin handling, and image export.
-- `materials.py`: material array to ParOSol stiffness image conversion; material table parsing for FAIM-style material files.
+- `materials.py`: material array to ParOSol stiffness image conversion; material table parsing for legacy solver-style material files.
 - `boundary_conditions.py`: standard axial compression and simple shear condition generation.
 - `hdf5_io.py`: ParOSol HDF5 schema read/write.
 - `runner.py`: executable discovery, subprocess execution, MPI/local run configuration, and log capture.
 - `results.py`: field decoding, metadata, tensor field layout, and output formatting.
-- `validation.py`: helpers for FAIM golden fixture comparison.
-- `cli.py`: second-pass FAIM-ish command-line adapter.
+- `validation.py`: helpers for legacy solver golden fixture comparison.
+- `cli.py`: second-pass legacy-compatible command-line adapter.
 
 ## Public API
 
@@ -136,9 +136,9 @@ The returned result should include:
 8. Export requested fields to `.nii.gz` and optionally `.mha`.
 9. Return a structured result object.
 
-## FAIM Validation Strategy
+## legacy solver Validation Strategy
 
-Use `BoneMechanoregulation` as the source of small synthetic FAIM cases. The first fixture set should include:
+Use `BoneMechanoregulation` as the source of small synthetic legacy solver cases. The first fixture set should include:
 
 - A homogeneous cube under axial compression.
 - An asymmetric block, such as `(9, 7, 5)`, to catch axis-order errors.
@@ -149,7 +149,7 @@ Use `BoneMechanoregulation` as the source of small synthetic FAIM cases. The fir
 For each fixture:
 
 1. Generate the input material or label image deterministically in Python.
-2. Run FAIM 10.0 once to produce golden outputs.
+2. Run legacy solver 10.0 once to produce golden outputs.
 3. Store compact golden data as `.nii.gz` and JSON summaries.
 4. Run `parosol-py` on the same case.
 5. Compare fields and summaries with explicit tolerances.
@@ -184,14 +184,14 @@ parosol-solve input.aim \
   --output_dir out
 ```
 
-Compatibility aliases can be added after the API validation is stable. The CLI should emit `.nii.gz` and JSON summaries by default. It may optionally emit FAIM-like text reports, but those reports are not the core data model.
+Compatibility aliases can be added after the API validation is stable. The CLI should emit `.nii.gz` and JSON summaries by default. It may optionally emit legacy-compatible text reports, but those reports are not the core data model.
 
 ## Risks
 
-- ParOSol and FAIM may not be numerically identical for some fields because solver formulations, convergence behavior, or post-processing definitions differ.
+- ParOSol and legacy solver may not be numerically identical for some fields because solver formulations, convergence behavior, or post-processing definitions differ.
 - ParOSol's HDF5 schema and output ordering must be handled carefully to avoid silent axis flips.
 - Building MPI/HDF5-backed C++ code in wheels may be harder than packaging pure Python.
-- FAIM's material definition grammar may be broader than the first-pass parser.
+- legacy solver's material definition grammar may be broader than the first-pass parser.
 - `.nii.gz` affine/orientation choices must be explicit so outputs remain inspectable and comparable.
 
 ## Acceptance Criteria
@@ -200,7 +200,7 @@ Compatibility aliases can be added after the API validation is stable. The CLI s
 - `import parosol_py` works.
 - A small NumPy cube can be solved through `parosol_py.solve`.
 - Requested fields can be returned as NumPy arrays and exported to `.nii.gz`.
-- Synthetic validation tests compare ParOSol against FAIM golden outputs for at least cube compression, asymmetric geometry, and two-material geometry.
+- Synthetic validation tests compare ParOSol against legacy solver golden outputs for at least cube compression, asymmetric geometry, and two-material geometry.
 - The public API does not depend on `ifb_framework`.
 - AIM input uses `py_aimio`, not copied AIM reader code.
-- FAIM-ish CLI work is documented as pass two and does not block the first-pass API package.
+- legacy-compatible CLI work is documented as pass two and does not block the first-pass API package.

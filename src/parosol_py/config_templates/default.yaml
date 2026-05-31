@@ -8,7 +8,7 @@ case:
 
 input:
   # Material label images are the recommended user-facing input.
-  # Supported formats: .AIM, .nii, .nii.gz, .mha, .mhd, .npy.
+  # Supported formats: .AIM, .nii, .nii.gz, .mha, .mhd, .npy, .npz.
   image: material_labels.AIM
   image_type: material_labels
   # Use auto for formats with metadata. For .npy, provide [x, y, z] spacing in mm.
@@ -16,7 +16,7 @@ input:
   origin: auto
 
 materials:
-  # FAIM-style material file with MaterialDefinitions and MaterialTable sections.
+  # MaterialDefinitions and MaterialTable sections.
   # native ParOSol currently uses one global Poisson's ratio, so all material nu
   # values must match unless a global poisson_ratio/nu override is set here.
   file: material_cort_trab.txt
@@ -42,7 +42,7 @@ nodesets:
     selection: surface_nodes
 
 load_case:
-  # Built-in FAIM-like compression:
+  # Built-in legacy-compatible compression:
   type: axial
   axis: z
   strain: -0.01

@@ -14,15 +14,15 @@ def test_default_config_template_documents_material_and_nodeset_workflow():
 def test_profile_override_templates_are_available():
     profiles = available_config_profiles()
 
-    assert "faim_compat" in profiles
+    assert "legacy_axial" in profiles
     assert "batch" in profiles
     assert "debug" in profiles
-    assert "solver_profile: faim_compat" in read_config_template("faim_compat")
+    assert "solver_profile: legacy_axial" in read_config_template("legacy_axial")
 
 
 def test_cli_prints_config_template(capsys):
-    assert main(["config-template", "--profile", "faim_compat"]) == 0
+    assert main(["config-template", "--profile", "legacy_axial"]) == 0
 
     out = capsys.readouterr().out
     assert "parosol-py default case settings" in out
-    assert "solver_profile: faim_compat" in out
+    assert "solver_profile: legacy_axial" in out

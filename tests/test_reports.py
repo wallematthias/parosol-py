@@ -6,12 +6,12 @@ import pytest
 
 from parosol_py.reports import (
     field_statistics,
-    parse_faim_analysis_file,
+    parse_legacy_analysis_file,
     parse_pistoia_file,
     write_summary_json,
 )
 
-FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "faim"
+FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "reference"
 
 
 def test_field_statistics_are_json_friendly():
@@ -22,8 +22,8 @@ def test_field_statistics_are_json_friendly():
     assert stats["percentiles"]["p50"] == pytest.approx(2.0)
 
 
-def test_parse_old_faim_outputs_to_compact_json(tmp_path: Path):
-    analysis = parse_faim_analysis_file(FIXTURE_ROOT / "SAMPLE_HOM_LS_analysis.txt")
+def test_parse_legacy_outputs_to_compact_json(tmp_path: Path):
+    analysis = parse_legacy_analysis_file(FIXTURE_ROOT / "SAMPLE_HOM_LS_analysis.txt")
     pistoia = parse_pistoia_file(FIXTURE_ROOT / "SAMPLE_HOM_LS_pistoia.txt")
 
     assert analysis["model_input"]["number_of_elements"] == 5205150

@@ -3,7 +3,7 @@ from __future__ import annotations
 from .core import OutputProfile, SolverProfile
 
 SOLVER_PROFILES = {
-    "faim_compat": SolverProfile(
+    "legacy_axial": SolverProfile(
         tolerance=1e-6,
         level=6,
         mpi_processes=1,

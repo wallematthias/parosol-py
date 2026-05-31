@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first-pass `parosol-py` package: installable ParOSol executable, clean Python API, HDF5 IO, image export, and synthetic FAIM-oriented validation scaffolding.
+**Goal:** Build the first-pass `parosol-py` package: installable ParOSol executable, clean Python API, HDF5 IO, image export, and synthetic legacy solver-oriented validation scaffolding.
 
-**Architecture:** Package ParOSol as a native CMake executable inside a modern `scikit-build-core` Python package, then wrap it with focused Python modules. Python normalizes image/material inputs, writes ParOSol HDF5 input, runs the solver, reads `/Solution` datasets, exports image fields, and provides validation helpers. FAIM-ish CLI compatibility remains out of scope for this first implementation plan.
+**Architecture:** Package ParOSol as a native CMake executable inside a modern `scikit-build-core` Python package, then wrap it with focused Python modules. Python normalizes image/material inputs, writes ParOSol HDF5 input, runs the solver, reads `/Solution` datasets, exports image fields, and provides validation helpers. legacy-compatible CLI compatibility remains out of scope for this first implementation plan.
 
 **Tech Stack:** Python 3.10+, NumPy, h5py, SimpleITK, pytest, scikit-build-core, CMake, MPI, HDF5, Eigen, ParOSol C++ source from `framework-main/src/parOsol`.
 
@@ -174,7 +174,7 @@ First-pass scope:
 - ParOSol HDF5 input/output
 - Local solver execution
 - NumPy and `.nii.gz` field outputs
-- Synthetic validation against FAIM fixtures
+- Synthetic validation against legacy solver fixtures
 ```
 
 Create `/Users/matthias.walle/Documents/14_GitHub/active/parosol-py/src/parosol_py/_version.py`:
@@ -1542,7 +1542,7 @@ AIM IO is provided by `aimio-py` through `py_aimio`.
 
 ## Scope
 
-This first pass provides the clean Python API. FAIM-ish command-line compatibility is planned as a second pass.
+This first pass provides the clean Python API. legacy-compatible command-line compatibility is planned as a second pass.
 ```
 
 - [ ] **Step 2: Run final verification**
@@ -1579,6 +1579,6 @@ git commit -m "docs: add parosol-py implementation plan and usage"
 
 ## Self-Review
 
-- Spec coverage: the plan covers package scaffold, ParOSol native build, NumPy API, AIM delegation through `aimio-py`, HDF5 input, solver runner, field reading, `.nii.gz` export, validation helpers, tests, and documentation. FAIM-ish CLI is intentionally excluded as second-pass work.
+- Spec coverage: the plan covers package scaffold, ParOSol native build, NumPy API, AIM delegation through `aimio-py`, HDF5 input, solver runner, field reading, `.nii.gz` export, validation helpers, tests, and documentation. legacy-compatible CLI is intentionally excluded as second-pass work.
 - Placeholder scan: no task contains unresolved `TBD`, `TODO`, or "implement later" steps. The only conditional path is native dependency failure during editable install, which is explicitly captured as a verification outcome.
 - Type consistency: public names are consistent across tasks: `solve`, `solve_aim`, `SolveResult`, `SolveSummary`, `ImageGrid`, `normalize_array`, `material_to_stiffness_gpa`, `write_parosol_input`, `build_parosol_command`, `read_solution_fields`, and `compare_field`.

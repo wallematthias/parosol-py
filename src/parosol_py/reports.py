@@ -88,7 +88,7 @@ def write_solve_summary_json(
     return write_summary_json(path, solve_summary_dict(result, extra=extra))
 
 
-def parse_faim_analysis_text(text: str) -> dict[str, Any]:
+def parse_legacy_analysis_text(text: str) -> dict[str, Any]:
     return {
         "model_input": _parse_key_value_table(text, "Table 1: Model Input"),
         "materials": _parse_materials(text),
@@ -105,8 +105,8 @@ def parse_faim_analysis_text(text: str) -> dict[str, Any]:
     }
 
 
-def parse_faim_analysis_file(path: str | Path) -> dict[str, Any]:
-    return parse_faim_analysis_text(Path(path).read_text(encoding="utf-8"))
+def parse_legacy_analysis_file(path: str | Path) -> dict[str, Any]:
+    return parse_legacy_analysis_text(Path(path).read_text(encoding="utf-8"))
 
 
 def parse_pistoia_text(text: str) -> dict[str, Any]:
