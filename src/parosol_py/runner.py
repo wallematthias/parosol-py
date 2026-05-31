@@ -36,18 +36,23 @@ class RunResult:
 
 
 def packaged_executable() -> Path:
-    executable = Path(resources.files("parosol_py").joinpath("bin/parosol"))
-    if executable.exists():
-        return executable
+    for name in _platform_executable_names("parosol"):
+        executable = Path(resources.files("parosol_py").joinpath(f"bin/{name}"))
+        if executable.exists():
+            return executable
     try:
-        installed = Path(
-            metadata.distribution("parosol-py").locate_file("parosol_py/bin/parosol")
-        )
+        distribution = metadata.distribution("parosol-py")
     except metadata.PackageNotFoundError:
-        return executable
-    if installed.exists():
-        return installed
-    return executable
+        return Path(resources.files("parosol_py").joinpath("bin/parosol"))
+    for name in _platform_executable_names("parosol"):
+        installed = Path(distribution.locate_file(f"parosol_py/bin/{name}"))
+        if installed.exists():
+            return installed
+    return Path(distribution.locate_file("parosol_py/bin/parosol"))
+
+
+def _platform_executable_names(base: str) -> tuple[str, ...]:
+    return (base, f"{base}.exe")
 
 
 def build_parosol_command(

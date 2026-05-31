@@ -1,0 +1,148 @@
+name: Build Wheels
+
+"on":
+  pull_request:
+    branches: ["main", "master"]
+  push:
+    branches: ["main", "master"]
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build_wheels:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: manylinux-x86_64
+            cibw_arch: x86_64
+          - os: windows-latest
+            artifact: windows-amd64
+            cibw_arch: AMD64
+          - os: macos-latest
+            artifact: macos-arm64
+            cibw_arch: arm64
+          - os: macos-15-intel
+            artifact: macos-x86_64
+            cibw_arch: x86_64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache vcpkg artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\downloads
+            C:\vcpkg\buildtrees
+            C:\vcpkg\packages
+            C:\vcpkg\installed
+            C:\vcpkg\bincache
+          key: ${{ runner.os }}-vcpkg-parosol-v1-${{ hashFiles('pyproject.toml', '.github/workflows/build-wheels.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-parosol-v1-
+
+      - name: Install cibuildwheel
+        run: |
+          python -m pip install --upgrade pip cibuildwheel
+
+      - name: Build wheels (cibuildwheel)
+        env:
+          CIBW_ARCHS: ${{ matrix.cibw_arch }}
+        run: python -m cibuildwheel --output-dir dist
+
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.artifact }}
+          path: ./dist/*.whl
+
+  build_sdist:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --sdist --outdir dist
+
+      - name: Upload sdist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: ./dist/*.tar.gz
+
+  publish:
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      id-token: write
+      contents: read
+    environment:
+      name: pypi
+      url: https://pypi.org/p/parosol-py
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download sdist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+
+      - name: Set up Python for debug tooling
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Debug artifact inventory
+        run: |
+          echo "Current dist/ contents:"
+          ls -lah dist
+          echo
+          echo "Wheel files:"
+          ls -1 dist/*.whl || true
+          echo
+          echo "Source distributions:"
+          ls -1 dist/*.tar.gz || true
+
+      - name: Twine check
+        run: |
+          python -m pip install --upgrade pip twine
+          python -m twine check dist/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          verbose: true

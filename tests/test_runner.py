@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from parosol_py.runner import (
+    _platform_executable_names,
     build_parosol_command,
     packaged_executable,
     parse_run_summary,
@@ -69,4 +70,8 @@ def test_parse_run_summary_extracts_solver_metrics():
 
 
 def test_packaged_executable_returns_path():
-    assert packaged_executable().name == "parosol"
+    assert packaged_executable().name in {"parosol", "parosol.exe"}
+
+
+def test_platform_executable_names_include_windows_suffix():
+    assert _platform_executable_names("parosol") == ("parosol", "parosol.exe")
