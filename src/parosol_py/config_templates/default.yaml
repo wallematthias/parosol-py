@@ -1,0 +1,83 @@
+# parosol-py default case settings.
+# Copy this file, set paths, and keep only the sections you need.
+# Profile override snippets live in parosol_py/config_templates/profiles.
+
+case:
+  name: example_case
+  work_dir: parosol_run/example_case
+
+input:
+  # Material label images are the recommended user-facing input.
+  # Supported formats: .AIM, .nii, .nii.gz, .mha, .mhd, .npy.
+  image: material_labels.AIM
+  image_type: material_labels
+  # Use auto for formats with metadata. For .npy, provide [x, y, z] spacing in mm.
+  spacing: auto
+  origin: auto
+
+materials:
+  # FAIM-style material file with MaterialDefinitions and MaterialTable sections.
+  # native ParOSol currently uses one global Poisson's ratio, so all material nu
+  # values must match unless a global poisson_ratio/nu override is set here.
+  file: material_cort_trab.txt
+  units: MPa
+  # poisson_ratio: 0.3
+
+nodesets:
+  # Optional. Use for non-standard loading/fixation regions.
+  # Label images are voxel/element labelmaps with the same grid as the material image.
+  # selection options:
+  #   surface_nodes: nodes on the exterior of the labeled voxel region
+  #   all_corner_nodes: every node touched by the labeled voxels
+  #   interface_nodes: nodes where labeled voxels touch other material voxels
+  load_plate:
+    type: label_image
+    image: nodesets.nii.gz
+    label: 1
+    selection: surface_nodes
+  distal_fix:
+    type: label_image
+    image: nodesets.nii.gz
+    label: 2
+    selection: surface_nodes
+
+load_case:
+  # Built-in FAIM-like compression:
+  type: axial
+  axis: z
+  strain: -0.01
+
+  # Custom nodeset-driven loading. Change type to nodeset to use this block.
+  # type: nodeset
+  # fixed:
+  #   - nodeset: distal_fix
+  #     dofs: [x, y, z]
+  #     value: 0
+  # prescribed:
+  #   - nodeset: load_plate
+  #     dof: z
+  #     value: -1%
+  # loaded:
+  #   - nodeset: load_plate
+  #     dof: z
+  #     value: -700
+  #     distribute: true
+
+solver:
+  tolerance: 1.0e-6
+  level: 6
+  mpi_processes: 1
+  mpi_launcher: mpirun
+  # Output field names map to native ParOSol output flags.
+  outputs: [sed]
+
+failure:
+  criterion: pistoia
+  critical_strain: 0.007
+  critical_volume_percent: 2.0
+
+output:
+  summary: parosol_run/example_case/summary.json
+  export_fields: true
+  fields_dir: parosol_run/example_case/fields
+  dry_run: false

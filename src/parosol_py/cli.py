@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from .config_templates import available_config_profiles, read_config_template
 from .config import run_case_config
 from .reports import parse_faim_analysis_file, parse_pistoia_file, write_summary_json
 
@@ -36,6 +37,17 @@ def _build_parser() -> argparse.ArgumentParser:
     summary_parser.add_argument("--pistoia", help="Path to old *_pistoia.txt")
     summary_parser.add_argument("-o", "--output", required=True, help="Output JSON path")
     summary_parser.set_defaults(func=_summarize_faim)
+
+    template_parser = subparsers.add_parser(
+        "config-template",
+        help="Print the commented default config and optional profile override",
+    )
+    template_parser.add_argument(
+        "--profile",
+        choices=available_config_profiles(),
+        help="Append a user-facing profile override snippet",
+    )
+    template_parser.set_defaults(func=_config_template)
     return parser
 
 
@@ -56,6 +68,14 @@ def _summarize_faim(args: argparse.Namespace) -> int:
         summary["faim"]["pistoia"] = parse_pistoia_file(Path(args.pistoia))
     write_summary_json(args.output, summary)
     print(args.output)
+    return 0
+
+
+def _config_template(args: argparse.Namespace) -> int:
+    print(read_config_template("default"))
+    if args.profile:
+        print("\n# --- profile override ---\n")
+        print(read_config_template(args.profile))
     return 0
 
 

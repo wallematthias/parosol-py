@@ -9,7 +9,9 @@ import numpy as np
 import SimpleITK as sitk
 
 from .api import SolveResult, solve, solve_aim
+from .images import normalize_array
 from .materials import parse_linear_isotropic_materials
+from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .profiles import get_output_profile, get_solver_profile
 from .reports import solve_summary_dict, write_summary_json
 
@@ -44,6 +46,7 @@ def run_case_config(
     case_cfg = _section(config, "case")
     input_cfg = _section(config, "input")
     material_cfg = _section(config, "materials")
+    nodeset_cfg = _section(config, "nodesets")
     load_case_cfg = _section(config, "load_case")
     solver_cfg = _section(config, "solver")
     output_cfg = _section(config, "output")
@@ -70,23 +73,23 @@ def run_case_config(
         base_dir=base_dir,
     )
 
-    load_type = str(load_case_cfg.get("type", "axial")).strip().lower()
-    if load_type not in {"axial", "compression"}:
-        raise NotImplementedError(
-            "Only axial/compression load cases are implemented in this CLI pass"
-        )
-
     dry = bool(output_cfg.get("dry_run", False) if dry_run is None else dry_run)
     outputs = tuple(str(v) for v in solver_cfg.get("outputs", solver_profile.outputs))
     image_path = _resolve_path(input_cfg["image"], base_dir=base_dir)
+    image_type = str(input_cfg.get("image_type", "material_mpa")).strip().lower()
+    spacing = _spacing(input_cfg, image_path=image_path)
+    origin = _origin(input_cfg, image_path=image_path)
+    poisson_ratio = _poisson_ratio(
+        material_cfg,
+        image_type=image_type,
+        base_dir=base_dir,
+    )
 
     common = {
-        "spacing": _spacing(input_cfg, image_path=image_path),
-        "origin": _origin(input_cfg, image_path=image_path),
+        "spacing": spacing,
+        "origin": origin,
         "material_unit": str(material_cfg.get("units", "MPa")),
-        "poisson_ratio": float(
-            material_cfg.get("poisson_ratio", material_cfg.get("nu", 0.3))
-        ),
+        "poisson_ratio": poisson_ratio,
         "test": "axial",
         "test_axis": str(load_case_cfg.get("axis", "z")),
         "strain": float(
@@ -117,12 +120,16 @@ def run_case_config(
         "dry_run": dry,
     }
 
-    image_type = str(input_cfg.get("image_type", "material_mpa")).strip().lower()
     if image_path.suffix.lower() == ".aim" and image_type in {
         "material_mpa",
         "mpa",
         "gpa",
     }:
+        if nodeset_cfg:
+            raise ValueError(
+                "nodeset load cases with AIM inputs must use image_type='material_labels' "
+                "or another path that can be read as an array"
+            )
         result = solve_aim(image_path, **common)
     else:
         material = _load_material_array(
@@ -131,8 +138,20 @@ def run_case_config(
             material_cfg=material_cfg,
             base_dir=base_dir,
         )
+        boundary_conditions = _boundary_conditions_from_config(
+            material,
+            spacing=spacing,
+            origin=origin,
+            array_order="zyx",
+            nodeset_cfg=nodeset_cfg,
+            load_case_cfg=load_case_cfg,
+            base_dir=base_dir,
+        )
+        if boundary_conditions is not None:
+            common["boundary_conditions"] = boundary_conditions
         result = solve(material=material, array_order="zyx", **common)
 
+    load_type = str(load_case_cfg.get("type", "axial")).strip().lower()
     extra: dict[str, Any] = {
         "case": {"name": case_name},
         "load_case": {
@@ -151,6 +170,90 @@ def run_case_config(
     summary = solve_summary_dict(result, extra=extra)
     write_summary_json(summary_path, summary)
     return result
+
+
+def _boundary_conditions_from_config(
+    material_zyx: np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    array_order: str,
+    nodeset_cfg: dict[str, Any],
+    load_case_cfg: dict[str, Any],
+    base_dir: Path,
+):
+    load_type = str(load_case_cfg.get("type", "axial")).strip().lower()
+    if load_type in {"axial", "compression"}:
+        if nodeset_cfg:
+            raise ValueError(
+                "nodesets were configured but load_case.type is axial; use type='nodeset'"
+            )
+        return None
+    if load_type not in {"nodeset", "custom"}:
+        raise NotImplementedError(
+            "load_case.type must be axial/compression or nodeset/custom"
+        )
+    if not nodeset_cfg:
+        raise ValueError("load_case.type='nodeset' requires a nodesets section")
+
+    material_grid = normalize_array(
+        material_zyx,
+        spacing=spacing,
+        origin=origin,
+        array_order=array_order,
+    )
+    node_sets = _load_node_sets(
+        nodeset_cfg,
+        material_xyz=material_grid.array_xyz,
+        spacing=spacing,
+        origin=origin,
+        base_dir=base_dir,
+    )
+    return boundary_conditions_from_nodesets(
+        node_sets,
+        fixed=list(load_case_cfg.get("fixed", ())),
+        prescribed=list(load_case_cfg.get("prescribed", ())),
+        loaded=list(load_case_cfg.get("loaded", ())),
+        dimensions_xyz=tuple(int(v) for v in material_grid.array_xyz.shape),
+        spacing=material_grid.spacing,
+    )
+
+
+def _load_node_sets(
+    nodeset_cfg: dict[str, Any],
+    *,
+    material_xyz: np.ndarray,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    base_dir: Path,
+) -> dict[str, list[tuple[int, int, int]]]:
+    out: dict[str, list[tuple[int, int, int]]] = {}
+    for name, spec in nodeset_cfg.items():
+        if not isinstance(spec, dict):
+            raise ValueError(f"nodesets.{name} must be a table/object")
+        nodeset_type = str(spec.get("type", "label_image")).strip().lower()
+        if nodeset_type != "label_image":
+            raise NotImplementedError("Only label_image nodesets are implemented")
+        labels_path = _resolve_path(spec["image"], base_dir=base_dir)
+        labels_zyx = _read_image_array_zyx(labels_path)
+        label_grid = normalize_array(
+            labels_zyx,
+            spacing=spacing,
+            origin=origin,
+            array_order="zyx",
+        )
+        if label_grid.array_xyz.shape != material_xyz.shape:
+            raise ValueError(
+                f"nodeset image '{labels_path}' shape {label_grid.array_xyz.shape} "
+                f"does not match material image shape {material_xyz.shape}"
+            )
+        out[str(name)] = nodes_from_labeled_voxels(
+            label_grid.array_xyz,
+            label=int(spec["label"]),
+            selection=str(spec.get("selection", "surface_nodes")),
+            material=material_xyz,
+        )
+    return out
 
 
 def _load_material_array(
@@ -183,6 +286,32 @@ def _load_material_array(
     for label, youngs_mpa in table.youngs_modulus_mpa.items():
         out[labels == label] = float(youngs_mpa)
     return out
+
+
+def _poisson_ratio(
+    material_cfg: dict[str, Any],
+    *,
+    image_type: str,
+    base_dir: Path,
+) -> float:
+    explicit = material_cfg.get("poisson_ratio", material_cfg.get("nu"))
+    if explicit is not None:
+        return float(explicit)
+    if image_type not in {"material_labels", "labels", "segmentation"}:
+        return 0.3
+    materials_file = material_cfg.get("file")
+    if materials_file is None:
+        return 0.3
+    table = parse_linear_isotropic_materials(
+        _resolve_path(materials_file, base_dir=base_dir).read_text(encoding="utf-8")
+    )
+    values = sorted({round(float(value), 12) for value in table.poisson_ratio.values()})
+    if len(values) > 1:
+        raise ValueError(
+            "native ParOSol currently supports one global Poisson's ratio; "
+            f"material table contains multiple values: {values}"
+        )
+    return float(values[0])
 
 
 def _read_image_array_zyx(path: Path) -> np.ndarray:

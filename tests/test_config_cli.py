@@ -143,6 +143,72 @@ def test_run_case_config_applies_named_profiles(monkeypatch, tmp_path: Path):
     assert captured["export_dir"] is None
 
 
+def test_run_case_config_builds_boundary_conditions_from_voxel_nodeset_labels(
+    monkeypatch, tmp_path: Path
+):
+    material = np.ones((2, 2, 2), dtype=np.float64) * 1000.0
+    nodesets = np.zeros((2, 2, 2), dtype=np.uint8)
+    nodesets[0, :, :] = 2
+    nodesets[1, :, :] = 1
+    np.save(tmp_path / "material.npy", material)
+    np.save(tmp_path / "nodesets.npy", nodesets)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "nodesets": {
+                    "top_plate": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 1,
+                        "selection": "surface_nodes",
+                    },
+                    "bottom_plate": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 2,
+                        "selection": "surface_nodes",
+                    },
+                },
+                "load_case": {
+                    "type": "nodeset",
+                    "prescribed": [
+                        {"nodeset": "top_plate", "dof": "z", "value": "-1%"}
+                    ],
+                    "fixed": [
+                        {"nodeset": "bottom_plate", "dofs": ["x", "y", "z"], "value": 0}
+                    ],
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((2, 2, 2), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    bc = captured["boundary_conditions"]
+    assert bc.node_sets["top_plate"]
+    assert bc.node_sets["bottom_plate"]
+    assert np.any((bc.fixed_coordinates[:, 2] == 2) & (bc.fixed_values == -0.02))
+    assert np.any((bc.fixed_coordinates[:, 2] == 0) & (bc.fixed_values == 0.0))
+
+
 def test_cli_run_and_summarize_faim(tmp_path: Path):
     material = np.ones((2, 2, 2), dtype=np.float64) * 1000.0
     np.save(tmp_path / "material.npy", material)

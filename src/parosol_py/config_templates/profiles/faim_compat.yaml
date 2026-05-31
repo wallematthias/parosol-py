@@ -1,0 +1,13 @@
+# Override snippet for FAIM-like axial compression validation.
+solver_profile: faim_compat
+output_profile: quick_summary
+
+load_case:
+  type: axial
+  axis: z
+  strain: -0.01
+
+failure:
+  criterion: pistoia
+  critical_strain: 0.007
+  critical_volume_percent: 2.0
