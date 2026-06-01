@@ -118,6 +118,16 @@ Dry-run without launching the solver:
 parosol run case.yaml --dry-run
 ```
 
+Run a multi-case direct-mechanics batch:
+
+```bash
+parosol batch direct_mechanics.yaml
+```
+
+A batch config uses the same top-level input/material/solver/output sections as
+a normal case, plus a `batch.cases` list. Each case override is expanded into an
+individual run directory and summarized in one `batch_summary.json`.
+
 Convert old legacy solver text outputs into compact JSON:
 
 ```bash

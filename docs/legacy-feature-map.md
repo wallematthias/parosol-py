@@ -33,7 +33,7 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 
 | Legacy concept | Proposed ParOSol-py equivalent | Notes |
 | --- | --- | --- |
-| Direct mechanics batches | `profiles/direct_mechanics_manifest.yaml` generating x/y/z compression and shear cases | Template implemented; execution helper still needed |
+| Direct mechanics batches | `profiles/direct_mechanics_manifest.yaml` plus `parosol batch` | Implemented for x/y/z compression and z-normal shear |
 | Export node/element sets | `.vtp`/`.vtk` or `.json` debug exports for selected node sets | Useful before Slicer integration |
 | Field export selection | `output.fields: [sed, von_mises, effective_strain]` | Mostly present, needs profile polishing |
 | Solution quality report | Residual/iteration/runtime plus optional checks | Summary already has core solver values |
@@ -46,7 +46,7 @@ The preferred workflow should stay small:
 
 1. Provide a label image and material table.
 2. Pick a named load case/profile or provide label-image node sets.
-3. Run `parosol run case.yaml`.
+3. Run `parosol run case.yaml`, or `parosol batch batch.yaml` for multi-case mechanics.
 4. Read `summary.json` and optional `.nii.gz` fields.
 
 Advanced users should be able to build the same model through Python objects,

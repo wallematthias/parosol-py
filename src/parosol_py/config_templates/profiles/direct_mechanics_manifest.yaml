@@ -1,14 +1,15 @@
-# Template manifest for direct-mechanics batches.
-# parosol-py does not execute this multi-case manifest yet; use these case
-# blocks as profile overrides for x/y/z compression and z-normal shear runs.
-cases:
-  - name_suffix: compression_x
-    load_case: {type: constrained_axial, axis: x, strain: -0.01}
-  - name_suffix: compression_y
-    load_case: {type: constrained_axial, axis: y, strain: -0.01}
-  - name_suffix: compression_z
-    load_case: {type: constrained_axial, axis: z, strain: -0.01}
-  - name_suffix: shear_zx
-    load_case: {type: shear, axis: z, direction: x, strain: 0.01}
-  - name_suffix: shear_zy
-    load_case: {type: shear, axis: z, direction: y, strain: 0.01}
+# Batch manifest for direct-mechanics runs.
+batch:
+  name: direct_mechanics
+  summary: direct_mechanics/batch_summary.json
+  cases:
+    - name_suffix: compression_x
+      load_case: {type: constrained_axial, axis: x, strain: -0.01}
+    - name_suffix: compression_y
+      load_case: {type: constrained_axial, axis: y, strain: -0.01}
+    - name_suffix: compression_z
+      load_case: {type: constrained_axial, axis: z, strain: -0.01}
+    - name_suffix: shear_zx
+      load_case: {type: shear, axis: z, direction: x, strain: 0.01}
+    - name_suffix: shear_zy
+      load_case: {type: shear, axis: z, direction: y, strain: 0.01}

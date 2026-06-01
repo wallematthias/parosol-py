@@ -1,5 +1,6 @@
 from ._version import __version__
 from .api import SolveResult, SolveSummary, solve, solve_aim
+from .batch import run_batch_config
 from .core import BoundaryConditionSet, Model, OutputProfile, SolverProfile
 from .load_cases import (
     Bending,
@@ -38,6 +39,7 @@ __all__ = [
     "density_to_material_map",
     "labels_to_material_map",
     "nodes_from_labeled_voxels",
+    "run_batch_config",
     "solve",
     "solve_aim",
     "top_bottom_surface_nodes",

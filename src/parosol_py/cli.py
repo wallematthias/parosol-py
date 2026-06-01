@@ -4,8 +4,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from .config_templates import available_config_profiles, read_config_template
+from .batch import run_batch_config
 from .config import run_case_config
+from .config_templates import available_config_profiles, read_config_template
 from .reports import parse_legacy_analysis_file, parse_pistoia_file, write_summary_json
 
 
@@ -34,6 +35,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument("--work-dir", help="Override the configured work directory")
     run_parser.set_defaults(func=_run)
+
+    batch_parser = subparsers.add_parser("batch", help="Run a ParOSol batch config")
+    batch_parser.add_argument(
+        "config", help="Path to a .yaml, .toml, or .json batch config"
+    )
+    batch_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Write inputs/summaries without launching ParOSol",
+    )
+    batch_parser.add_argument(
+        "--work-dir", help="Override the configured batch directory"
+    )
+    batch_parser.set_defaults(func=_batch)
 
     summary_parser = subparsers.add_parser(
         "summarize-legacy",
@@ -67,6 +82,16 @@ def _run(args: argparse.Namespace) -> int:
     if result.exported:
         for name, path in sorted(result.exported.items()):
             print(f"{name}: {path}")
+    return 0
+
+
+def _batch(args: argparse.Namespace) -> int:
+    summary = run_batch_config(
+        args.config,
+        dry_run=True if args.dry_run else None,
+        work_dir=args.work_dir,
+    )
+    print(summary["batch"]["summary"])
     return 0
 
 
