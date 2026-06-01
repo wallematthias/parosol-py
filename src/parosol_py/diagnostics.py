@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 
 from .boundary_conditions import AXIS_TO_INDEX
+from .field_export import morton_keys
 
 AXIS_NAMES = ("x", "y", "z")
 
@@ -23,6 +24,12 @@ def build_fea_diagnostics(
     critical_strain: float | None = 0.007,
     critical_volume_percent: float | None = 2.0,
     failure_criterion: str = "pistoia",
+    boundary_conditions=None,
+    evaluation_mask_xyz=None,
+    analysis_dimensions_xyz=None,
+    linear_failure_deformation: float = 0.002,
+    crawford_coefficient: float = 0.0068,
+    linear_failure_estimates: bool = False,
 ) -> dict[str, Any]:
     """Derive compact mechanics summaries from ParOSol solution fields."""
     stiffness = np.asarray(stiffness_gpa_xyz, dtype=np.float64)
@@ -40,6 +47,8 @@ def build_fea_diagnostics(
         load_direction=load_direction,
         rotation_degrees=rotation_degrees,
         load_case_center=load_case_center,
+        boundary_conditions=boundary_conditions,
+        analysis_dimensions_xyz=analysis_dimensions_xyz,
     )
     failure = _pistoia_failure(
         fields=fields,
@@ -49,7 +58,18 @@ def build_fea_diagnostics(
         critical_strain=critical_strain,
         critical_volume_percent=critical_volume_percent,
         failure_criterion=failure_criterion,
+        evaluation_mask_xyz=evaluation_mask_xyz,
     )
+    if linear_failure_estimates:
+        failure.update(
+            _linear_failure_estimates(
+                mechanics=mechanics,
+                axis=axis_token,
+                voxel_size_mm=voxel_size_mm,
+                linear_failure_deformation=linear_failure_deformation,
+                crawford_coefficient=crawford_coefficient,
+            )
+        )
     return {"mechanics": mechanics, "failure": failure}
 
 
@@ -64,13 +84,31 @@ def _mechanics_from_node_fields(
     load_direction: str | None,
     rotation_degrees: float | None,
     load_case_center: tuple[float, float] | None,
+    boundary_conditions,
+    analysis_dimensions_xyz,
 ) -> dict[str, Any]:
     axis_index = AXIS_TO_INDEX[axis]
     load_type = load_case_type.strip().lower()
     direction = _load_direction(load_type, axis, load_direction)
     direction_index = AXIS_TO_INDEX[direction]
     dimensions = tuple(int(v) for v in stiffness_gpa_xyz.shape)
-    applied = float(strain) * float(dimensions[axis_index]) * float(voxel_size_mm)
+    analysis_dimensions = (
+        dimensions
+        if analysis_dimensions_xyz is None
+        else tuple(int(v) for v in analysis_dimensions_xyz)
+    )
+    applied_from_strain = (
+        float(strain) * float(analysis_dimensions[axis_index]) * float(voxel_size_mm)
+    )
+    applied = _prescribed_displacement_from_boundary_conditions(
+        boundary_conditions,
+        direction_index=direction_index,
+    )
+    if applied is None:
+        applied = applied_from_strain
+    applied_strain = float(applied) / (
+        float(analysis_dimensions[axis_index]) * float(voxel_size_mm)
+    )
     applied_rotation = (
         None if rotation_degrees is None else np.deg2rad(float(rotation_degrees))
     )
@@ -79,7 +117,11 @@ def _mechanics_from_node_fields(
         "axis": axis,
         "load_case_type": load_type,
         "load_direction": direction,
-        "applied_strain": float(strain),
+        "applied_strain": applied_strain,
+        "analysis_dimensions": {
+            name: int(analysis_dimensions[index])
+            for index, name in enumerate(AXIS_NAMES)
+        },
         "applied_displacement": _xyz(axis_index, applied),
         "applied_rotation_degrees": rotation_degrees,
         "reaction_force": _xyz(axis_index, None),
@@ -104,15 +146,25 @@ def _mechanics_from_node_fields(
         )
         return result
 
-    top_value = dimensions[axis_index]
-    top_indices = [
-        index
-        for index, coord in enumerate(node_coords)
-        if coord[axis_index] == top_value
-    ]
-    bottom_indices = [
-        index for index, coord in enumerate(node_coords) if coord[axis_index] == 0
-    ]
+    selected = _reaction_node_indices_from_boundary_conditions(
+        boundary_conditions,
+        node_coords=node_coords,
+        direction_index=direction_index,
+    )
+    if selected is None:
+        top_value = dimensions[axis_index]
+        top_indices = [
+            index
+            for index, coord in enumerate(node_coords)
+            if coord[axis_index] == top_value
+        ]
+        bottom_indices = [
+            index for index, coord in enumerate(node_coords) if coord[axis_index] == 0
+        ]
+        selection_name = "top_face"
+    else:
+        top_indices, bottom_indices = selected
+        selection_name = "boundary_conditions"
     reaction_vector = np.sum(forces[top_indices, :], axis=0)
     reaction = float(reaction_vector[direction_index])
     generalized = _generalized_load(
@@ -146,6 +198,7 @@ def _mechanics_from_node_fields(
             "generalized_stiffness": generalized_stiffness,
             "top_node_count": len(top_indices),
             "bottom_node_count": len(bottom_indices),
+            "reaction_node_source": selection_name,
             "status": "computed",
         }
     )
@@ -159,6 +212,74 @@ def _mechanics_from_node_fields(
     return result
 
 
+def _reaction_node_indices_from_boundary_conditions(
+    boundary_conditions,
+    *,
+    node_coords: list[tuple[int, int, int]],
+    direction_index: int,
+) -> tuple[list[int], list[int]] | None:
+    if boundary_conditions is None:
+        return None
+    fixed_coordinates = np.asarray(
+        getattr(boundary_conditions, "fixed_coordinates", []), dtype=np.int64
+    )
+    fixed_values = np.asarray(
+        getattr(boundary_conditions, "fixed_values", []), dtype=np.float64
+    ).reshape(-1)
+    if fixed_coordinates.size == 0 or fixed_coordinates.shape[0] != fixed_values.size:
+        return None
+    coord_to_index = {coord: index for index, coord in enumerate(node_coords)}
+    prescribed_nodes: set[tuple[int, int, int]] = set()
+    fixed_nodes: set[tuple[int, int, int]] = set()
+    for coord, value in zip(fixed_coordinates, fixed_values, strict=True):
+        node = tuple(int(v) for v in coord[:3])
+        dof = int(coord[3])
+        if dof != direction_index:
+            continue
+        if np.isclose(value, 0.0) or np.isclose(value, 1e-16):
+            fixed_nodes.add(node)
+        else:
+            prescribed_nodes.add(node)
+    if not prescribed_nodes:
+        return None
+    top_indices = sorted(
+        coord_to_index[node] for node in prescribed_nodes if node in coord_to_index
+    )
+    bottom_indices = sorted(
+        coord_to_index[node] for node in fixed_nodes if node in coord_to_index
+    )
+    if not top_indices:
+        return None
+    return top_indices, bottom_indices
+
+
+def _prescribed_displacement_from_boundary_conditions(
+    boundary_conditions,
+    *,
+    direction_index: int,
+) -> float | None:
+    if boundary_conditions is None:
+        return None
+    fixed_coordinates = np.asarray(
+        getattr(boundary_conditions, "fixed_coordinates", []), dtype=np.int64
+    )
+    fixed_values = np.asarray(
+        getattr(boundary_conditions, "fixed_values", []), dtype=np.float64
+    ).reshape(-1)
+    if fixed_coordinates.size == 0 or fixed_coordinates.shape[0] != fixed_values.size:
+        return None
+    prescribed = [
+        float(value)
+        for coord, value in zip(fixed_coordinates, fixed_values, strict=True)
+        if int(coord[3]) == direction_index
+        and not np.isclose(value, 0.0)
+        and not np.isclose(value, 1e-16)
+    ]
+    if not prescribed:
+        return None
+    return float(np.mean(prescribed))
+
+
 def _pistoia_failure(
     *,
     fields: dict[str, Any],
@@ -168,6 +289,7 @@ def _pistoia_failure(
     critical_strain: float | None,
     critical_volume_percent: float | None,
     failure_criterion: str,
+    evaluation_mask_xyz,
 ) -> dict[str, Any]:
     axis_index = AXIS_TO_INDEX[axis]
     criterion = failure_criterion.strip().lower()
@@ -195,10 +317,13 @@ def _pistoia_failure(
         result["reason"] = "sed field is missing"
         return result
 
-    active_values = _active_element_values(fields["sed"], stiffness_gpa_xyz)
+    active_values = _active_element_values(
+        fields["sed"], stiffness_gpa_xyz, evaluation_mask_xyz=evaluation_mask_xyz
+    )
     active_modulus_mpa = _active_element_values(
         stiffness_gpa_xyz * 1000.0,
         stiffness_gpa_xyz,
+        evaluation_mask_xyz=evaluation_mask_xyz,
     )
     valid = (active_modulus_mpa > 0.0) & np.isfinite(active_values)
     if not np.any(valid):
@@ -246,13 +371,101 @@ def _pistoia_failure(
     return result
 
 
-def _active_element_values(values, stiffness_gpa_xyz: np.ndarray) -> np.ndarray:
+def _linear_failure_estimates(
+    *,
+    mechanics: dict[str, Any],
+    axis: str,
+    voxel_size_mm: float,
+    linear_failure_deformation: float,
+    crawford_coefficient: float,
+) -> dict[str, Any]:
+    stiffness = mechanics.get("generalized_stiffness", {})
+    k_fe = stiffness.get("value")
+    units = stiffness.get("units")
+    analysis_dimensions = mechanics.get("analysis_dimensions", {})
+    height_voxels = analysis_dimensions.get(axis)
+    if k_fe is None or height_voxels is None or units != "N/mm":
+        reason = "linear strength estimates require translational stiffness in N/mm"
+        return {
+            "linear_reaction_at_deformation": {"status": "not_computed", "reason": reason},
+            "crawford_stiffness_height": {"status": "not_computed", "reason": reason},
+        }
+
+    height_mm = float(height_voxels) * float(voxel_size_mm)
+    applied = mechanics.get("applied_displacement", {}).get(axis)
+    reaction = mechanics.get("reaction_force", {}).get(axis)
+    sign_source = applied if applied is not None and not np.isclose(applied, 0.0) else reaction
+    sign = -1.0 if sign_source is not None and float(sign_source) < 0.0 else 1.0
+    k_abs = abs(float(k_fe))
+    threshold = float(linear_failure_deformation)
+    coefficient = float(crawford_coefficient)
+    threshold_displacement_mm = threshold * height_mm
+    linear_load = sign * k_abs * threshold_displacement_mm
+    crawford_load = sign * coefficient * k_abs * height_mm
+    return {
+        "linear_reaction_at_deformation": {
+            "status": "computed",
+            "method": "linear_reaction_at_deformation",
+            "deformation": threshold,
+            "height_mm": height_mm,
+            "stiffness_n_per_mm": k_abs,
+            "displacement_mm": threshold_displacement_mm,
+            "failure_load": _xyz(AXIS_TO_INDEX[axis], linear_load),
+            "failure_generalized_load": {
+                "name": "force",
+                "value": linear_load,
+                "units": "N",
+            },
+        },
+        "crawford_stiffness_height": {
+            "status": "computed",
+            "method": "crawford_stiffness_height",
+            "coefficient": coefficient,
+            "equivalent_deformation": coefficient,
+            "relative_to_linear_deformation": (
+                None if np.isclose(threshold, 0.0) else coefficient / threshold
+            ),
+            "height_mm": height_mm,
+            "stiffness_n_per_mm": k_abs,
+            "failure_load": _xyz(AXIS_TO_INDEX[axis], crawford_load),
+            "failure_generalized_load": {
+                "name": "force",
+                "value": crawford_load,
+                "units": "N",
+            },
+        },
+    }
+
+
+def _active_element_values(
+    values,
+    stiffness_gpa_xyz: np.ndarray,
+    *,
+    evaluation_mask_xyz=None,
+) -> np.ndarray:
     array = np.asarray(values, dtype=np.float64)
-    active_coords = _active_element_coordinates(stiffness_gpa_xyz)
     if array.ndim == 2 and array.shape[1] == 1:
         array = array.reshape(-1)
+    active_count = int(np.count_nonzero(stiffness_gpa_xyz > 0.0))
+    if evaluation_mask_xyz is None and array.ndim == 1 and array.size == active_count:
+        return array.reshape(-1)
+
+    source_active_coords = _active_element_coordinates(stiffness_gpa_xyz)
+    active_coords = source_active_coords
+    if evaluation_mask_xyz is not None:
+        mask = np.asarray(evaluation_mask_xyz, dtype=bool)
+        if mask.shape != stiffness_gpa_xyz.shape:
+            raise ValueError(
+                f"evaluation_mask_xyz shape {mask.shape} does not match stiffness shape {stiffness_gpa_xyz.shape}"
+            )
+        active_coords = [coord for coord in active_coords if bool(mask[coord])]
     if array.ndim == 1 and array.size == len(active_coords):
         return array.reshape(-1)
+    if array.ndim == 1 and array.size == len(source_active_coords):
+        dense = np.zeros(stiffness_gpa_xyz.shape, dtype=array.dtype)
+        for index, coord in enumerate(source_active_coords):
+            dense[coord] = array[index]
+        return np.asarray([dense[coord] for coord in active_coords], dtype=np.float64)
     if array.ndim == 1 and array.size == stiffness_gpa_xyz.size:
         dense = _native_scalar_to_dense_xyz(array, stiffness_gpa_xyz, dense=True)
         return np.asarray([dense[coord] for coord in active_coords], dtype=np.float64)
@@ -393,32 +606,38 @@ def _generalized_stiffness(
 def _active_element_coordinates(
     stiffness_gpa_xyz: np.ndarray,
 ) -> list[tuple[int, int, int]]:
-    coords = [
-        tuple(int(v) for v in coord) for coord in np.argwhere(stiffness_gpa_xyz > 0.0)
-    ]
-    return sorted(coords, key=lambda coord: _morton_key(*coord))
+    return _coords_to_tuples(_morton_sorted(np.argwhere(stiffness_gpa_xyz > 0.0)))
 
 
 def _dense_element_coordinates(
     shape: tuple[int, int, int],
 ) -> list[tuple[int, int, int]]:
     x_dim, y_dim, z_dim = (int(v) for v in shape)
-    coords = [
-        (x, y, z) for x in range(x_dim) for y in range(y_dim) for z in range(z_dim)
-    ]
-    return sorted(coords, key=lambda coord: _morton_key(*coord))
+    coords = np.stack(
+        np.meshgrid(
+            np.arange(x_dim, dtype=np.int64),
+            np.arange(y_dim, dtype=np.int64),
+            np.arange(z_dim, dtype=np.int64),
+            indexing="ij",
+        ),
+        axis=-1,
+    ).reshape(-1, 3)
+    return _coords_to_tuples(_morton_sorted(coords))
 
 
 def _active_node_coordinates(
     stiffness_gpa_xyz: np.ndarray,
 ) -> list[tuple[int, int, int]]:
-    nodes: set[tuple[int, int, int]] = set()
-    for x, y, z in _active_element_coordinates(stiffness_gpa_xyz):
-        for dx in (0, 1):
-            for dy in (0, 1):
-                for dz in (0, 1):
-                    nodes.add((x + dx, y + dy, z + dz))
-    return sorted(nodes, key=lambda coord: _morton_key(*coord))
+    elements = np.argwhere(stiffness_gpa_xyz > 0.0).astype(np.int64, copy=False)
+    if elements.size == 0:
+        return []
+    offsets = np.asarray(
+        [(dx, dy, dz) for dx in (0, 1) for dy in (0, 1) for dz in (0, 1)],
+        dtype=np.int64,
+    )
+    nodes = (elements[:, None, :] + offsets[None, :, :]).reshape(-1, 3)
+    nodes = np.unique(nodes, axis=0)
+    return _coords_to_tuples(_morton_sorted(nodes))
 
 
 def _morton_key(x: int, y: int, z: int) -> int:
@@ -431,6 +650,18 @@ def _morton_key(x: int, y: int, z: int) -> int:
         key |= ((z >> bit_index) & 1) << (3 * bit_index + 2)
         bit_index += 1
     return key
+
+
+def _morton_sorted(coords: np.ndarray) -> np.ndarray:
+    values = np.asarray(coords, dtype=np.int64)
+    if values.size == 0:
+        return values.reshape((0, 3))
+    order = np.argsort(morton_keys(values), kind="stable")
+    return values[order]
+
+
+def _coords_to_tuples(coords: np.ndarray) -> list[tuple[int, int, int]]:
+    return [tuple(int(v) for v in coord) for coord in np.asarray(coords)]
 
 
 def _xyz(axis_index: int, value) -> dict[str, Any]:

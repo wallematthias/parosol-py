@@ -31,10 +31,13 @@ dev = [
   "cibuildwheel>=2.19",
   "twine>=5",
 ]
+torch = [
+  "torch>=2.3",
+]
 
 [tool.scikit-build]
 cmake.version = ">=3.18"
-wheel.packages = ["src/parosol_py"]
+wheel.packages = ["src/parosol_py", "src/parosol_torch"]
 
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-*"

@@ -60,9 +60,49 @@ mapped = density_to_material_map(
 )
 ```
 
+Label-image material tables can define different Poisson ratios per material.
+ParOSol-py writes those as an optional native per-element Poisson ratio image.
+For continuous density inputs, `materials.poisson_ratio` equations are currently
+reduced to one scalar value before solve.
+
 ## Command Line
 
-Create a case config:
+The primary command is profile-driven:
+
+```bash
+parosol distal-radius.AIM --profile XtremeCTII --output outputs/distal-radius
+```
+
+If `--output` is omitted, ParOSol-py writes to a sibling directory named
+`<input>_parosol`. Every run writes the generated `parosol_case.yaml`,
+`summary.json`, field images when enabled, and an overview PNG. The summary
+contains an `execution` section with the resolved input paths, profile, generated
+config path, output directory, dry-run flag, and exact shortcut command.
+
+Model profiles use the same command and accept a standard `--mask` argument:
+
+```bash
+parosol 10001_QCT.nii.gz \
+  --mask 10001_SEG.nii.gz \
+  --profile vertebra \
+  --output outputs/10001_vertebra
+
+parosol 10001_QCT.nii.gz \
+  --mask 10001_SEG.nii.gz \
+  --profile proximal_femur_sideways_fall \
+  --side left \
+  --output outputs/10001_left_femur_fall
+```
+
+Use `--dry-run` to write the generated model, solver input, overview, and JSON
+without launching the native solver:
+
+```bash
+parosol distal-radius.AIM --profile XtremeCTII --output outputs/distal-radius --dry-run
+```
+
+Advanced users can still keep the generated YAML, edit any section, and run it
+directly:
 
 ```yaml
 case:
@@ -125,16 +165,10 @@ axial, sagittal, and coronal mid-slices of the material image, the selected
 result field on the second row when available, and boundary-condition markers
 and direction arrows for quick debugging.
 
-Run it:
+Run an explicit config:
 
 ```bash
 parosol run case.yaml
-```
-
-Dry-run without launching the solver:
-
-```bash
-parosol run case.yaml --dry-run
 ```
 
 Run a multi-case direct-mechanics batch:
@@ -202,6 +236,21 @@ AIM IO is provided by `aimio-py` through `py_aimio`.
 This first pass provides the clean Python API, HDF5 input writing, solver
 command construction, result reading, `.nii.gz` scalar export, and validation
 helpers. Legacy-compatible command-line compatibility is planned as a second pass.
+
+## GPU Backends
+
+The native ParOSol C++/MPI solver remains the validated reference backend.
+Accelerator work lives in a separate optional `parosol_torch` namespace rather
+than inside `src/parosol_native`. This package currently exposes capability
+checks only; it does not yet provide a validated numerical solver.
+
+```python
+from parosol_torch import backend_info
+
+print(backend_info())
+```
+
+See `docs/gpu-backend-roadmap.md` for the implementation and validation plan.
 
 ## Validation
 

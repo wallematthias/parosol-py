@@ -69,6 +69,7 @@ class MlOctreeGrid : public OctreeGrid<T>
 			_finegrid.GetRes(res);
 			for(int i =0; i < 3; i++)
 				OctreeGrid<T>::res[i] = res[i]*2;
+			OctreeGrid<T>::poisons_ratio = _finegrid.poisons_ratio;
 
 			OctreeGrid<T>::_smallest_elements.resize(OctreeGrid<T>::_Nr_CPU+1);
 			for(int i =0; i < OctreeGrid<T>::_Nr_CPU+1; i++)
@@ -167,6 +168,9 @@ class MlOctreeGrid : public OctreeGrid<T>
 			} else {     // already in the set update the weight when it is an element
 				if (tmp_node.w >0) {
 					if (ret.first->w >0) {   // add up only if an element is in the set
+						double total_weight = tmp_node.w + ret.first->w;
+						if (total_weight > 0)
+							tmp_node.nu = (tmp_node.nu*tmp_node.w + ret.first->nu*ret.first->w)/total_weight;
 						tmp_node.w += ret.first->w;
 					} 
 					octset.erase(ret.first);
@@ -194,19 +198,24 @@ void MlOctreeGrid<T>::Coarse()
 	t_octree_key coarsekey;
 	t_octree_key nodekeys[8];
 	double weight;
+	double poisson;
 
 	OctreeGrid<T>::_nr_elem =0;
 	//coarse the grid
 	for(iter = _finegrid._OctreeGrid.begin(); iter != _finegrid._GridIteratorEnd; ++iter) {
 		if (iter->w > 0) {
 			weight = iter->w/8;
+			poisson = iter->nu > -1.0 ? iter->nu : _finegrid.poisons_ratio;
 			// cut the old coordinate away
 			coarsekey = iter->key >> 3; 
-			tmp_node = OctreeNode(coarsekey, weight);
+			tmp_node = OctreeNode(coarsekey, weight, poisson);
 			ret = octset.insert(tmp_node);
 			if (ret.second) {   //inserted
 				OctreeGrid<T>::_nr_elem++;
 			} else {     // already in the set update the weight
+				double total_weight = tmp_node.w + ret.first->w;
+				if (total_weight > 0)
+					tmp_node.nu = (tmp_node.nu*tmp_node.w + ret.first->nu*ret.first->w)/total_weight;
 				tmp_node.w += ret.first->w;
 				octset.erase(ret.first);
 				ret = octset.insert(tmp_node);
@@ -451,4 +460,3 @@ void MlOctreeGrid<T>::Prolongate(Eigen::VectorXd &coarse, Eigen::VectorXd &fine)
 	return;
 }
 #endif 
-

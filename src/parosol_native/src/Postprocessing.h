@@ -58,7 +58,7 @@ class PostProcess
 			const int NumMaterialProps = 2;
 			double _matprop[2];
 			_matprop[0] = 1000; //reference value Emodule is linear
-			_matprop[1] = 0.3;
+			_matprop[1] = _grid.poisons_ratio;
 			int NumNodesPerElement = 8;
 			int NumDofsPerElement = 24;
 			int NumGaussPoints = 1;
@@ -127,6 +127,7 @@ class PostProcess
 				_grid.GetNodalDisplacementsOfElement(disp, xpref);
 
 				_matprop[0] = 1000*_grid.GetElementWeight();
+				_matprop[1] = _grid.GetElementPoissonRatio();
                 double emoduli = 1000*_grid.GetElementWeight();
 				Element_Stress(_matprop, NumMaterialProps,
 						NumNodesPerElement, NumDofsPerElement,

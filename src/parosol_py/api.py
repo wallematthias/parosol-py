@@ -55,7 +55,7 @@ def solve(
     origin: tuple[float, float, float] = (0.0, 0.0, 0.0),
     array_order: str = "zyx",
     material_unit: str = "MPa",
-    poisson_ratio: float = 0.3,
+    poisson_ratio: float | np.ndarray = 0.3,
     test: str = "axial",
     test_axis: str = "z",
     strain: float = -0.01,
@@ -68,13 +68,18 @@ def solve(
     level: int = 6,
     mpi_processes: int = 1,
     mpi_launcher: str | Path = "mpirun",
+    stream_output: bool = False,
     executable: str | Path | None = None,
     work_dir: str | Path | None = None,
     export_dir: str | Path | None = None,
     failure_criterion: str = "pistoia",
     critical_strain: float | None = 0.007,
     critical_volume_percent: float | None = 2.0,
+    linear_failure_deformation: float = 0.002,
+    crawford_coefficient: float = 0.0068,
+    linear_failure_estimates: bool = False,
     boundary_conditions: BoundaryConditionSet | None = None,
+    postprocess_mask=None,
     dry_run: bool = False,
 ) -> SolveResult:
     if test.strip().lower() != "axial":
@@ -86,13 +91,20 @@ def solve(
         origin=origin,
         array_order=array_order,
     )
-    if not np.allclose(grid.spacing, grid.spacing[0], rtol=1e-9, atol=1e-12):
+    if not np.allclose(grid.spacing, grid.spacing[0], rtol=1e-3, atol=1e-6):
         raise ValueError(
             "solve() requires isotropic spacing; anisotropic spacing is not supported"
         )
     stiffness_gpa_xyz = material_to_stiffness_gpa(
         grid.array_xyz,
         material_unit=material_unit,
+    )
+    mask_xyz = _postprocess_mask_xyz(
+        postprocess_mask,
+        spacing=spacing,
+        origin=origin,
+        array_order=array_order,
+        expected_shape=grid.array_xyz.shape,
     )
     if boundary_conditions is None:
         fixed_coords, fixed_values = axial_compression(
@@ -143,17 +155,18 @@ def solve(
             summary=summary,
         )
 
-    run = run_parosol(command, cwd=case_dir)
+    run = run_parosol(command, cwd=case_dir, stream=stream_output)
+    exported = _write_run_logs(case_dir, command=command, run=run)
     if run.returncode != 0:
         raise RuntimeError(
             f"ParOSol failed with return code {run.returncode}\n"
+            f"logs: {exported}\n"
             f"stdout:\n{run.stdout}\n"
             f"stderr:\n{run.stderr}"
         )
 
     result_outputs = _summary_outputs(outputs)
     fields = read_solution_fields(input_file, outputs=result_outputs)
-    exported: dict[str, Path] = {}
     if export_dir is not None:
         export_root = Path(export_dir).expanduser().resolve()
         active_size = int(np.count_nonzero(stiffness_gpa_xyz > 0))
@@ -166,7 +179,9 @@ def solve(
             if field_array is not None:
                 exported[name] = export_scalar_image(
                     ImageGrid(
-                        array_xyz=mapper.scalar_to_dense(field_array),
+                        array_xyz=_apply_postprocess_mask(
+                            mapper.scalar_to_dense(field_array), mask_xyz
+                        ),
                         spacing=grid.spacing,
                         origin=grid.origin,
                     ),
@@ -186,6 +201,12 @@ def solve(
         failure_criterion=failure_criterion,
         critical_strain=critical_strain,
         critical_volume_percent=critical_volume_percent,
+        boundary_conditions=boundary_conditions,
+        evaluation_mask_xyz=mask_xyz,
+        analysis_dimensions_xyz=_analysis_dimensions_xyz(mask_xyz),
+        linear_failure_deformation=linear_failure_deformation,
+        crawford_coefficient=crawford_coefficient,
+        linear_failure_estimates=linear_failure_estimates,
     )
 
     return SolveResult(
@@ -203,6 +224,22 @@ def solve(
         exported=exported,
         diagnostics=diagnostics,
     )
+
+
+def _write_run_logs(
+    case_dir: Path, *, command: list[str], run
+) -> dict[str, Path]:
+    command_path = case_dir / "parosol_command.txt"
+    stdout_path = case_dir / "parosol_stdout.log"
+    stderr_path = case_dir / "parosol_stderr.log"
+    command_path.write_text(" ".join(command) + "\n", encoding="utf-8")
+    stdout_path.write_text(run.stdout, encoding="utf-8")
+    stderr_path.write_text(run.stderr, encoding="utf-8")
+    return {
+        "command_log": command_path,
+        "stdout_log": stdout_path,
+        "stderr_log": stderr_path,
+    }
 
 
 def solve_aim(path: str | Path, **kwargs: Any) -> SolveResult:
@@ -250,3 +287,43 @@ def _native_scalar_field(
     if array.ndim == 2 and array.shape[1] == 1 and array.shape[0] in expected_sizes:
         return array.reshape(-1)
     return None
+
+
+def _postprocess_mask_xyz(
+    mask,
+    *,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    array_order: str,
+    expected_shape: tuple[int, int, int],
+) -> np.ndarray | None:
+    if mask is None:
+        return None
+    grid = normalize_array(
+        mask,
+        spacing=spacing,
+        origin=origin,
+        array_order=array_order,
+    )
+    mask_xyz = np.asarray(grid.array_xyz, dtype=bool)
+    if mask_xyz.shape != expected_shape:
+        raise ValueError(
+            f"postprocess_mask shape {mask_xyz.shape} does not match material shape {expected_shape}"
+        )
+    return mask_xyz
+
+
+def _apply_postprocess_mask(
+    field_xyz: np.ndarray,
+    mask_xyz: np.ndarray | None,
+) -> np.ndarray:
+    if mask_xyz is None:
+        return field_xyz
+    return np.where(mask_xyz, field_xyz, 0)
+
+
+def _analysis_dimensions_xyz(mask_xyz: np.ndarray | None) -> tuple[int, int, int] | None:
+    if mask_xyz is None or not np.any(mask_xyz):
+        return None
+    coords = np.argwhere(np.asarray(mask_xyz, dtype=bool))
+    return tuple(int(v) for v in (coords.max(axis=0) - coords.min(axis=0) + 1))

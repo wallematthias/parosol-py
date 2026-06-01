@@ -7,9 +7,31 @@ model:
     process: 48
   geometry:
     axis: z
-    isotropic_spacing: auto
-    pmma_thickness_mm: 3
-    disk_method: raytrace_body_cap
+    isotropic_spacing: 1.0
+    spacing_tolerance_mm: 0.001
+    disk:
+      # The disk is generated from this segmentation label. For vertebrae this
+      # should usually be the body label so posterior elements do not define
+      # the plates.
+      target_label: 20
+      # anatomy follows the projected mask footprint; square, round, and hex
+      # make idealized platens inside the projected footprint bounding box.
+      shape: anatomy
+      # External PMMA thickness beyond the outermost target surface.
+      thickness_mm: 3
+      # How far into the target mask the projected contact footprint may sample.
+      # Increase this for uneven/tilted endplates; decrease it to avoid side-wall
+      # projection on very irregular anatomy.
+      intrusion_depth_mm: 6
+      method: projected_cap
+  # Optional no-VTK alignment. Use an ASCII .vtk POLYDATA surface or .npz
+  # containing points with shape (n, 3).
+  # registration:
+  #   enabled: true
+  #   method: lightweight_icp
+  #   reference_points: L4_BODY_SPINE_COMPRESSION_REF.vtk
+  #   max_points: 8000
+  #   iterations: 50
   outputs:
     material_image: parosol_run/vertebra/model/material.nii.gz
     nodeset_image: parosol_run/vertebra/model/nodesets.nii.gz
@@ -33,18 +55,37 @@ load_case:
   axis: z
   displacement: -0.2
 
+preprocessing:
+  largest_cc: true
+  smooth:
+    enabled: true
+    sigma_mm: 1.0
+    density: true
+    labels: true
+    label_threshold: 0.5
+  crop_to_bb:
+    enabled: true
+    margin_voxels: 8
+
 solver:
-  outputs: [sed]
+  outputs: [sed, effective_strain, strain]
 
 postprocess:
   pistoia:
     criterion: pistoia
     critical_strain: 0.007
     critical_volume_percent: 2.0
+  failure_load:
+    linear_deformation: 0.002
+    crawford_coefficient: 0.0068
+  fields:
+    mask_to_segmentation: true
+    restore_original_grid: false
 
 output:
   summary: parosol_run/vertebra/summary.json
-  fields: [sed]
+  fields: [sed, effective_strain]
   export_fields: true
   fields_dir: parosol_run/vertebra/fields
+  visualization_field: sed
   visualization: parosol_run/vertebra/overview.png

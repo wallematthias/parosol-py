@@ -11,7 +11,7 @@ def test_default_config_template_documents_material_and_nodeset_workflow():
     assert "postprocess:" in text
     assert "pistoia:" in text
     assert "load_history:" in text
-    assert "native ParOSol currently uses one global Poisson" in text
+    assert "Material-specific nu values are preserved" in text
 
 
 def test_profile_override_templates_are_available():
@@ -31,6 +31,7 @@ def test_profile_override_templates_are_available():
     assert "XtremeCTII" in profiles
     assert "vertebra" in profiles
     assert "proximal_femur" in profiles
+    assert "proximal_femur_sideways_fall" in profiles
     assert "standard_mechanics_fields" in profiles
     assert "debug_sets" in profiles
     assert "coarse_preview" in profiles
@@ -60,6 +61,12 @@ def test_profile_override_templates_are_available():
     assert "body: 20" in read_config_template("vertebra")
     assert "type: proximal_femur" in read_config_template("proximal_femur")
     assert "femur: 2" in read_config_template("proximal_femur")
+    assert "type: proximal_femur_sideways_fall" in read_config_template(
+        "proximal_femur_sideways_fall"
+    )
+    assert "type: sideways_fall" in read_config_template(
+        "proximal_femur_sideways_fall"
+    )
     assert "effective_strain" in read_config_template("standard_mechanics_fields")
     assert "set_formats: [json, vtk]" in read_config_template("debug_sets")
     assert "coarsen:" in read_config_template("coarse_preview")

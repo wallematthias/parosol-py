@@ -20,7 +20,9 @@
 #ifndef GENERICMATRIX_H
 #define GENERICMATRIX_H
 
+#include <cmath>
 #include <iomanip>
+#include <map>
 #include "Config.h"
 #include "Timing.h"
 #include "StiffnessMatrix.h"
@@ -129,7 +131,10 @@ class GenericMatrix: public StiffnessMatrix
 		void ResetBoundaries(Eigen::VectorXd &y);
 		void SetBoundaries(Eigen::VectorXd &, Eigen::VectorXd &) const;
 
-        Eigen::Matrix<double, 24, 24>  *_stiffnessmatrix;
+        const Eigen::Matrix<double, 24, 24>& LocalStiffnessMatrix(double poisson_ratio);
+        long MatrixCacheKey(double poisson_ratio) const;
+
+        std::map<long, Eigen::Matrix<double, 24, 24> > _stiffnessmatrix_cache;
 		double* _matprop;
 		t_index _mydofs;
 		Grid& _grid;
@@ -156,33 +161,12 @@ class GenericMatrix: public StiffnessMatrix
 
 	_mydofs = grid.GetNrDofs();
 
-	//set up the local stiffness matrix
-	double GridDim[3];
-	int Dimension = 3;
-	const int NumMaterialProps = 2;
 	_matprop = new double[2];
 	_matprop[0] = 1000; //refernece value Emodule is linear
-	_matprop[1] = 0.3;
-	int NumNodesPerElement = 8;
-	int NumDofsPerElement = 24;
-	int NumIntegrationPoints = 8;
-	int SSMatrixSize = 6;
-	double *coord = new double[Dimension * NumNodesPerElement];
-	grid.GetRes(GridDim);
-	setcoord(GridDim,coord);
+	_matprop[1] = grid.poisons_ratio;
+	//set up the default local stiffness matrix
+	LocalStiffnessMatrix(_matprop[1]);
 
-	_stiffnessmatrix = new Eigen::Matrix<double, 24, 24>;
-	double *tmpstiff = new double[24*24];
-
-	Stiffness_Matrix(_matprop, NumMaterialProps,
-			NumNodesPerElement, NumDofsPerElement,
-			Dimension, NumIntegrationPoints,
-			SSMatrixSize, coord, tmpstiff); //TODO: not sure if this works
-	for( int i = 0; i < 24*24;i++)
-		_stiffnessmatrix->data()[i]=tmpstiff[i];
-
-	delete[] coord;
-	delete[] tmpstiff;
   	//double nu = 0.3;
 	//if the optimized code is used, following factor has to be used. Else 1
 	//_factor = (1-nu)/((1+nu)*(1-2*nu))*1000/(144*(1-nu))*GridDim[0];
@@ -195,11 +179,51 @@ class GenericMatrix: public StiffnessMatrix
 	template <class Grid>
 GenericMatrix<Grid>::~GenericMatrix()
 {
-	delete _stiffnessmatrix;
 	delete[] _matprop;
 	if (_dia)
 		delete _dia;
 
+}
+
+template <class Grid>
+long GenericMatrix<Grid>::MatrixCacheKey(double poisson_ratio) const
+{
+	return static_cast<long>(std::floor(poisson_ratio * 1000000.0 + 0.5));
+}
+
+template <class Grid>
+const Eigen::Matrix<double, 24, 24>& GenericMatrix<Grid>::LocalStiffnessMatrix(double poisson_ratio)
+{
+	long key = MatrixCacheKey(poisson_ratio);
+	typename std::map<long, Eigen::Matrix<double, 24, 24> >::iterator it = _stiffnessmatrix_cache.find(key);
+	if (it != _stiffnessmatrix_cache.end())
+		return it->second;
+
+	double GridDim[3];
+	int Dimension = 3;
+	const int NumMaterialProps = 2;
+	double matprop[2];
+	matprop[0] = 1000;
+	matprop[1] = poisson_ratio;
+	int NumNodesPerElement = 8;
+	int NumDofsPerElement = 24;
+	int NumIntegrationPoints = 8;
+	int SSMatrixSize = 6;
+	double *coord = new double[Dimension * NumNodesPerElement];
+	_grid.GetRes(GridDim);
+	setcoord(GridDim, coord);
+	double *tmpstiff = new double[24*24];
+	Stiffness_Matrix(matprop, NumMaterialProps,
+			NumNodesPerElement, NumDofsPerElement,
+			Dimension, NumIntegrationPoints,
+			SSMatrixSize, coord, tmpstiff);
+	Eigen::Matrix<double, 24, 24> matrix;
+	for( int i = 0; i < 24*24;i++)
+		matrix.data()[i]=tmpstiff[i];
+	delete[] coord;
+	delete[] tmpstiff;
+	_stiffnessmatrix_cache[key] = matrix;
+	return _stiffnessmatrix_cache[key];
 }
 
 	template <class Grid>
@@ -241,7 +265,7 @@ int GenericMatrix<Grid>::Apply_NoResetBoundaries(Eigen::VectorXd &x, Eigen::Vect
 
 		nr_ele++;
 		//decarbenz(res.data(), xpref.data());
-        res = (*_stiffnessmatrix)*xpref;
+        res = LocalStiffnessMatrix(_grid.GetElementPoissonRatio())*xpref;
 		_grid.SumInToNodalDisplacementsOfElement(y, res, _factor*_grid.GetElementWeight());
 	}
 
@@ -264,7 +288,7 @@ Eigen::VectorXd& GenericMatrix<Grid>::Diagonal()
         Eigen::Matrix<double,24,1> res;
 		for(_grid.initIterateOverElements(); _grid.TestIterateOverElements(); _grid.IncIterateOverElements()){
 			for(int i = 0; i <24; i++) {
-				res[i] = _stiffnessmatrix->operator()(i,i);
+				res[i] = LocalStiffnessMatrix(_grid.GetElementPoissonRatio())(i,i);
 			}
 			_grid.SearchIndexes();
 			_grid.SumInToNodalDisplacementsOfElement(*diagonal,res, _grid.GetElementWeight());
@@ -341,9 +365,13 @@ void GenericMatrix<Grid>::ResetBoundaries(Eigen::VectorXd &y)
 template <class Grid>
 std::ostream& GenericMatrix<Grid>::print_mat(std::ostream& stream) const
 {
+	typename std::map<long, Eigen::Matrix<double, 24, 24> >::const_iterator matrix =
+		_stiffnessmatrix_cache.find(MatrixCacheKey(_grid.poisons_ratio));
+	if (matrix == _stiffnessmatrix_cache.end())
+		return stream;
 	for (int i = 0;i < 24; i++) {
 		for (int j = 0;j < 24; j++)
-			stream << std::setiosflags(std::ios::fixed)<< std::setw( 7) << std::setprecision( 4 )<< (*_stiffnessmatrix)(i,j) << " ";
+			stream << std::setiosflags(std::ios::fixed)<< std::setw( 7) << std::setprecision( 4 )<< matrix->second(i,j) << " ";
 		stream << std::endl;
 	}
 	return stream;
@@ -364,5 +392,3 @@ std::ostream& GenericMatrix<Grid>::print_prop(std::ostream& stream) const
 }
 
 #endif /* GENERICMATRIX_H */
-
-

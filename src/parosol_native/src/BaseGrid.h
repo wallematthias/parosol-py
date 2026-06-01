@@ -36,18 +36,23 @@
 class BaseGrid {
 public:
   //!Constructor
-  BaseGrid(): _grid(0){};
+  BaseGrid(): _grid(0), _poisson_grid(0), poisons_ratio(0.3){};
 
   //!Destructor
   virtual ~BaseGrid()
   {
     if (_grid)
       delete[] _grid;
+    if (_poisson_grid)
+      delete[] _poisson_grid;
   };
 
   //!Holds the Image in double format
   //Allocated by the reader
   double* _grid;
+
+  //!Optional per-element Poisson ratio image in local grid order
+  double* _poisson_grid;
 
   //!Image dimension
   union{

@@ -203,6 +203,12 @@ class OctreeGrid : public BaseGrid
 		{
 			return _GridIterator->w;
 		}
+		double GetElementPoissonRatio()
+		{
+			if (_GridIterator->nu > -1.0)
+				return _GridIterator->nu;
+			return this->poisons_ratio;
+		}
 		//@}
 
 		/** @name Grid and BoundaryCondition methods **/
@@ -1569,10 +1575,14 @@ void OctreeGrid<T>::GenerateOctree() {
 	for(long z=0; z < ldim_z; z++) 
 		for(long y=0; y < ldim_y; y++) 
 			for(long x=0; x < ldim_x; x++) {
-				w = _grid[z*ldimxy+y*ldim_x+x]; 
+				long grid_index = z*ldimxy+y*ldim_x+x;
+				w = _grid[grid_index]; 
 				if  (w > 0) {
 					_nr_elem++;
-					tmp_node = OctreeNode(KeyGen(x+corner_x,y+corner_y,z+corner_z),w);
+					double nu = this->poisons_ratio;
+					if (_poisson_grid != 0)
+						nu = _poisson_grid[grid_index];
+					tmp_node = OctreeNode(KeyGen(x+corner_x,y+corner_y,z+corner_z),w,nu);
 					ret = octset.insert(tmp_node);
 					for(long tz=0; tz < 2; tz++) 
 						for(long ty=0; ty < 2; ty++) 
@@ -1658,4 +1668,3 @@ std::ostream& OctreeGrid<T>::print(std::ostream& stream) const
 
 
 #endif /* OCTREEGRID_H */
-

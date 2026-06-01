@@ -3,7 +3,7 @@ solver_profile: batch
 output_profile: quick_summary
 
 solver:
-  mpi_processes: 6
+  mpi_processes: 4
   tolerance: 1.0e-6
 
 output:

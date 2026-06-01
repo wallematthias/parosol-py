@@ -77,6 +77,7 @@ def run_case_config(
     preprocessing_cfg = _section(config, "preprocessing")
     postprocess_cfg = _section(config, "postprocess")
     pistoia_cfg = _pistoia_config(postprocess_cfg)
+    failure_load_cfg = _failure_load_config(postprocess_cfg)
     solver_profile = get_solver_profile(config.get("solver_profile"))
     output_profile = get_output_profile(config.get("output_profile"))
 
@@ -150,12 +151,22 @@ def run_case_config(
         "mpi_launcher": str(
             solver_cfg.get("mpi_launcher", solver_profile.mpi_launcher)
         ),
+        "stream_output": bool(solver_cfg.get("stream_output", not dry)),
         "work_dir": run_dir,
         "export_dir": export_dir if export_fields and not dry else None,
         "failure_criterion": str(pistoia_cfg.get("criterion", "pistoia")),
         "critical_strain": _optional_float(pistoia_cfg.get("critical_strain", 0.007)),
         "critical_volume_percent": _optional_float(
             pistoia_cfg.get("critical_volume_percent", 2.0)
+        ),
+        "linear_failure_deformation": float(
+            failure_load_cfg.get("linear_deformation", 0.002)
+        ),
+        "crawford_coefficient": float(
+            failure_load_cfg.get("crawford_coefficient", 0.0068)
+        ),
+        "linear_failure_estimates": _linear_failure_estimates_enabled(
+            postprocess_cfg
         ),
         "dry_run": dry,
     }
@@ -167,6 +178,7 @@ def run_case_config(
             base_dir=base_dir,
             material_config=material_cfg,
             load_case_config=load_case_cfg,
+            preprocessing_config=preprocessing_cfg,
         )
         material = built_model.material
         spacing = built_model.spacing
@@ -174,6 +186,11 @@ def run_case_config(
         common["spacing"] = spacing
         common["origin"] = origin
         common["poisson_ratio"] = built_model.poisson_ratio
+        model_meta = built_model.metadata.get("model", {})
+        common["test_axis"] = str(model_meta.get("load_axis", common["test_axis"]))
+        common["load_direction"] = model_meta.get(
+            "load_direction", common["load_direction"]
+        )
         common["strain"] = _effective_strain_for_displacement(
             material,
             spacing=spacing,
@@ -181,8 +198,11 @@ def run_case_config(
             array_order="zyx",
             load_case_cfg=load_case_cfg,
             fallback=float(common["strain"]),
+            axis=str(common["test_axis"]),
         )
         common["boundary_conditions"] = built_model.boundary_conditions
+        if _mask_fields_to_segmentation(postprocess_cfg):
+            common["postprocess_mask"] = built_model.postprocess_mask
         result = solve(material=material, array_order="zyx", **common)
         result.exported.update(built_model.exported)
         result.exported.update(
@@ -196,6 +216,9 @@ def run_case_config(
                 case_name=case_name,
                 result=result,
                 boundary_conditions=built_model.boundary_conditions,
+                field_mask_zyx=built_model.postprocess_mask
+                if _mask_fields_to_segmentation(postprocess_cfg)
+                else None,
             )
         )
     elif image_path.suffix.lower() == ".aim" and image_type in {
@@ -297,6 +320,12 @@ def run_case_config(
             "strain": common["strain"],
         },
     }
+    extra["execution"] = {
+        "config": str(config_path),
+        "work_dir": str(run_dir),
+        "dry_run": dry,
+        **_section(config, "execution"),
+    }
     if dry:
         extra["failure"] = {
             "criterion": common["failure_criterion"],
@@ -332,6 +361,31 @@ def _pistoia_config(postprocess_cfg: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(pistoia, dict):
         raise ValueError("postprocess.pistoia must be a table/object or boolean")
     return pistoia
+
+
+def _failure_load_config(postprocess_cfg: dict[str, Any]) -> dict[str, Any]:
+    failure_load = postprocess_cfg.get("failure_load", {})
+    if failure_load is False:
+        return {"linear_deformation": 0.002, "crawford_coefficient": 0.0068}
+    if failure_load is True:
+        return {}
+    if not isinstance(failure_load, dict):
+        raise ValueError("postprocess.failure_load must be a table/object or boolean")
+    return failure_load
+
+
+def _linear_failure_estimates_enabled(postprocess_cfg: dict[str, Any]) -> bool:
+    failure_load = postprocess_cfg.get("failure_load", False)
+    if failure_load is False or failure_load is None:
+        return False
+    return bool(failure_load)
+
+
+def _mask_fields_to_segmentation(postprocess_cfg: dict[str, Any]) -> bool:
+    fields = postprocess_cfg.get("fields", {})
+    if isinstance(fields, dict):
+        return bool(fields.get("mask_to_segmentation", False))
+    return bool(postprocess_cfg.get("mask_to_segmentation", False))
 
 
 def _coarsen_material(
@@ -409,6 +463,7 @@ def _export_overview(
     case_name: str,
     result: SolveResult,
     boundary_conditions,
+    field_mask_zyx=None,
 ) -> dict[str, Path]:
     if not _visualization_enabled(output_cfg):
         return {}
@@ -422,8 +477,21 @@ def _export_overview(
         origin=origin,
         array_order="zyx",
     )
+    field_mask = None
+    if field_mask_zyx is not None:
+        field_mask = normalize_array(
+            field_mask_zyx,
+            spacing=spacing,
+            origin=origin,
+            array_order="zyx",
+        ).array_xyz.astype(bool)
     field_name = str(output_cfg.get("visualization_field", "sed")).strip().lower()
-    field = dense_scalar_field(grid.array_xyz, result.fields.get(field_name))
+    field = _overview_field_from_export(
+        result.exported.get(field_name),
+        expected_shape=grid.array_xyz.shape,
+    )
+    if field is None:
+        field = dense_scalar_field(grid.array_xyz, result.fields.get(field_name))
     out = write_case_overview(
         grid.array_xyz,
         output_path=overview_path,
@@ -431,10 +499,26 @@ def _export_overview(
         origin=grid.origin,
         field_xyz=field,
         field_name=field_name.upper(),
+        field_mask_xyz=field_mask,
         boundary_conditions=boundary_conditions,
         title=case_name,
     )
     return {"overview": out}
+
+
+def _overview_field_from_export(
+    path: Path | None,
+    *,
+    expected_shape: tuple[int, int, int],
+) -> np.ndarray | None:
+    if path is None or not Path(path).exists():
+        return None
+    image = sitk.ReadImage(str(path))
+    field_xyz = np.transpose(sitk.GetArrayFromImage(image), (2, 1, 0))
+    if field_xyz.shape != expected_shape:
+        return None
+    field_xyz = np.asarray(field_xyz, dtype=np.float64)
+    return np.where(field_xyz != 0.0, field_xyz, np.nan)
 
 
 def _visualization_enabled(output_cfg: dict[str, Any]) -> bool:
@@ -785,12 +869,15 @@ def _effective_strain_for_displacement(
     array_order: str,
     load_case_cfg: dict[str, Any],
     fallback: float,
+    axis: str | None = None,
 ) -> float:
     displacement = _load_case_displacement(load_case_cfg)
     if displacement is None:
         return fallback
-    axis = str(load_case_cfg.get("axis", "z")).strip().lower()
-    axis_index = {"x": 0, "y": 1, "z": 2}[axis]
+    axis_token = str(
+        axis if axis is not None else load_case_cfg.get("axis", "z")
+    ).strip().lower()
+    axis_index = {"x": 0, "y": 1, "z": 2}[axis_token]
     grid = normalize_array(
         material_zyx,
         spacing=spacing,
@@ -847,7 +934,7 @@ def _load_material_array(
     material_cfg: dict[str, Any],
     base_dir: Path,
     fallback_poisson_ratio: float,
-) -> tuple[np.ndarray, float]:
+) -> tuple[np.ndarray, float | np.ndarray]:
     array_zyx = _read_image_array_zyx(image_path)
     if image_type in {"material_mpa", "mpa", "material"}:
         return array_zyx.astype(np.float64, copy=False), _continuous_poisson_ratio(
@@ -918,7 +1005,9 @@ def _continuous_poisson_ratio(
 
 
 def _connectivity_filter_enabled(preprocessing_cfg: dict[str, Any]) -> bool:
-    value = preprocessing_cfg.get("connectivity_filter", False)
+    value = preprocessing_cfg.get(
+        "largest_cc", preprocessing_cfg.get("connectivity_filter", False)
+    )
     if isinstance(value, str):
         return value.strip().lower() in {"on", "true", "yes", "largest"}
     return bool(value)
@@ -952,11 +1041,6 @@ def _poisson_ratio(
             _resolve_path(materials_file, base_dir=base_dir).read_text(encoding="utf-8")
         )
     values = sorted({round(float(value), 12) for value in table.poisson_ratio.values()})
-    if len(values) > 1:
-        raise ValueError(
-            "native ParOSol currently supports one global Poisson's ratio; "
-            f"material table contains multiple values: {values}"
-        )
     return float(values[0])
 
 

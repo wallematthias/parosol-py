@@ -46,6 +46,39 @@ def nodes_from_labeled_voxels(
     return sorted(nodes)
 
 
+def nodes_from_mask_face(
+    mask,
+    *,
+    axis: str,
+    side: int,
+) -> list[Node]:
+    values = np.asarray(mask, dtype=bool)
+    if values.ndim != 3:
+        raise ValueError(f"mask must be 3D, got shape {values.shape}")
+    axis_index = AXIS_TO_INDEX[axis.strip().lower()]
+    direction = 1 if int(side) > 0 else -1
+    nodes: set[Node] = set()
+    dims = values.shape
+    lateral_axes = [idx for idx in range(3) if idx != axis_index]
+    for voxel_array in np.argwhere(values):
+        voxel = tuple(int(v) for v in voxel_array)
+        neighbor = list(voxel)
+        neighbor[axis_index] += direction
+        outside = (
+            neighbor[axis_index] < 0 or neighbor[axis_index] >= dims[axis_index]
+        )
+        if not outside and bool(values[tuple(neighbor)]):
+            continue
+        node_axis_value = voxel[axis_index] + (1 if direction > 0 else 0)
+        for du, dv in itertools.product((0, 1), repeat=2):
+            node = list(voxel)
+            node[axis_index] = node_axis_value
+            node[lateral_axes[0]] += du
+            node[lateral_axes[1]] += dv
+            nodes.add(tuple(node))
+    return sorted(nodes)
+
+
 def boundary_conditions_from_nodesets(
     node_sets: dict[str, list[Node]],
     *,

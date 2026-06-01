@@ -16,8 +16,12 @@ def test_pyproject_declares_native_wheel_build_settings():
 
     assert pyproject["build-system"]["build-backend"] == "scikit_build_core.build"
     assert "cibuildwheel" in pyproject["tool"]
-    assert pyproject["tool"]["scikit-build"]["wheel"]["packages"] == ["src/parosol_py"]
+    assert pyproject["tool"]["scikit-build"]["wheel"]["packages"] == [
+        "src/parosol_py",
+        "src/parosol_torch",
+    ]
     assert pyproject["tool"]["scikit-build"]["cmake"]["version"] == ">=3.18"
+    assert pyproject["project"]["optional-dependencies"]["torch"] == ["torch>=2.3"]
 
 
 def test_github_workflows_build_test_and_wheels():

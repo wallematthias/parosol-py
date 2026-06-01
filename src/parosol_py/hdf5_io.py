@@ -15,7 +15,7 @@ def write_parosol_input(
     fixed_displacement_coordinates,
     fixed_displacement_values,
     voxel_size_mm: float,
-    poisson_ratio: float,
+    poisson_ratio: float | np.ndarray,
     loaded_node_coordinates=None,
     loaded_node_values=None,
 ) -> Path:
@@ -81,8 +81,9 @@ def write_parosol_input(
         raise ValueError("fixed_displacement_values must contain only finite values")
     if not np.isfinite(voxel_size_mm) or voxel_size_mm <= 0:
         raise ValueError("voxel_size_mm must be positive")
-    if not np.isfinite(poisson_ratio) or not (-1.0 < poisson_ratio < 0.5):
-        raise ValueError("poisson_ratio must satisfy -1.0 < nu < 0.5")
+    poisson_scalar, poisson_image = _poisson_ratio_data(
+        poisson_ratio, expected_shape=stiffness.shape
+    )
 
     coords = coords.astype(np.uint16, copy=False)
     coords_zyx = coords[:, [2, 1, 0, 3]]
@@ -95,10 +96,34 @@ def write_parosol_input(
         group.create_dataset("Fixed_Displacement_Values", data=values)
         group.create_dataset("Loaded_Nodes_Coordinates", data=loaded_coords_zyx)
         group.create_dataset("Loaded_Nodes_Values", data=loaded_values)
-        group.create_dataset("Poisons_ratio", data=float(poisson_ratio))
+        group.create_dataset("Poisons_ratio", data=poisson_scalar)
+        if poisson_image is not None:
+            group.create_dataset(
+                "Poissons_ratio_Image", data=np.swapaxes(poisson_image, 0, 2)
+            )
         group.create_dataset("Voxelsize", data=float(voxel_size_mm))
         group.create_dataset("Image", data=np.swapaxes(stiffness, 0, 2))
     return out
+
+
+def _poisson_ratio_data(
+    poisson_ratio, *, expected_shape: tuple[int, int, int]
+) -> tuple[float, np.ndarray | None]:
+    array = np.asarray(poisson_ratio, dtype=np.float64)
+    if array.ndim == 0:
+        value = float(array)
+        if not np.isfinite(value) or not (-1.0 < value < 0.5):
+            raise ValueError("poisson_ratio must satisfy -1.0 < nu < 0.5")
+        return value, None
+    if array.shape != expected_shape:
+        raise ValueError(
+            "poisson_ratio image must match stiffness_gpa_xyz shape "
+            f"{expected_shape}, got {array.shape}"
+        )
+    if not np.all(np.isfinite(array)) or np.any(array <= -1.0) or np.any(array >= 0.5):
+        raise ValueError("poisson_ratio image values must satisfy -1.0 < nu < 0.5")
+    active = array[np.isfinite(array)]
+    return float(active.flat[0]), array.astype(np.float32, copy=False)
 
 
 def _optional_coordinates(values) -> np.ndarray:

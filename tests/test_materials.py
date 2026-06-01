@@ -4,6 +4,7 @@ import pytest
 from parosol_py.materials import (
     density_to_material_map,
     labels_to_material_map,
+    LinearIsotropicMaterials,
     linear_isotropic_materials_from_config,
     material_to_stiffness_gpa,
     parse_linear_isotropic_materials,
@@ -64,7 +65,7 @@ OtherSection:
     assert parsed.poisson_ratio == {1: 0.3}
 
 
-def test_labels_to_material_map_requires_one_global_poisson_ratio_without_override():
+def test_labels_to_material_map_preserves_material_specific_poisson_ratio():
     table = parse_linear_isotropic_materials(
         """MaterialDefinitions:
     Trab:
@@ -81,11 +82,20 @@ MaterialTable:
 """
     )
 
-    with pytest.raises(ValueError, match="one global Poisson"):
-        labels_to_material_map(np.array([[[126, 127]]]), table)
+    mapped = labels_to_material_map(np.array([[[126, 127]]]), table)
+
+    assert mapped.youngs_modulus_mpa.tolist() == [[[500.0, 10000.0]]]
+    np.testing.assert_allclose(mapped.poisson_ratio, [[[0.25, 0.3]]])
+
+
+def test_labels_to_material_map_can_override_material_specific_poisson_ratio():
+    table = LinearIsotropicMaterials(
+        youngs_modulus_mpa={126: 500.0, 127: 10000.0},
+        poisson_ratio={126: 0.25, 127: 0.3},
+    )
 
     mapped = labels_to_material_map(np.array([[[126, 127]]]), table, poisson_ratio=0.3)
-    assert mapped.youngs_modulus_mpa.tolist() == [[[500.0, 10000.0]]]
+
     assert mapped.poisson_ratio == 0.3
 
 

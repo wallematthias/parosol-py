@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
+import threading
 from dataclasses import dataclass
 from importlib import metadata
 from importlib import resources
@@ -106,13 +108,61 @@ def parse_run_summary(stdout: str) -> RunSummary:
     return RunSummary(**values)
 
 
-def run_parosol(command: list[str], *, cwd: str | Path | None = None) -> RunResult:
-    proc = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
-    summary = parse_run_summary(proc.stdout)
+def run_parosol(
+    command: list[str], *, cwd: str | Path | None = None, stream: bool = False
+) -> RunResult:
+    if stream:
+        proc = subprocess.Popen(
+            command,
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1,
+        )
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+        stdout_thread = threading.Thread(
+            target=_tee_pipe,
+            args=(proc.stdout, sys.stdout, stdout_chunks),
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=_tee_pipe,
+            args=(proc.stderr, sys.stderr, stderr_chunks),
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+        returncode = proc.wait()
+        stdout_thread.join()
+        stderr_thread.join()
+        stdout = "".join(stdout_chunks)
+        stderr = "".join(stderr_chunks)
+    else:
+        proc = subprocess.run(
+            command, cwd=cwd, text=True, capture_output=True, check=False
+        )
+        returncode = proc.returncode
+        stdout = proc.stdout
+        stderr = proc.stderr
+    summary = parse_run_summary(stdout)
     return RunResult(
         command=command,
-        stdout=proc.stdout,
-        stderr=proc.stderr,
-        returncode=proc.returncode,
+        stdout=stdout,
+        stderr=stderr,
+        returncode=returncode,
         summary=summary,
     )
+
+
+def _tee_pipe(pipe, sink, chunks: list[str]) -> None:
+    if pipe is None:
+        return
+    try:
+        for line in pipe:
+            chunks.append(line)
+            sink.write(line)
+            sink.flush()
+    finally:
+        pipe.close()

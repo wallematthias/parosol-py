@@ -28,10 +28,13 @@
 class OctreeNode
 {
 public:
-	OctreeNode(): key(0), w(0)
+	OctreeNode(): key(0), w(0), nu(-2.0)
 			{
 			}
-	OctreeNode(t_octree_key key, double w): key(key), w(w)
+	OctreeNode(t_octree_key key, double w): key(key), w(w), nu(-2.0)
+	{
+	}
+	OctreeNode(t_octree_key key, double w, double nu): key(key), w(w), nu(nu)
 	{
 	}
 
@@ -51,6 +54,7 @@ public:
 		
 	t_octree_key key;
 	double w;
+	double nu;
 	
 private:
 };

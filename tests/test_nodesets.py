@@ -1,6 +1,6 @@
 import numpy as np
 
-from parosol_py.nodesets import nodes_from_labeled_voxels
+from parosol_py.nodesets import nodes_from_labeled_voxels, nodes_from_mask_face
 
 
 def test_all_corner_nodes_selects_every_corner_touched_by_label():
@@ -43,3 +43,12 @@ def test_surface_nodes_can_select_interface_with_material_object():
     )
 
     assert nodes == [(1, 0, 0), (1, 0, 1), (1, 1, 0), (1, 1, 1)]
+
+
+def test_mask_face_nodes_selects_only_requested_outer_face():
+    mask = np.ones((2, 2, 2), dtype=bool)
+
+    nodes = nodes_from_mask_face(mask, axis="z", side=1)
+
+    assert all(node[2] == 2 for node in nodes)
+    assert len(nodes) == 9

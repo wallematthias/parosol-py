@@ -18,5 +18,6 @@ class BuiltModel:
     boundary_conditions: BoundaryConditionSet
     node_sets: dict[str, list[tuple[int, int, int]]]
     element_sets: dict[str, int]
+    postprocess_mask: np.ndarray | None = None
     exported: dict[str, Path] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)

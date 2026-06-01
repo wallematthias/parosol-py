@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 import SimpleITK as sitk
 
+from parosol_py.api import SolveResult, SolveSummary
 from parosol_py.cli import main
 from parosol_py.config import run_case_config
 
@@ -177,6 +178,146 @@ def test_run_case_config_uses_model_section_for_dry_run(tmp_path: Path):
     summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
     assert summary["model"]["type"] == "spine_compression"
     assert summary["model"]["node_sets"]["inferior"] > 0
+
+
+def test_model_overview_uses_postprocess_mask_for_fields(monkeypatch, tmp_path: Path):
+    density = np.zeros((6, 5, 4), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[1:5, 1:4, 1:3] = 800.0
+    mask[1:5, 1:4, 1:3] = 2
+    mask[2:4, 2:3, 2:4] = 1
+    np.save(tmp_path / "density.npy", density)
+    np.save(tmp_path / "mask.npy", mask)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "case": {"name": "vertebra_model"},
+                "model": {
+                    "type": "vertebra",
+                    "density_image": "density.npy",
+                    "mask_image": "mask.npy",
+                    "labels": {"body": 2, "process": 1},
+                    "geometry": {"pmma_thickness_mm": 1, "axis": "z"},
+                },
+                "materials": {
+                    "density": {"equation": "linear", "slope": 10.0},
+                    "poisson_ratio": 0.3,
+                    "pmma": {"E": 2500, "nu": 0.3},
+                },
+                "load_case": {"type": "spine_compression", "displacement": -0.2},
+                "postprocess": {"fields": {"mask_to_segmentation": True}},
+                "output": {
+                    "summary": "summary.json",
+                    "visualization": "overview.png",
+                    "fields": ["sed"],
+                    "export_fields": True,
+                    "fields_dir": "fields",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured["postprocess_mask"] = kwargs.get("postprocess_mask")
+        export_dir = Path(kwargs["export_dir"])
+        export_dir.mkdir(parents=True, exist_ok=True)
+        sed_path = export_dir / "sed.nii.gz"
+        field = np.ones_like(kwargs["material"], dtype=np.float32)
+        field = np.where(kwargs["postprocess_mask"], field, 0.0)
+        image = sitk.GetImageFromArray(field)
+        image.SetSpacing(kwargs["spacing"])
+        image.SetOrigin(kwargs["origin"])
+        sitk.WriteImage(image, str(sed_path))
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={"sed": np.ones(int(np.count_nonzero(kwargs["material"] > 0)))},
+            summary=SolveSummary(
+                tuple(int(v) for v in np.transpose(kwargs["material"], (2, 1, 0)).shape),
+                kwargs["spacing"],
+                kwargs["origin"],
+            ),
+            exported={"sed": sed_path},
+            diagnostics={},
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+    seen = {}
+
+    def fake_write_case_overview(material_xyz, **kwargs):
+        seen["field_mask"] = kwargs.get("field_mask_xyz")
+        seen["field"] = kwargs.get("field_xyz")
+        out = Path(kwargs["output_path"])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x89PNG\r\n\x1a\n")
+        return out
+
+    monkeypatch.setattr("parosol_py.config.write_case_overview", fake_write_case_overview)
+
+    run_case_config(config_path)
+
+    assert captured["postprocess_mask"] is not None
+    assert seen["field_mask"] is not None
+    assert np.all(np.isnan(seen["field"][~seen["field_mask"]]))
+
+
+def test_model_section_uses_model_load_axis_for_sideways_fall(
+    monkeypatch, tmp_path: Path
+):
+    density = np.zeros((7, 8, 9), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[1:6, 2:6, 2:7] = 700.0
+    mask[1:6, 2:6, 2:7] = 2
+    np.save(tmp_path / "density.npy", density)
+    np.save(tmp_path / "mask.npy", mask)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "model": {
+                    "type": "proximal_femur",
+                    "density_image": "density.npy",
+                    "mask_image": "mask.npy",
+                    "labels": {"femur": 2},
+                    "geometry": {"cap_axis": "y", "pmma_thickness_mm": 1},
+                },
+                "materials": {
+                    "density": {"equation": "linear", "slope": 10.0},
+                    "poisson_ratio": 0.3,
+                    "pmma": {"E": 2500, "nu": 0.3},
+                },
+                "load_case": {"type": "sideways_fall", "displacement": 1.0},
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary(
+                tuple(int(v) for v in np.transpose(kwargs["material"], (2, 1, 0)).shape),
+                kwargs["spacing"],
+                kwargs["origin"],
+            ),
+            diagnostics={},
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    assert captured["test_axis"] == "y"
+    assert captured["load_direction"] == "y"
+    assert captured["load_case_type"] == "sideways_fall"
 
 
 def test_run_case_config_reads_compressed_npz_label_image(tmp_path: Path):
@@ -1139,3 +1280,101 @@ def test_cli_run_and_summarize_legacy(tmp_path: Path):
     )
     summary = json.loads(out.read_text(encoding="utf-8"))
     assert summary["reference"]["pistoia"]["failure_load"]["fz"] == -4741.0
+
+
+def test_cli_shortcut_runs_direct_profile_and_records_execution(tmp_path: Path):
+    labels = np.ones((3, 3, 3), dtype=np.uint8) * 100
+    image_path = tmp_path / "distal_radius.npy"
+    output_dir = tmp_path / "out"
+    np.save(image_path, labels)
+
+    assert (
+        main(
+            [
+                str(image_path),
+                "--profile",
+                "XtremeCTII",
+                "--output",
+                str(output_dir),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    generated = output_dir / "parosol_case.yaml"
+    summary_path = output_dir / "summary.json"
+    assert generated.exists()
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["case"]["name"] == "distal_radius"
+    assert summary["execution"]["interface"] == "shortcut"
+    assert summary["execution"]["profile"] == "XtremeCTII"
+    assert summary["execution"]["image"] == str(image_path.resolve())
+    assert summary["execution"]["generated_config"] == str(generated)
+
+
+def test_cli_shortcut_direct_profile_uses_auto_spacing_for_metadata_images(
+    tmp_path: Path,
+):
+    image = sitk.GetImageFromArray(np.ones((3, 3, 3), dtype=np.uint8) * 100)
+    image.SetSpacing((0.0607, 0.0607, 0.0607))
+    image_path = tmp_path / "distal_radius.mha"
+    output_dir = tmp_path / "out"
+    sitk.WriteImage(image, str(image_path))
+
+    assert (
+        main(
+            [
+                str(image_path),
+                "--profile",
+                "XtremeCTII",
+                "--output",
+                str(output_dir),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    generated_text = (output_dir / "parosol_case.yaml").read_text(encoding="utf-8")
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    assert "spacing: auto" in generated_text
+    assert "origin: auto" in generated_text
+    assert summary["image"]["spacing"] == [0.0607, 0.0607, 0.0607]
+
+
+def test_cli_shortcut_runs_model_profile_with_standard_mask_argument(tmp_path: Path):
+    density = np.zeros((8, 7, 6), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:5, 2:4] = 800.0
+    mask[2:6, 2:5, 2:4] = 20
+    mask[3:6, 3:5, 4:6] = 48
+    density_path = tmp_path / "10001_QCT.npy"
+    mask_path = tmp_path / "10001_SEG.npy"
+    output_dir = tmp_path / "vertebra_out"
+    np.save(density_path, density)
+    np.save(mask_path, mask)
+
+    assert (
+        main(
+            [
+                str(density_path),
+                "--mask",
+                str(mask_path),
+                "--profile",
+                "vertebra",
+                "--output",
+                str(output_dir),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    generated = output_dir / "parosol_case.yaml"
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    assert generated.exists()
+    assert summary["execution"]["profile"] == "vertebra"
+    assert summary["execution"]["mask"] == str(mask_path.resolve())
+    assert summary["model"]["type"] == "spine_compression"
+    assert (output_dir / "model" / "material.nii.gz").exists()

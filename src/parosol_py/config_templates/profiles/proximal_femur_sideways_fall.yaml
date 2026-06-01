@@ -1,5 +1,5 @@
 model:
-  type: proximal_femur
+  type: proximal_femur_sideways_fall
   density_image: density.nii.gz
   mask_image: segmentation.nii.gz
   side: left
@@ -15,11 +15,20 @@ model:
       thickness_mm: 3
       intrusion_depth_mm: 6
       method: projected_cap
+  registration:
+    enabled: false
+    method: lightweight_icp
+    # reference_points: LT_FEMUR_SIDEWAYS_FALL_REF.vtk
+    max_points: 8000
+    iterations: 50
+    margin_voxels: 8
+    crop_to_bbox: true
+    crop_margin_voxels: 2
   outputs:
-    material_image: parosol_run/proximal_femur/model/material.nii.gz
-    nodeset_image: parosol_run/proximal_femur/model/nodesets.nii.gz
-    manifest: parosol_run/proximal_femur/model/model.json
-    qc_image: parosol_run/proximal_femur/model/qc.png
+    material_image: parosol_run/proximal_femur_sideways_fall/model/material.nii.gz
+    nodeset_image: parosol_run/proximal_femur_sideways_fall/model/nodesets.nii.gz
+    manifest: parosol_run/proximal_femur_sideways_fall/model/model.json
+    qc_image: parosol_run/proximal_femur_sideways_fall/model/qc.png
 
 materials:
   units: MPa
@@ -62,8 +71,9 @@ postprocess:
     restore_original_grid: false
 
 output:
-  summary: parosol_run/proximal_femur/summary.json
+  summary: parosol_run/proximal_femur_sideways_fall/summary.json
   fields: [sed]
   export_fields: true
-  fields_dir: parosol_run/proximal_femur/fields
-  visualization: parosol_run/proximal_femur/overview.png
+  fields_dir: parosol_run/proximal_femur_sideways_fall/fields
+  visualization_field: sed
+  visualization: parosol_run/proximal_femur_sideways_fall/overview.png

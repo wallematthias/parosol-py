@@ -6,19 +6,19 @@ SOLVER_PROFILES = {
     "standard": SolverProfile(
         tolerance=1e-6,
         level=6,
-        mpi_processes=1,
+        mpi_processes=4,
         outputs=("sed",),
     ),
     "batch": SolverProfile(
         tolerance=1e-6,
         level=6,
-        mpi_processes=6,
+        mpi_processes=4,
         outputs=("sed",),
     ),
     "debug": SolverProfile(
         tolerance=1e-6,
         level=6,
-        mpi_processes=1,
+        mpi_processes=4,
         outputs=("sed", "effective_strain", "von_mises"),
     ),
 }

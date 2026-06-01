@@ -5,6 +5,9 @@ from typing import Any
 
 import numpy as np
 
+from parosol_py.nodesets import nodes_from_mask_face
+
+from .alignment import align_mask_to_reference
 from .common import (
     AXIS_TO_INDEX,
     displacement_from_load_case,
@@ -14,6 +17,7 @@ from .common import (
     nodes_for_labels,
     pad_along_axis,
     pmma_spec,
+    projected_caps_from_mask,
     require_non_empty,
     sideways_fall_bcs,
     to_zyx,
@@ -27,15 +31,37 @@ def build_proximal_femur_model(
     base_dir: Path,
     material_config: dict[str, Any],
     load_case_config: dict[str, Any] | None = None,
+    preprocessing_config: dict[str, Any] | None = None,
 ) -> BuiltModel:
     density_zyx, mask_zyx, spacing, origin = load_density_and_mask(
-        model_config, base_dir=base_dir
+        model_config, base_dir=base_dir, preprocessing_config=preprocessing_config
     )
     labels = model_config.get("labels", {})
-    femur_label = int(labels.get("femur", labels.get("left", labels.get("right", 2))))
+    femur_label = int(
+        labels.get(
+            "femur",
+            labels.get("left", labels.get("right", _cap_target_label(model_config, 2))),
+        )
+    )
     femur_zyx = mask_zyx == femur_label
     if not np.any(femur_zyx):
         raise ValueError(f"proximal femur label {femur_label} is absent")
+    registration_meta = {"enabled": False}
+    registration = model_config.get("registration", model_config.get("pose", {}))
+    if isinstance(registration, dict) and registration.get("enabled", False):
+        aligned = align_mask_to_reference(
+            density_zyx=density_zyx,
+            mask_zyx=femur_zyx,
+            spacing=spacing,
+            origin=origin,
+            registration_config=registration,
+            base_dir=base_dir,
+        )
+        density_zyx = aligned.density_zyx
+        femur_zyx = aligned.mask_zyx
+        spacing = aligned.spacing
+        origin = aligned.origin
+        registration_meta = aligned.metadata
     bone_mpa_zyx, poisson_ratio = material_from_density(
         density_zyx,
         femur_zyx,
@@ -48,6 +74,10 @@ def build_proximal_femur_model(
     if axis not in AXIS_TO_INDEX:
         raise ValueError("model.geometry.cap_axis must be one of x, y, z")
     thickness = _thickness_voxels(model_config, spacing=spacing, axis=axis)
+    intrusion_depth = _intrusion_depth_voxels(
+        model_config, spacing=spacing, axis=axis, default=thickness
+    )
+    cap_shape = _cap_shape(model_config)
     pmma = pmma_spec(material_config)
 
     material_xyz = pad_along_axis(
@@ -68,6 +98,8 @@ def build_proximal_femur_model(
         femur_xyz,
         axis=axis,
         thickness=thickness,
+        intrusion_depth=intrusion_depth,
+        shape=cap_shape,
     )
     material_xyz[fh_cap | gt_cap] = pmma["E"]
 
@@ -79,11 +111,17 @@ def build_proximal_femur_model(
     node_sets = nodes_for_labels(
         labels_xyz,
         {
-            "femoral_head_pmma": 20,
-            "greater_trochanter_pmma": 21,
             "distal_femur": 22,
         },
         material_xyz=material_xyz,
+    )
+    node_sets.update(
+        {
+            "femoral_head_pmma": nodes_from_mask_face(fh_cap, axis=axis, side=-1),
+            "greater_trochanter_pmma": nodes_from_mask_face(
+                gt_cap, axis=axis, side=1
+            ),
+        }
     )
     require_non_empty(node_sets)
     displacement = displacement_from_load_case(
@@ -91,7 +129,7 @@ def build_proximal_femur_model(
         axis="y",
         dimensions_xyz=tuple(int(v) for v in material_xyz.shape),
         spacing=spacing,
-        default=-1.0 / max(float(material_xyz.shape[1]) * spacing[1], 1.0),
+        default=1.0 / max(float(material_xyz.shape[1]) * spacing[1], 1.0),
     )
     boundary_conditions = sideways_fall_bcs(
         node_sets,
@@ -110,9 +148,19 @@ def build_proximal_femur_model(
             "type": "proximal_femur",
             "side": str(model_config.get("side", "left")),
             "cap_axis": axis,
+            "load_axis": "y",
+            "load_direction": "y",
             "pmma_thickness_voxels": thickness,
+            "caps": {
+                "target_label": str(_cap_target_label(model_config, femur_label)),
+                "shape": cap_shape,
+                "thickness_voxels": thickness,
+                "intrusion_depth_voxels": intrusion_depth,
+                "method": "projected_cap",
+            },
             "labels": {"femur": femur_label},
             "displacement": displacement,
+            "registration": registration_meta,
         },
         "materials": {"pmma": pmma, "poisson_ratio": poisson_ratio},
     }
@@ -137,6 +185,7 @@ def build_proximal_femur_model(
         boundary_conditions=boundary_conditions,
         node_sets=node_sets,
         element_sets=element_sets,
+        postprocess_mask=to_zyx(femur_xyz),
         exported=exported,
         metadata=metadata,
     )
@@ -147,6 +196,8 @@ def _femur_caps_and_distal(
     *,
     axis: str,
     thickness: int,
+    intrusion_depth: int,
+    shape: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     axis_index = AXIS_TO_INDEX[axis]
     coords = np.argwhere(femur_xyz)
@@ -182,19 +233,19 @@ def _femur_caps_and_distal(
     if not np.any(gt_roi):
         gt_roi = femur_xyz
 
-    _project_contact_cap(
-        fh,
+    fh, _unused_superior = projected_caps_from_mask(
         fh_roi,
-        axis_index=axis_index,
-        side=-1,
-        thickness=thickness,
+        axis=axis,
+        thickness_voxels=thickness,
+        intrusion_depth_voxels=intrusion_depth,
+        shape=shape,
     )
-    _project_contact_cap(
-        gt,
+    _unused_inferior, gt = projected_caps_from_mask(
         gt_roi,
-        axis_index=axis_index,
-        side=1,
-        thickness=thickness,
+        axis=axis,
+        thickness_voxels=thickness,
+        intrusion_depth_voxels=intrusion_depth,
+        shape=shape,
     )
 
     distal_axis = 2
@@ -221,36 +272,6 @@ def _axis_band(
     return mask
 
 
-def _project_contact_cap(
-    out: np.ndarray,
-    roi: np.ndarray,
-    *,
-    axis_index: int,
-    side: int,
-    thickness: int,
-) -> None:
-    lateral_shape = tuple(roi.shape[idx] for idx in range(3) if idx != axis_index)
-    for lateral in np.ndindex(lateral_shape):
-        selector = [slice(None), slice(None), slice(None)]
-        lateral_iter = iter(lateral)
-        for idx in range(3):
-            if idx != axis_index:
-                selector[idx] = next(lateral_iter)
-        line = roi[tuple(selector)]
-        occupied = np.flatnonzero(line)
-        if occupied.size == 0:
-            continue
-        if side < 0:
-            contact = int(occupied.min())
-            selector[axis_index] = slice(max(0, contact - thickness), contact)
-        else:
-            contact = int(occupied.max())
-            selector[axis_index] = slice(
-                contact + 1, min(roi.shape[axis_index], contact + 1 + thickness)
-            )
-        out[tuple(selector)] = True
-
-
 def _thickness_voxels(
     model_config: dict[str, Any],
     *,
@@ -258,7 +279,12 @@ def _thickness_voxels(
     axis: str,
 ) -> int:
     geometry = model_config.get("geometry", {})
-    if "pmma_thickness_voxels" in geometry:
+    cap = _cap_config(model_config)
+    if "thickness_voxels" in cap:
+        value = int(cap["thickness_voxels"])
+    elif "thickness_mm" in cap:
+        value = int(round(float(cap["thickness_mm"]) / spacing[AXIS_TO_INDEX[axis]]))
+    elif "pmma_thickness_voxels" in geometry:
         value = int(geometry["pmma_thickness_voxels"])
     else:
         value = int(
@@ -270,6 +296,57 @@ def _thickness_voxels(
     if value < 1:
         raise ValueError("PMMA cap thickness rounds to zero voxels")
     return value
+
+
+def _intrusion_depth_voxels(
+    model_config: dict[str, Any],
+    *,
+    spacing: tuple[float, float, float],
+    axis: str,
+    default: int,
+) -> int:
+    geometry = model_config.get("geometry", {})
+    cap = _cap_config(model_config)
+    if "intrusion_depth_voxels" in cap:
+        value = int(cap["intrusion_depth_voxels"])
+    elif "intrusion_depth_mm" in cap:
+        value = int(
+            round(float(cap["intrusion_depth_mm"]) / spacing[AXIS_TO_INDEX[axis]])
+        )
+    elif "intrusion_depth_voxels" in geometry:
+        value = int(geometry["intrusion_depth_voxels"])
+    elif "intrusion_depth_mm" in geometry:
+        value = int(
+            round(float(geometry["intrusion_depth_mm"]) / spacing[AXIS_TO_INDEX[axis]])
+        )
+    else:
+        value = int(round(float(default) * 2.0))
+    if value < 1:
+        raise ValueError("PMMA cap intrusion depth rounds to zero voxels")
+    return value
+
+
+def _cap_shape(model_config: dict[str, Any]) -> str:
+    geometry = model_config.get("geometry", {})
+    cap = _cap_config(model_config)
+    return str(cap.get("shape", geometry.get("cap_shape", "anatomy"))).strip().lower()
+
+
+def _cap_target_label(model_config: dict[str, Any], default: int) -> int:
+    cap = _cap_config(model_config)
+    raw = cap.get("target_label", cap.get("target", default))
+    if str(raw).strip().lower() in {"femur", "bone", "proximal_femur"}:
+        return int(default)
+    return int(raw)
+
+
+def _cap_config(model_config: dict[str, Any]) -> dict[str, Any]:
+    geometry = model_config.get("geometry", {})
+    cap = geometry.get("cap")
+    if isinstance(cap, dict):
+        return cap
+    disk = geometry.get("disk")
+    return disk if isinstance(disk, dict) else {}
 
 
 def _padded_origin(

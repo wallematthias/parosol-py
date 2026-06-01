@@ -172,6 +172,34 @@ int HDF5Image::Scan(BaseGrid* grid)
     
     delete[] image;
 
+    hsize_t poisson_dims_of_hdf5[3];
+    std::string poisson_dataset = "";
+    if (reader.GetSizeOfDataset("Poissons_ratio_Image", poisson_dims_of_hdf5, 3) > 0) {
+      poisson_dataset = "Poissons_ratio_Image";
+    } else if (reader.GetSizeOfDataset("Poisons_ratio_Image", poisson_dims_of_hdf5, 3) > 0) {
+      poisson_dataset = "Poisons_ratio_Image";
+    }
+    if (!poisson_dataset.empty()) {
+      for(int d=0; d<3; d++) {
+        if (poisson_dims_of_hdf5[d] != global_dims_of_hdf5[d]) {
+          PCOUT(MyPID, "Error: Poisson ratio image dimensions do not match Image dimensions.\n")
+          MPI_Finalize();
+          exit(-1);
+        }
+      }
+      float *poisson_image = new float[imagesize];
+      reader.Read(poisson_dataset.c_str(), poisson_image, my_offset, my_count, 3);
+      grid->_poisson_grid = new double[imagesize];
+      unsigned long p=0;
+      for(unsigned int x = 0; x < grid->ldim[2]; x++)
+      for(unsigned int y = 0; y < grid->ldim[1]; y++)
+      for(unsigned int z = 0; z < grid->ldim[0]; z++) {
+        grid->_poisson_grid[p] = poisson_image[p];
+        p++;
+      }
+      delete[] poisson_image;
+    }
+
     //timer.Start("BC");
 
     //timer.Stop("BC");
@@ -191,6 +219,9 @@ int HDF5Image::Scan(BaseGrid* grid)
    PCOUT(MyPID, "   local Dimension: " << grid->ldim[0] << " " << grid->ldim[1] << " " << grid->ldim[2] << "\n")
    PCOUT(MyPID, "   Resolution: " << grid->res[0] << "\n")
    PCOUT(MyPID, "   Poison's ratio: " << grid->poisons_ratio << "\n")
+   if (grid->_poisson_grid != 0) {
+     PCOUT(MyPID, "   Per-element Poison's ratio image: " << poisson_dataset << "\n")
+   }
    
    long num_gl_bc[2], num_loc_bc[2];
    num_loc_bc[0]=grid->fixed_nodes_values.size();

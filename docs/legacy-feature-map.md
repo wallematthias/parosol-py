@@ -11,7 +11,8 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 | Segmented image input with material IDs | `input.image` plus `image_type: material_labels` | Implemented for AIM, NIfTI, MetaImage, NPY, NPZ |
 | Material definition/table files | Inline `materials.definitions` and `materials.table`, or optional `materials.file` | Implemented for linear isotropic E/nu tables |
 | Continuous density input | `input.image_type: density` plus `materials.density` equation | Implemented for power, linear, and polynomial E mappings |
-| Poisson ratio from equation | `materials.poisson_ratio` scalar or equation reduced to one value | Implemented; native solve still uses one global value |
+| Material-specific Poisson ratio | Per-label `nu` in `materials.definitions`/`materials.table` | Implemented via optional native per-element Poisson ratio image |
+| Poisson ratio from equation | `materials.poisson_ratio` scalar or equation reduced to one value | Implemented for continuous density inputs as a reduced scalar |
 | Connectivity filtering | `preprocessing.connectivity_filter: true` | Implemented as largest non-zero component |
 | Constrained axial plate compression | `load_case.type: constrained_axial` or `plate_compression` | Implemented |
 | Uniaxial compression | `load_case.type: uniaxial` | Implemented |
@@ -49,7 +50,9 @@ The preferred workflow should stay small:
 
 1. Provide a label image and material table.
 2. Pick a named load case/profile or provide label-image node sets.
-3. Run `parosol run case.yaml`, or `parosol batch batch.yaml` for multi-case mechanics.
+3. Run `parosol image.AIM --profile XtremeCTII --output out`, or
+   `parosol density.nii.gz --mask seg.nii.gz --profile vertebra --output out`
+   for model-building profiles.
 4. Read `summary.json` and optional `.nii.gz` fields.
 
 Advanced users should be able to build the same model through Python objects,

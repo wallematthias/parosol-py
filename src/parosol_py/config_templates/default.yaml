@@ -19,8 +19,8 @@ input:
 
 materials:
   # Inline MaterialDefinitions and MaterialTable sections.
-  # native ParOSol currently uses one global Poisson's ratio, so all material nu
-  # values must match unless a global poisson_ratio/nu override is set here.
+  # Material-specific nu values are preserved for label images and written as
+  # an optional per-element Poisson ratio image for the native solver.
   units: MPa
   definitions:
     TrabecularBone:
@@ -36,10 +36,11 @@ materials:
     127: CorticalBone
   # Alternatively, keep materials in a separate YAML file:
   # file: material_cort_trab.yaml
+  # Use a scalar override to intentionally force one Poisson ratio for all
+  # labels, even if material definitions contain different nu values.
   # poisson_ratio: 0.3
-  # Current native ParOSol uses one global Poisson's ratio. For continuous
-  # inputs you may provide an equation here; parosol-py reduces it to one
-  # scalar value before solving.
+  # For continuous density inputs you may provide an equation here; parosol-py
+  # currently reduces continuous nu fields to one scalar value before solving.
   # poisson_ratio:
   #   equation: linear
   #   slope: 0.0
@@ -55,9 +56,14 @@ materials:
   #   mask_threshold: 0
 
 preprocessing:
-  # Keep only the largest non-zero component before meshing. Useful for
-  # segmented bone images with small disconnected islands.
-  connectivity_filter: false
+  # Keep only the largest non-zero connected component before modelling/solving.
+  # Useful for segmented bone images with small disconnected islands.
+  largest_cc: false
+  # Solve on a foreground bounding box for speed. Postprocessing can restore
+  # exported fields to the source image grid for direct visual checking.
+  crop_to_bb:
+    enabled: false
+    margin_voxels: 4
   # Optional downsampled solve. This changes the solve grid and scales spacing.
   # Use for exploratory coarse passes before full-resolution batches.
   # coarsen:
@@ -145,11 +151,26 @@ load_case:
   #     value: -700
   #     distribute: true
 
+modeling:
+  # Optional anatomy/model generation helpers used before solving.
+  # Profiles such as vertebra and proximal_femur define concrete model blocks.
+  # Disk/cap generation is intentionally generic: choose the target mask, set
+  # external thickness, and set how far the projected footprint may intrude into
+  # the target anatomy.
+  # disk:
+  #   target_label: 20
+  #   shape: anatomy  # anatomy, square, round, or hex
+  #   thickness_mm: 3
+  #   intrusion_depth_mm: 6
+  #   method: projected_cap
+
 solver:
   tolerance: 1.0e-6
   level: 6
-  mpi_processes: 1
+  mpi_processes: 4
   mpi_launcher: mpirun
+  # Stream native solver output to the terminal while also saving logs.
+  stream_output: true
   # Output field names map to native ParOSol output flags.
   outputs: [sed]
   # Optional summary checks.
@@ -162,6 +183,12 @@ postprocess:
     criterion: pistoia
     critical_strain: 0.007
     critical_volume_percent: 2.0
+  # Linear vertebral strength estimates derived from stiffness and bone height.
+  # linear_deformation is the cohort-calibrated deformation threshold, e.g. 0.002
+  # for 0.2%. crawford_coefficient implements F.Load = c * k_fe * h.
+  # failure_load:
+  #   linear_deformation: 0.002
+  #   crawford_coefficient: 0.0068
   # Load-history post-processing combines SED fields from a solved batch.
   # The load_history_3 and load_history_6 profiles provide ready-made batches.
   # load_history:
@@ -171,6 +198,12 @@ postprocess:
   #   bone_mask: bone_mask.nii.gz
   #   summary: parosol_run/example_case/load_history_summary.json
   #   output: parosol_run/example_case/load_history.nii.gz
+  fields:
+    # Limit exported strain-like fields to the solved/material segmentation.
+    mask_to_segmentation: true
+    # For crop_to_bb preprocessing, paste image fields back into the original
+    # image grid when the run did not also change orientation/registration.
+    restore_original_grid: true
 
 output:
   summary: parosol_run/example_case/summary.json

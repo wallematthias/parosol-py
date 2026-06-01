@@ -17,10 +17,12 @@ def write_case_overview(
     origin: tuple[float, float, float] = (0.0, 0.0, 0.0),
     field_xyz=None,
     field_name: str = "SED",
+    field_mask_xyz=None,
+    material_labels_xyz=None,
     boundary_conditions: BoundaryConditionSet | None = None,
     title: str | None = None,
 ) -> Path:
-    """Write a compact material/result/boundary-condition overview PNG."""
+    """Write a compact 2D material/result/boundary-condition overview PNG."""
     material = np.asarray(material_xyz)
     if material.ndim != 3:
         raise ValueError(f"material_xyz must be 3D, got shape {material.shape}")
@@ -30,9 +32,27 @@ def write_case_overview(
             raise ValueError(
                 f"field_xyz shape {field.shape} does not match material {material.shape}"
             )
-        field = np.where(material > 0, field, np.nan)
+        if field_mask_xyz is not None:
+            field_mask = np.asarray(field_mask_xyz, dtype=bool)
+            if field_mask.shape != material.shape:
+                raise ValueError(
+                    f"field_mask_xyz shape {field_mask.shape} does not match material {material.shape}"
+                )
+        else:
+            field_mask = material > 0
+        field_context = (material > 0) & ~field_mask
+        field = np.where(field_mask, field, np.nan)
     else:
         field = None
+        field_context = None
+    if material_labels_xyz is not None:
+        material_labels = np.asarray(material_labels_xyz)
+        if material_labels.shape != material.shape:
+            raise ValueError(
+                f"material_labels_xyz shape {material_labels.shape} does not match material {material.shape}"
+            )
+    else:
+        material_labels = None
 
     import matplotlib
 
@@ -43,11 +63,24 @@ def write_case_overview(
     out = Path(output_path).expanduser().resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
     field_cmap = plt.get_cmap("jet").copy()
-    field_cmap.set_bad(color="#f8fafc")
+    field_cmap.set_bad(color=(0.0, 0.0, 0.0, 0.0))
+    context_cmap = plt.matplotlib.colors.ListedColormap(
+        [(0.0, 0.0, 0.0, 0.0), (0.45, 0.50, 0.58, 1.0)]
+    )
 
     slices = _mid_slices(material, spacing=spacing, origin=origin)
+    label_slices = (
+        _mid_slices(material_labels, spacing=spacing, origin=origin)
+        if material_labels is not None
+        else {}
+    )
     field_slices = (
         _mid_slices(field, spacing=spacing, origin=origin) if field is not None else {}
+    )
+    context_slices = (
+        _mid_slices(field_context, spacing=spacing, origin=origin)
+        if field_context is not None and np.any(field_context)
+        else {}
     )
     fig, axes = plt.subplots(2, 3, figsize=(12.5, 7.8))
     fig.patch.set_facecolor("#f8fafc")
@@ -73,6 +106,8 @@ def write_case_overview(
             extent=view_slice.extent,
         )
         material_images.append(image)
+        if material_labels is not None:
+            _overlay_material_labels(ax, label_slices[view].image)
         _style_axis(
             ax,
             f"Material: {view_slice.label}",
@@ -130,12 +165,34 @@ def write_case_overview(
                 extent=field_slices[view].extent,
             )
             field_images.append(image)
+            if context_slices:
+                ax.imshow(
+                    context_slices[view].image.astype(float),
+                    origin="lower",
+                    cmap=context_cmap,
+                    vmin=0.0,
+                    vmax=1.0,
+                    interpolation="nearest",
+                    extent=context_slices[view].extent,
+                    alpha=0.82,
+                    zorder=3,
+                )
         _style_axis(
             ax,
             f"{field_name}: {view_slice.label}",
             view_slice.xlabel,
             view_slice.ylabel,
         )
+        if boundary_conditions is not None:
+            _overlay_boundary_conditions(
+                ax,
+                boundary_conditions,
+                view=view,
+                slice_axis=view_slice.axis,
+                slice_index=view_slice.index,
+                spacing=spacing,
+                origin=origin,
+            )
 
     if material_images:
         material_cax = fig.add_axes((0.925, 0.58, 0.014, 0.26))
@@ -159,32 +216,52 @@ def write_case_overview(
                 marker="o",
                 color="none",
                 markerfacecolor="#64748b",
+                markeredgecolor="white",
+                markeredgewidth=0.5,
                 markersize=6,
                 label="fixed",
             ),
             Line2D(
                 [0],
                 [0],
-                marker="o",
+                marker="^",
                 color="none",
                 markerfacecolor="#f97316",
-                markersize=6,
+                markeredgecolor="white",
+                markeredgewidth=0.5,
+                markersize=7,
                 label="prescribed displacement",
             ),
             Line2D(
                 [0],
                 [0],
-                marker="o",
+                marker="^",
                 color="none",
                 markerfacecolor="#0891b2",
-                markersize=6,
+                markeredgecolor="white",
+                markeredgewidth=0.5,
+                markersize=7,
                 label="applied force",
             ),
         ]
+        if context_slices:
+            handles.append(
+                Line2D(
+                    [0],
+                    [0],
+                    marker="s",
+                    color="none",
+                    markerfacecolor="#94a3b8",
+                    markeredgecolor="white",
+                    markeredgewidth=0.5,
+                    markersize=7,
+                    label="PMMA/context",
+                )
+            )
         fig.legend(
             handles=handles,
             loc="outside lower center",
-            ncol=3,
+            ncol=min(4, len(handles)),
             frameon=False,
         )
     fig.subplots_adjust(
@@ -295,6 +372,53 @@ def _style_axis(ax: Any, title: str, xlabel: str, ylabel: str) -> None:
     ax.set_aspect("equal")
 
 
+def _overlay_material_labels(ax: Any, labels: np.ndarray) -> None:
+    import matplotlib.colors as mcolors
+
+    values = np.asarray(labels)
+    active = np.ma.masked_where(values <= 0, values)
+    if active.count() == 0:
+        return
+    cmap = mcolors.ListedColormap(
+        [
+            "#22c55e",  # body/bone
+            "#14b8a6",  # process/second bone label
+            "#f97316",  # inferior/contact cap
+            "#ef4444",  # superior/contact cap
+            "#8b5cf6",
+            "#0ea5e9",
+        ]
+    )
+    unique = [int(v) for v in np.unique(values) if int(v) > 0]
+    remapped = np.zeros(values.shape, dtype=np.float32)
+    for idx, label in enumerate(unique, start=1):
+        remapped[values == label] = float(idx)
+    masked = np.ma.masked_where(remapped <= 0, remapped)
+    ax.imshow(
+        masked,
+        origin="lower",
+        cmap=cmap,
+        vmin=1,
+        vmax=max(1, len(unique)),
+        interpolation="nearest",
+        extent=ax.images[0].get_extent(),
+        alpha=0.32,
+        zorder=2,
+    )
+    for label in unique:
+        if label < 10:
+            continue
+        ax.contour(
+            values == label,
+            levels=[0.5],
+            colors=["#ffffff"],
+            linewidths=0.7,
+            origin="lower",
+            extent=ax.images[0].get_extent(),
+            zorder=3,
+        )
+
+
 def _overlay_boundary_conditions(
     ax: Any,
     boundary_conditions: BoundaryConditionSet,
@@ -309,43 +433,70 @@ def _overlay_boundary_conditions(
     fixed_values = np.asarray(boundary_conditions.fixed_values)
     loaded_coords = np.asarray(boundary_conditions.loaded_coordinates)
     loaded_values = np.asarray(boundary_conditions.loaded_values)
+    fixed_node_mask, prescribed_node_mask = _fixed_and_prescribed_node_masks(
+        fixed_coords, fixed_values
+    )
     fixed_slice = _slice_mask(fixed_coords, axis=slice_axis, index=slice_index)
     loaded_slice = _slice_mask(loaded_coords, axis=slice_axis, index=slice_index)
-    fixed_coords = fixed_coords[fixed_slice]
-    fixed_values = fixed_values[fixed_slice]
+    true_fixed = fixed_slice & fixed_node_mask
+    prescribed = fixed_slice & prescribed_node_mask
     loaded_coords = loaded_coords[loaded_slice]
     loaded_values = loaded_values[loaded_slice]
-    zero_mask = np.isclose(fixed_values, 0.0) | np.isclose(fixed_values, 1e-16)
     _render_bc_group(
         ax,
-        fixed_coords[zero_mask],
+        _unique_node_coordinates(fixed_coords[true_fixed]),
         values=None,
         view=view,
         spacing=spacing,
         origin=origin,
         color="#64748b",
-        marker="s",
-        alpha=0.18,
+        marker="o",
+        alpha=0.72,
     )
-    _draw_vectors(
+    _draw_bc_symbols(
         ax,
-        fixed_coords[~zero_mask],
-        fixed_values[~zero_mask],
+        fixed_coords[prescribed],
+        fixed_values[prescribed],
         view=view,
         spacing=spacing,
         origin=origin,
         color="#f97316",
     )
-    if loaded_coords.size:
-        _draw_vectors(
-            ax,
-            loaded_coords,
-            loaded_values,
-            view=view,
-            spacing=spacing,
-            origin=origin,
-            color="#0891b2",
-        )
+    _draw_bc_symbols(
+        ax,
+        loaded_coords,
+        loaded_values,
+        view=view,
+        spacing=spacing,
+        origin=origin,
+        color="#0891b2",
+    )
+
+
+def _fixed_and_prescribed_node_masks(
+    coords: np.ndarray,
+    values: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    if coords.size == 0:
+        empty = np.zeros((0,), dtype=bool)
+        return empty, empty
+    zero = np.isclose(values, 0.0) | np.isclose(values, 1e-16)
+    nonzero_nodes = {
+        tuple(int(v) for v in coord[:3]) for coord in coords[~zero]
+    }
+    prescribed = np.asarray(
+        [tuple(int(v) for v in coord[:3]) in nonzero_nodes for coord in coords],
+        dtype=bool,
+    )
+    fixed = zero & ~prescribed
+    return fixed, prescribed
+
+
+def _unique_node_coordinates(coords: np.ndarray) -> np.ndarray:
+    if coords.size == 0:
+        return coords.reshape((0, 4))
+    nodes = np.unique(coords[:, :3], axis=0)
+    return np.column_stack([nodes, np.zeros(nodes.shape[0], dtype=coords.dtype)])
 
 
 def _slice_mask(coords: np.ndarray, *, axis: int, index: int) -> np.ndarray:
@@ -370,16 +521,27 @@ def _render_bc_group(
     if coords.size == 0:
         return
     if coords.shape[0] <= 600:
-        _scatter_bc(
-            ax,
-            coords,
-            view=view,
-            spacing=spacing,
-            origin=origin,
-            color=color,
-            marker=marker,
-            alpha=alpha,
-        )
+        if values is None:
+            _scatter_bc(
+                ax,
+                coords,
+                view=view,
+                spacing=spacing,
+                origin=origin,
+                color=color,
+                marker=marker,
+                alpha=alpha,
+            )
+        else:
+            _draw_bc_symbols(
+                ax,
+                coords,
+                values,
+                view=view,
+                spacing=spacing,
+                origin=origin,
+                color=color,
+            )
         return
     _density_overlay(
         ax,
@@ -391,7 +553,7 @@ def _render_bc_group(
         alpha=max(alpha * 2.5, 0.45),
     )
     if values is not None:
-        _draw_representative_vectors(
+        _draw_representative_symbols(
             ax,
             coords,
             values,
@@ -416,10 +578,21 @@ def _scatter_bc(
     if coords.size == 0:
         return
     u, v = _project_points(coords, view=view, spacing=spacing, origin=origin)
-    ax.scatter(u, v, s=8, c=color, marker=marker, alpha=alpha, linewidths=0.0)
+    ax.scatter(
+        u,
+        v,
+        s=16,
+        c=color,
+        marker=marker,
+        alpha=alpha,
+        edgecolors="white",
+        linewidths=0.35,
+        clip_on=False,
+        zorder=4,
+    )
 
 
-def _draw_vectors(
+def _draw_bc_symbols(
     ax: Any,
     coords: np.ndarray,
     values: np.ndarray,
@@ -441,7 +614,7 @@ def _draw_vectors(
             color=color,
             alpha=0.65,
         )
-        _draw_representative_vectors(
+        _draw_representative_symbols(
             ax,
             coords,
             values,
@@ -453,33 +626,25 @@ def _draw_vectors(
         return
     u, v = _project_points(coords, view=view, spacing=spacing, origin=origin)
     du, dv, out_of_plane = _project_vectors(coords[:, 3], values, view=view)
-    in_plane = ~out_of_plane
-    if np.any(in_plane):
-        scale = _panel_vector_scale(ax, du[in_plane], dv[in_plane])
-        ax.quiver(
-            u[in_plane],
-            v[in_plane],
-            du[in_plane] * scale,
-            dv[in_plane] * scale,
-            angles="xy",
-            scale_units="xy",
-            scale=1.0,
-            width=0.008,
-            color=color,
-            alpha=0.86,
-            zorder=4,
-            clip_on=False,
-        )
-    if np.any(out_of_plane):
+    markers = np.asarray(
+        [
+            _bc_marker(float(x), float(y), bool(out), float(value))
+            for x, y, out, value in zip(du, dv, out_of_plane, values, strict=True)
+        ]
+    )
+    for marker in sorted(set(str(value) for value in markers)):
+        mask = markers == marker
         ax.scatter(
-            u[out_of_plane],
-            v[out_of_plane],
-            s=12,
+            u[mask],
+            v[mask],
+            s=26,
             c=color,
-            marker="o",
-            alpha=0.55,
+            marker=marker,
+            alpha=0.82,
             edgecolors="white",
             linewidths=0.35,
+            clip_on=False,
+            zorder=4,
         )
 
 
@@ -524,7 +689,7 @@ def _density_overlay(
     )
 
 
-def _draw_representative_vectors(
+def _draw_representative_symbols(
     ax: Any,
     coords: np.ndarray,
     values: np.ndarray,
@@ -537,7 +702,7 @@ def _draw_representative_vectors(
     if coords.size == 0:
         return
     dofs = coords[:, 3].astype(int)
-    vectors = []
+    points = []
     for dof in sorted(set(int(v) for v in dofs)):
         mask = dofs == dof
         if not np.any(mask):
@@ -547,45 +712,61 @@ def _draw_representative_vectors(
             coords[mask, 3], values[mask], view=view
         )
         if np.all(out_of_plane):
+            marker = _bc_marker(0.0, 0.0, True, float(np.nanmedian(values[mask])))
+            points.append(
+                (
+                    float(np.nanmedian(u)),
+                    float(np.nanmedian(v)),
+                    marker,
+                )
+            )
             continue
         in_plane = ~out_of_plane
-        vectors.append(
+        du_med = float(np.nanmedian(du[in_plane]))
+        dv_med = float(np.nanmedian(dv[in_plane]))
+        value_med = float(np.nanmedian(values[mask][in_plane]))
+        points.append(
             (
                 float(np.nanmedian(u[in_plane])),
                 float(np.nanmedian(v[in_plane])),
-                float(np.nanmedian(du[in_plane])),
-                float(np.nanmedian(dv[in_plane])),
+                _bc_marker(du_med, dv_med, False, value_med),
             )
         )
-    if not vectors:
+    if not points:
         u, v = _project_points(coords, view=view, spacing=spacing, origin=origin)
         ax.scatter(
             [float(np.nanmedian(u))],
             [float(np.nanmedian(v))],
             s=36,
             c=color,
-            marker="o",
+            marker="^",
             alpha=0.72,
             edgecolors="white",
             linewidths=0.6,
             zorder=4,
         )
         return
-    vector_array = np.asarray(vectors, dtype=float)
-    scale = _panel_vector_scale(ax, vector_array[:, 2], vector_array[:, 3])
-    ax.quiver(
-        vector_array[:, 0],
-        vector_array[:, 1],
-        vector_array[:, 2] * scale,
-        vector_array[:, 3] * scale,
-        angles="xy",
-        scale_units="xy",
-        scale=1.0,
-        width=0.008,
-        color=color,
-        alpha=0.9,
-        zorder=4,
-    )
+    for marker in sorted(set(point[2] for point in points)):
+        group = np.asarray([point[:2] for point in points if point[2] == marker])
+        ax.scatter(
+            group[:, 0],
+            group[:, 1],
+            s=46,
+            c=color,
+            marker=marker,
+            alpha=0.9,
+            edgecolors="white",
+            linewidths=0.6,
+            zorder=4,
+        )
+
+
+def _bc_marker(du: float, dv: float, out_of_plane: bool, value: float) -> str:
+    if out_of_plane:
+        return "^" if value >= 0 else "v"
+    if abs(du) >= abs(dv):
+        return ">" if du >= 0 else "<"
+    return "^" if dv >= 0 else "v"
 
 
 def _project_points(

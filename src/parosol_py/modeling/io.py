@@ -33,6 +33,7 @@ def read_image_zyx(
             return np.asarray(data[key]), spacing, origin
     if suffixes.endswith((".mha", ".mhd", ".nii", ".nii.gz")):
         image = sitk.ReadImage(str(path))
+        image = sitk.DICOMOrient(image, "LPS")
         return (
             sitk.GetArrayFromImage(image),
             tuple(float(v) for v in image.GetSpacing()),

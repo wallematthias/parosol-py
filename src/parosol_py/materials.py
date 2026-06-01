@@ -16,7 +16,7 @@ class LinearIsotropicMaterials:
 @dataclass(frozen=True)
 class MaterialMap:
     youngs_modulus_mpa: np.ndarray
-    poisson_ratio: float
+    poisson_ratio: float | np.ndarray
     metadata: dict[str, Any]
 
 
@@ -48,7 +48,7 @@ def labels_to_material_map(
     youngs = np.zeros(label_array.shape, dtype=np.float64)
     for label, value in table.youngs_modulus_mpa.items():
         youngs[label_array == label] = float(value)
-    nu = _global_poisson_ratio(table.poisson_ratio.values(), override=poisson_ratio)
+    nu = _poisson_ratio_map(label_array, table, override=poisson_ratio)
     return MaterialMap(
         youngs_modulus_mpa=youngs,
         poisson_ratio=nu,
@@ -258,13 +258,19 @@ def linear_isotropic_materials_from_config(
     )
 
 
-def _global_poisson_ratio(values, *, override: float | None) -> float:
+def _poisson_ratio_map(
+    label_array: np.ndarray,
+    table: LinearIsotropicMaterials,
+    *,
+    override: float | None,
+) -> float | np.ndarray:
     if override is not None:
         return float(override)
-    unique = sorted({round(float(value), 12) for value in values})
-    if len(unique) > 1:
-        raise ValueError(
-            "native ParOSol currently supports one global Poisson's ratio; "
-            f"material table contains multiple values: {unique}"
-        )
-    return float(unique[0])
+    unique = sorted({round(float(value), 12) for value in table.poisson_ratio.values()})
+    if len(unique) == 1:
+        return float(unique[0])
+    fill = float(unique[0])
+    out = np.full(label_array.shape, fill, dtype=np.float64)
+    for label, value in table.poisson_ratio.items():
+        out[label_array == label] = float(value)
+    return out

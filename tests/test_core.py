@@ -46,6 +46,6 @@ def test_profiles_have_stable_defaults():
 
     assert solver.tolerance == 1e-6
     assert solver.level == 6
-    assert solver.mpi_processes == 1
+    assert solver.mpi_processes == 4
     assert output.export_fields is True
     assert output.image_fields == ("sed",)

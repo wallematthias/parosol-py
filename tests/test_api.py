@@ -52,6 +52,24 @@ def test_solve_dry_run_accepts_export_dir(tmp_path):
     assert result.exported == {}
 
 
+def test_solve_accepts_scanner_rounding_in_isotropic_spacing(tmp_path):
+    material_zyx = np.ones((4, 3, 2)) * 1000.0
+
+    result = solve(
+        material=material_zyx,
+        spacing=(0.06069965288043022, 0.06069965288043022, 0.06069643050432205),
+        outputs=("sed",),
+        work_dir=tmp_path,
+        dry_run=True,
+    )
+
+    assert result.summary.spacing == (
+        0.06069965288043022,
+        0.06069965288043022,
+        0.06069643050432205,
+    )
+
+
 def test_solve_exports_native_scalar_field_in_dense_xyz_order(monkeypatch, tmp_path):
     material_zyx = np.ones((2, 2, 3)) * 1000.0
     dimensions_xyz = (3, 2, 2)
@@ -79,7 +97,7 @@ def test_solve_exports_native_scalar_field_in_dense_xyz_order(monkeypatch, tmp_p
     ).reshape((-1, 1))
     captured = {}
 
-    def fake_run_parosol(command, *, cwd=None):
+    def fake_run_parosol(command, *, cwd=None, stream=False):
         return RunResult(
             command=command,
             stdout="",
@@ -109,6 +127,9 @@ def test_solve_exports_native_scalar_field_in_dense_xyz_order(monkeypatch, tmp_p
     )
 
     assert result.exported["sed"].name == "sed.nii.gz"
+    assert result.exported["command_log"].name == "parosol_command.txt"
+    assert result.exported["stdout_log"].name == "parosol_stdout.log"
+    assert result.exported["stderr_log"].name == "parosol_stderr.log"
     np.testing.assert_array_equal(captured["grid"].array_xyz, dense)
     assert result.fields == {"sed": native_values}
 
@@ -146,7 +167,7 @@ def test_solve_exports_sparse_native_scalar_field_to_dense_xyz(monkeypatch, tmp_
     ).reshape((-1, 1))
     captured = {}
 
-    def fake_run_parosol(command, *, cwd=None):
+    def fake_run_parosol(command, *, cwd=None, stream=False):
         return RunResult(
             command=command,
             stdout="",
@@ -213,7 +234,7 @@ def test_solve_derives_summary_diagnostics_from_fea_fields(monkeypatch, tmp_path
 
     read_calls = {}
 
-    def fake_run_parosol(command, *, cwd=None):
+    def fake_run_parosol(command, *, cwd=None, stream=False):
         return RunResult(
             command=command,
             stdout="",

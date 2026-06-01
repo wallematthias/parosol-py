@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -7,6 +8,7 @@ from parosol_py.runner import (
     build_parosol_command,
     packaged_executable,
     parse_run_summary,
+    run_parosol,
 )
 
 
@@ -67,6 +69,23 @@ def test_parse_run_summary_extracts_solver_metrics():
     assert summary.relative_residual == pytest.approx(4.5e-8)
     assert summary.absolute_residual == pytest.approx(2.3e-4)
     assert summary.overall_time_seconds == pytest.approx(1.25)
+
+
+def test_run_parosol_can_stream_and_still_parse_summary(capsys):
+    command = [
+        sys.executable,
+        "-c",
+        "import sys; print('#  Nr of It: 7'); print('warn', file=sys.stderr)",
+    ]
+
+    result = run_parosol(command, stream=True)
+
+    captured = capsys.readouterr()
+    assert "#  Nr of It: 7" in captured.out
+    assert "warn" in captured.err
+    assert result.summary.iterations == 7
+    assert "#  Nr of It: 7" in result.stdout
+    assert "warn" in result.stderr
 
 
 def test_packaged_executable_returns_path():

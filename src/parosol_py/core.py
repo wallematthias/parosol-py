@@ -110,7 +110,7 @@ class BoundaryConditionSet:
 class SolverProfile:
     tolerance: float = 1e-6
     level: int = 6
-    mpi_processes: int = 1
+    mpi_processes: int = 4
     mpi_launcher: str = "mpirun"
     outputs: tuple[str, ...] = ("sed",)
 
