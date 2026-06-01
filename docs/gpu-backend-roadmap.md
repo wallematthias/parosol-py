@@ -73,7 +73,9 @@ The repository now includes `src/parosol_torch` with runtime capability checks,
 an explicit backend contract, a backend registry, a tiny scalar Poisson
 prototype operator, and an experimental matrix-free 8-node hexahedral elasticity
 solver. The registered `torch-experimental` backend supports explicit `cpu`,
-`mps`, and `cuda` device requests through torch when available.
+`mps`, and `cuda` device requests through torch when available. MPS is the first
+local target on Apple Silicon; CUDA is the corresponding GPU target on
+CUDA-capable Linux/Windows systems.
 
 The prototype operator in `parosol_torch.prototype` remains only a CPU 7-point
 scalar stencil for checking structured-grid indexing and boundary conventions.

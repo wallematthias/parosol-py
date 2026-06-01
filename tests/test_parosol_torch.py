@@ -128,6 +128,21 @@ def test_torch_experimental_backend_solves_single_element_on_mps_when_available(
     assert np.allclose(result.fields["displacements"][1, :, :, 0], 0.01, atol=1e-5)
 
 
+def test_torch_experimental_backend_solves_single_element_on_cuda_when_available():
+    pytest.importorskip("torch")
+    if not is_available("cuda"):
+        pytest.skip("CUDA is not available")
+
+    result = solve(
+        _single_element_tension_problem(),
+        SolverSettings(tolerance=1e-5, max_iterations=100, device="cuda"),
+    )
+
+    assert result.converged
+    assert result.diagnostics["device"] == "cuda"
+    assert np.allclose(result.fields["displacements"][1, :, :, 0], 0.01, atol=1e-5)
+
+
 def _single_element_tension_problem() -> VoxelElasticityProblem:
     fixed = []
     loaded = []

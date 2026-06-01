@@ -380,13 +380,12 @@ def _conjugate_gradient(matvec, rhs, *, tolerance: float, max_iterations: int, t
             "relative_residual": residual_norm
             / max(float(rhs_norm.detach().cpu()), 1.0),
         }
-    eps = torch.finfo(rhs.dtype).eps
     iterations = 0
     converged = False
     for iterations in range(1, int(max_iterations) + 1):
         ap = matvec(p)
         denom = torch.dot(p, ap)
-        if bool(torch.abs(denom) <= eps):
+        if bool(denom == 0):
             break
         alpha = rsold / denom
         x = x + alpha * p

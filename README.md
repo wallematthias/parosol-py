@@ -412,13 +412,15 @@ problem = VoxelElasticityProblem(
     loaded_node_coordinates=np.asarray(loaded),
     loaded_node_values=np.full(len(loaded), 0.01),
 )
-result = solve(problem, SolverSettings(device="mps"))
+result = solve(problem, SolverSettings(device="mps"))  # use "cuda" on CUDA systems
 ```
 
 The experimental solver uses a matrix-free 8-node hexahedral elasticity operator
-and torch conjugate gradients on `cpu`, `mps`, or `cuda`. It is meant for small
-backend-development and validation cases until it matches native ParOSol
-reference runs. Install torch separately with `pip install -e .[torch]`.
+and torch conjugate gradients on `cpu`, `mps`, or `cuda`. Use `device="mps"` on
+Apple Silicon and `device="cuda"` on CUDA-capable Linux/Windows workstations. It
+is meant for small backend-development and validation cases until it matches
+native ParOSol reference runs. Install torch separately with
+`pip install -e .[torch]`.
 
 See `docs/gpu-backend-roadmap.md` for the validation plan.
 
