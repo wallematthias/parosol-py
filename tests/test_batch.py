@@ -177,6 +177,7 @@ def test_cli_shortcut_routes_load_history_profile_to_batch(
     assert config["execution"]["profile"] == "load_history_3"
     assert config["input"]["image"] == str(image_path.resolve())
     assert config["input"]["spacing"] == "auto"
+    assert config.get("nodesets", {}) == {}
     assert config["case"]["name"] == "distal_radius"
     assert config["case"]["work_dir"] == str(output_dir / "distal_radius")
     assert config["batch"]["summary"] == str(output_dir / "batch_summary.json")

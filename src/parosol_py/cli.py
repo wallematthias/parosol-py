@@ -495,6 +495,7 @@ def _load_shortcut_profile(profile: str) -> dict[str, Any]:
     if "batch" not in loaded:
         return loaded
     config = _load_profile("default")
+    config.pop("nodesets", None)
     _deep_update(config, loaded)
     return config
 
