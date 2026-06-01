@@ -2,10 +2,38 @@
 
 Standalone Python package for running the ParOSol micro-FE solver from Python.
 
+See [docs/analysis-profiles.md](docs/analysis-profiles.md) for the full
+installation guide, profile reference, and workflow documentation.
+
 ## Install
 
+### Prebuilt Wheels
+
+The recommended installation is from prebuilt wheels. Wheels include the native
+ParOSol executable, so users do not need to compile C++ code locally.
+
+Once published to a package index:
+
 ```bash
-pip install -e .
+pip install parosol-py
+```
+
+For private distribution, use a private package index or GitHub Release wheel:
+
+```bash
+pip install parosol-py --extra-index-url https://<private-index>
+pip install https://github.com/<owner>/parosol-py/releases/download/v0.1.0/parosol_py-<version>-<tags>.whl
+```
+
+The GitHub Actions wheel matrix builds Linux x86_64, Windows AMD64, macOS arm64,
+and macOS x86_64 artifacts.
+
+### Developer Install
+
+Developer/source installs compile the native solver:
+
+```bash
+pip install -e .[dev]
 ```
 
 Native build requirements:
@@ -17,6 +45,53 @@ Native build requirements:
 
 If editable installation fails during CMake configuration, check that `mpicxx`
 or an equivalent MPI C++ compiler wrapper is available on `PATH`.
+
+## Quick Workflows
+
+### HR-pQCT XtremeCTI / XtremeCTII
+
+Use the scanner profiles for standard binary material-label HR-pQCT scans:
+
+```bash
+parosol distal-radius.AIM --profile XtremeCTII --output outputs/distal-radius
+```
+
+`XtremeCTI` uses `E = 6829 MPa`; `XtremeCTII` uses `E = 8748 MPa`. Both map
+labels `100 = TrabecularBone` and `127 = CorticalBone`, use `nu = 0.3`, run
+constrained z-axis axial compression at `-1%` strain, export SED, and compute
+the Pistoia failure load.
+
+### Vertebra CT
+
+Use the vertebra model profile for density image plus segmentation mask:
+
+```bash
+parosol 10001_QCT.nii.gz \
+  --mask 10001_SEG.nii.gz \
+  --profile vertebra \
+  --output outputs/10001_vertebra
+```
+
+The default mask labels are `20 = vertebral body` and
+`48 = vertebral process`. The profile builds PMMA disks/caps, optionally supports
+lightweight ICP alignment to a reference point cloud, runs spine compression,
+and reports Pistoia plus linear vertebral strength estimates.
+
+### Proximal Femur Sideways Fall
+
+Use the proximal femur profile for a density image plus femur mask:
+
+```bash
+parosol 10001_QCT.nii.gz \
+  --mask 10001_SEG.nii.gz \
+  --profile proximal_femur_sideways_fall \
+  --side left \
+  --output outputs/10001_left_femur_fall
+```
+
+The default femur label is `2`. The profile resamples/crops/smooths as needed,
+builds PMMA caps, runs a sideways-fall load case, exports SED, and writes model
+QC images.
 
 ## Python API
 
@@ -185,6 +260,20 @@ Scanner/load-case profiles are available as `XtremeCTI` and `XtremeCTII`. Each
 profile defines the standard binary bone material table, constrained z-axis
 compression at 1% strain, SED output, and Pistoia post-processing defaults.
 
+All built-in profiles are documented in
+[docs/analysis-profiles.md](docs/analysis-profiles.md). The current profile set
+includes:
+
+- `XtremeCTI`, `XtremeCTII`
+- `vertebra`
+- `proximal_femur`, `proximal_femur_sideways_fall`
+- `constrained_axial_z`, `smart_bone_compression_z`
+- `shear_zx`, `shear_zy`, `bending_z`, `torsion_z`
+- `density_power`, `standard_fields`, `standard_mechanics_fields`
+- `debug`, `debug_sets`, `coarse_preview`, `batch`
+- `direct_mechanics_manifest`, `load_history_3`, `load_history_6`
+- `progressive_loading_manifest`
+
 Load-history profiles are available as `load_history_3` and `load_history_6`.
 They declare a `postprocess.load_history` block and generate the solved SED
 fields for the NNLS load-history post-processing step:
@@ -230,12 +319,6 @@ result = solve_aim("segmented.aim", outputs=("sed",), export_dir="outputs")
 ```
 
 AIM IO is provided by `aimio-py` through `py_aimio`.
-
-## Scope
-
-This first pass provides the clean Python API, HDF5 input writing, solver
-command construction, result reading, `.nii.gz` scalar export, and validation
-helpers. Legacy-compatible command-line compatibility is planned as a second pass.
 
 ## GPU Backends
 
