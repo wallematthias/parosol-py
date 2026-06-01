@@ -15,9 +15,13 @@ def test_profile_override_templates_are_available():
     profiles = available_config_profiles()
 
     assert "legacy_axial" in profiles
+    assert "shear_zx" in profiles
+    assert "shear_zy" in profiles
     assert "batch" in profiles
     assert "debug" in profiles
     assert "solver_profile: legacy_axial" in read_config_template("legacy_axial")
+    assert "direction: x" in read_config_template("shear_zx")
+    assert "direction: y" in read_config_template("shear_zy")
 
 
 def test_cli_prints_config_template(capsys):

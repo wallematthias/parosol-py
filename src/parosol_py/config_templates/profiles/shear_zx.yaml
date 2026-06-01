@@ -1,0 +1,12 @@
+# Override snippet for z-normal shear with top plate moving in x.
+solver_profile: batch
+output_profile: quick_summary
+
+load_case:
+  type: shear
+  axis: z
+  direction: x
+  strain: 0.01
+
+solver:
+  outputs: [sed]

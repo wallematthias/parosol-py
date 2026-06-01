@@ -61,6 +61,7 @@ load_case:
   # axis: z
   # direction: x
   # strain: 0.01
+  # Use direction: y for the paired z-normal shear case.
   #
   # type: body_weight
   # axis: z

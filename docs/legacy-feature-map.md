@@ -14,7 +14,7 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 | Axial plate compression | `load_case.type: axial` | Implemented |
 | Uniaxial compression | `load_case.type: uniaxial` | Implemented |
 | Confined compression | `load_case.type: confined` | Implemented |
-| Directional shear | `load_case.type: shear` with `axis` and `direction` | Implemented |
+| Directional shear | `load_case.type: shear` with `axis` and `direction`; common profiles `shear_zx` and `shear_zy` | Implemented |
 | Force-driven compression | `load_case.type: body_weight` with `force_n` | Implemented |
 | Custom node sets | `nodesets` label image plus `load_case.type: nodeset` | Implemented |
 | Pistoia failure estimate | `failure.criterion: pistoia` in summary JSON | Implemented |

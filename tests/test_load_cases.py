@@ -56,6 +56,21 @@ def test_simple_shear_moves_top_in_lateral_direction():
     assert np.any(np.isclose(top_x_values, 0.04))
 
 
+def test_simple_shear_supports_y_direction_on_z_axis():
+    model = Model.from_array(np.ones((2, 2, 2)), spacing=(1, 1, 1))
+
+    bc = SimpleShear(axis="z", direction="y", strain=0.02).generate(model)
+
+    top_y_values = bc.fixed_values[
+        (bc.fixed_coordinates[:, 2] == 2) & (bc.fixed_coordinates[:, 3] == 1)
+    ]
+    top_x_values = bc.fixed_values[
+        (bc.fixed_coordinates[:, 2] == 2) & (bc.fixed_coordinates[:, 3] == 0)
+    ]
+    assert np.any(np.isclose(top_y_values, 0.04))
+    assert np.allclose(top_x_values, 0.0)
+
+
 def test_simple_shear_rejects_axis_parallel_direction():
     model = Model.from_array(np.ones((2, 2, 2)), spacing=(1, 1, 1))
 
