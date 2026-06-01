@@ -92,33 +92,35 @@ The default mask labels are `20 = vertebral body` and
 lightweight ICP alignment to a reference point cloud, runs spine compression,
 and reports Pistoia plus linear vertebral strength estimates.
 
-### Vertebral Load Estimation
+### HR-pQCT Load-History Estimation
 
-The vertebra profile writes load estimates directly into `summary.json`:
+For HR-pQCT load-history estimation, solve a small basis of mechanical load
+cases, export SED for each case, then combine those fields with the NNLS
+load-history estimator. Two built-in YAML profile templates describe the common
+bases:
 
-- `mechanics.generalized_stiffness.value`: axial stiffness in `N/mm`.
-- `failure.failure_generalized_load.value`: Pistoia failure load.
-- `failure.linear_reaction_at_deformation`: reaction force scaled to the
-  configured linear deformation, by default `0.2%`.
-- `failure.crawford_stiffness_height`: Crawford-style estimate from stiffness
-  and vertebral height.
+- `load_history_3.yaml`: compression, shear in x, and shear in y.
+- `load_history_6.yaml`: compression, shear x/y, bending x/y, and torsion z.
 
-Example:
+Start by printing a profile and adding the same input/material settings you
+would use for a normal XtremeCTI/XtremeCTII case. In `parosol
+config-template`, omit the `.yaml` suffix from the profile name:
 
 ```bash
-parosol 10001_QCT.nii.gz \
-  --mask 10001_SEG.nii.gz \
-  --profile vertebra \
-  --output outputs/10001_vertebra
+parosol config-template --profile load_history_3 > load_history_case.yaml
+parosol batch load_history_case.yaml
+```
 
-python - <<'PY'
-import json
-summary = json.load(open("outputs/10001_vertebra/summary.json"))
-print(summary["mechanics"]["generalized_stiffness"])
-print(summary["failure"]["failure_generalized_load"])
-print(summary["failure"]["linear_reaction_at_deformation"])
-print(summary["failure"]["crawford_stiffness_height"])
-PY
+After the three or six SED fields exist, run the optimizer step:
+
+```bash
+parosol load-history \
+  outputs/compression_z/fields/sed.nii.gz \
+  outputs/shear_zx/fields/sed.nii.gz \
+  outputs/shear_zy/fields/sed.nii.gz \
+  --bone-mask bone_mask.nii.gz \
+  --summary outputs/load_history_summary.json \
+  --output outputs/load_history.nii.gz
 ```
 
 ### Proximal Femur Sideways Fall
@@ -342,17 +344,6 @@ includes:
 - `debug`, `debug_sets`, `coarse_preview`, `batch`
 - `direct_mechanics_manifest`, `load_history_3`, `load_history_6`
 - `progressive_loading_manifest`
-
-Load-history profiles are available as `load_history_3` and `load_history_6`.
-They declare a `postprocess.load_history` block and generate the solved SED
-fields for the NNLS load-history post-processing step:
-
-```bash
-parosol load-history compression_sed.nii.gz shear_x_sed.nii.gz shear_y_sed.nii.gz \
-  --bone-mask bone_mask.nii.gz \
-  --summary load_history_summary.json \
-  -o load_history.nii.gz
-```
 
 Useful output controls:
 
