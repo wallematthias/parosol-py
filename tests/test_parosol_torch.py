@@ -11,7 +11,7 @@ from parosol_torch.contract import (
     VoxelElasticityProblem,
 )
 from parosol_torch.prototype import apply_scalar_poisson_7point
-from parosol_torch.registry import available_backends, get_backend
+from parosol_torch.registry import available_backends, get_backend, solve
 
 
 def test_parosol_torch_namespace_is_separate_from_native_solver():
@@ -65,7 +65,7 @@ def test_voxel_elasticity_contract_can_be_constructed():
     assert settings.device == "cpu"
 
 
-def test_experimental_backend_registry_is_non_default_and_fails_clearly():
+def test_experimental_backend_registry_is_non_default():
     names = available_backends()
 
     assert names == ("torch-experimental",)
@@ -74,18 +74,7 @@ def test_experimental_backend_registry_is_non_default_and_fails_clearly():
 
     backend = get_backend("torch-experimental")
 
-    assert backend.status is BackendStatus.NOT_IMPLEMENTED
-    with pytest.raises(NotImplementedError, match="not a validated ParOSol solver"):
-        backend.solve(
-            VoxelElasticityProblem(
-                stiffness_gpa_xyz=np.ones((1, 1, 1), dtype=np.float32),
-                voxel_size_mm=1.0,
-                poisson_ratio=0.3,
-                fixed_displacement_coordinates=np.array([[0, 0, 0, 0]]),
-                fixed_displacement_values=np.array([0.0]),
-            ),
-            SolverSettings(),
-        )
+    assert backend.status is BackendStatus.EXPERIMENTAL
 
 
 def test_unknown_backend_fails_without_fallback():
@@ -103,3 +92,57 @@ def test_scalar_poisson_prototype_applies_7point_operator():
     assert out[0, 1, 1] == pytest.approx(-8.0)
     assert out[1, 0, 1] == pytest.approx(-8.0)
     assert out[1, 1, 0] == pytest.approx(-8.0)
+
+
+def test_torch_experimental_backend_solves_single_element_on_cpu():
+    pytest.importorskip("torch")
+    result = solve(
+        _single_element_tension_problem(),
+        SolverSettings(tolerance=1e-8, max_iterations=100, device="cpu"),
+    )
+
+    assert result.converged
+    assert result.iterations is not None
+    assert result.residual_norm is not None
+    assert result.fields["displacements"].shape == (2, 2, 2, 3)
+    assert result.fields["forces"].shape == (2, 2, 2, 3)
+    assert result.fields["sed"].shape == (1, 1, 1)
+    assert np.allclose(result.fields["displacements"][0, :, :, :], 0.0)
+    assert np.allclose(result.fields["displacements"][1, :, :, 0], 0.01)
+    assert float(result.fields["sed"][0, 0, 0]) > 0
+    assert result.diagnostics["device"] == "cpu"
+
+
+def test_torch_experimental_backend_solves_single_element_on_mps_when_available():
+    pytest.importorskip("torch")
+    if not is_available("mps"):
+        pytest.skip("MPS is not available")
+
+    result = solve(
+        _single_element_tension_problem(),
+        SolverSettings(tolerance=1e-5, max_iterations=100, device="mps"),
+    )
+
+    assert result.converged
+    assert result.diagnostics["device"] == "mps"
+    assert np.allclose(result.fields["displacements"][1, :, :, 0], 0.01, atol=1e-5)
+
+
+def _single_element_tension_problem() -> VoxelElasticityProblem:
+    fixed = []
+    loaded = []
+    for y in range(2):
+        for z in range(2):
+            for component in range(3):
+                fixed.append([0, y, z, component])
+            loaded.append([1, y, z, 0])
+    return VoxelElasticityProblem(
+        stiffness_gpa_xyz=np.ones((1, 1, 1), dtype=np.float32),
+        voxel_size_mm=1.0,
+        poisson_ratio=0.3,
+        fixed_displacement_coordinates=np.asarray(fixed, dtype=np.int64),
+        fixed_displacement_values=np.zeros(len(fixed), dtype=np.float64),
+        loaded_node_coordinates=np.asarray(loaded, dtype=np.int64),
+        loaded_node_values=np.full(len(loaded), 0.01, dtype=np.float64),
+        requested_outputs=("forces", "displacements", "sed"),
+    )

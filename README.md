@@ -386,16 +386,41 @@ AIM IO is provided by `aimio-py` through `py_aimio`.
 
 The native ParOSol C++/MPI solver remains the validated reference backend.
 Accelerator work lives in a separate optional `parosol_torch` namespace rather
-than inside `src/parosol_native`. This package currently exposes capability
-checks only; it does not yet provide a validated numerical solver.
+than inside `src/parosol_native`. The torch backend is experimental and must be
+called explicitly; it is not selected by normal `parosol` profiles.
 
 ```python
-from parosol_torch import backend_info
+import numpy as np
+from parosol_torch import SolverSettings, VoxelElasticityProblem, backend_info, solve
 
 print(backend_info())
+
+fixed = []
+loaded = []
+for y in range(2):
+    for z in range(2):
+        for component in range(3):
+            fixed.append([0, y, z, component])
+        loaded.append([1, y, z, 0])
+
+problem = VoxelElasticityProblem(
+    stiffness_gpa_xyz=np.ones((1, 1, 1), dtype=np.float32),
+    voxel_size_mm=1.0,
+    poisson_ratio=0.3,
+    fixed_displacement_coordinates=np.asarray(fixed),
+    fixed_displacement_values=np.zeros(len(fixed)),
+    loaded_node_coordinates=np.asarray(loaded),
+    loaded_node_values=np.full(len(loaded), 0.01),
+)
+result = solve(problem, SolverSettings(device="mps"))
 ```
 
-See `docs/gpu-backend-roadmap.md` for the implementation and validation plan.
+The experimental solver uses a matrix-free 8-node hexahedral elasticity operator
+and torch conjugate gradients on `cpu`, `mps`, or `cuda`. It is meant for small
+backend-development and validation cases until it matches native ParOSol
+reference runs. Install torch separately with `pip install -e .[torch]`.
+
+See `docs/gpu-backend-roadmap.md` for the validation plan.
 
 ## Validation
 

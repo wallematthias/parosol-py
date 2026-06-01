@@ -70,16 +70,16 @@ treatment, post-processing fields, and convergence behavior.
 ## Initial Package State
 
 The repository now includes `src/parosol_torch` with runtime capability checks,
-an explicit backend contract, a backend registry, and a tiny scalar Poisson
-prototype operator. The registered `torch-experimental` backend deliberately
-raises `NotImplementedError` for elasticity solves. That avoids a misleading GPU
-option while giving us a clean namespace and packaging path for the proper
-backend.
+an explicit backend contract, a backend registry, a tiny scalar Poisson
+prototype operator, and an experimental matrix-free 8-node hexahedral elasticity
+solver. The registered `torch-experimental` backend supports explicit `cpu`,
+`mps`, and `cuda` device requests through torch when available.
 
-The prototype operator in `parosol_torch.prototype` is only a CPU 7-point scalar
-stencil for checking structured-grid indexing and boundary conventions. It is
-not an elasticity operator and must not be used as evidence that ParOSol-style
-FEA is available on CPU, MPS, or CUDA.
+The prototype operator in `parosol_torch.prototype` remains only a CPU 7-point
+scalar stencil for checking structured-grid indexing and boundary conventions.
+The elasticity backend in `parosol_torch.elasticity` is the first real torch
+operator path, but it is still experimental and not yet a validated replacement
+for native ParOSol.
 
 ## Current Backend Contract
 
@@ -100,7 +100,8 @@ is intentionally small until CPU parity defines the final field and diagnostics
 shape.
 
 The registry exposes only `torch-experimental`. It does not register native
-ParOSol and it is not wired into `parosol_py.solve()`.
+ParOSol and it is not wired into `parosol_py.solve()` or the default `parosol`
+CLI.
 
 ## Next Steps to a Real GPU Solver
 
@@ -115,17 +116,18 @@ ParOSol and it is not wired into `parosol_py.solve()`.
    against native/reference outputs for one element, a two-element stack, and a
    small heterogeneous cube.
 
-3. Matrix-free CPU solver.
-   Implement a single-process matrix-free conjugate-gradient path over active
-   voxels. Start with constrained axial compression and homogeneous Poisson
-   ratio. It should return the same result contract as the future torch backend
-   and stay marked experimental until it matches native references.
+3. Matrix-free torch solver.
+   The first matrix-free conjugate-gradient path now exists in
+   `parosol_torch.elasticity`. It supports prescribed displacement constraints,
+   homogeneous Poisson ratio, SED, nodal displacement, and nodal force outputs
+   for small explicit problems. It stays marked experimental until it matches
+   native references.
 
-4. Torch tensor kernels.
-   Port the matrix-free operator to torch tensors after CPU parity exists. Keep
-   device selection explicit (`cpu`, `mps`, `cuda`) and reject unavailable devices
-   with clear errors. Do not claim MPS/CUDA support until the same validation
-   suite passes on those devices.
+4. Native parity tests.
+   Add tiny native-backed fixtures for one element, a two-element stack,
+   heterogeneous materials, and standard constrained axial compression. Compare
+   reaction forces, displacement fields, SED, and convergence diagnostics before
+   using the torch backend for scientific results.
 
 5. Preconditioning and memory strategy.
    Add documented preconditioning, active-voxel indexing, chunking decisions, and

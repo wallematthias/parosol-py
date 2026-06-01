@@ -41,6 +41,8 @@ class VoxelElasticityProblem:
     poisson_ratio: float
     fixed_displacement_coordinates: np.ndarray
     fixed_displacement_values: np.ndarray
+    # The experimental torch backend currently treats these as additional
+    # prescribed displacement constraints. Force loading is not implemented yet.
     loaded_node_coordinates: np.ndarray | None = None
     loaded_node_values: np.ndarray | None = None
     requested_outputs: tuple[str, ...] = ("forces", "displacements")
