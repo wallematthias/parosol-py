@@ -96,6 +96,10 @@ def test_run_batch_config_expands_cases_and_writes_combined_summary(
     ]
     assert seen[0]["case"]["work_dir"].endswith("sample_compression_z")
     assert seen[0]["output"]["summary"].endswith("sample_compression_z/summary.json")
+    assert seen[0]["output"]["fields_dir"].endswith("sample_compression_z/fields")
+    assert seen[0]["output"]["visualization"].endswith(
+        "sample_compression_z/overview.png"
+    )
     assert summary["batch"]["case_count"] == 2
     assert summary["postprocess"]["load_history"]["method"] == "nnls"
     assert summary["cases"][1]["load_case"]["direction"] == "x"
@@ -120,6 +124,68 @@ def test_cli_batch_runs_manifest(monkeypatch, tmp_path: Path, capsys):
     assert main(["batch", str(batch_path), "--dry-run"]) == 0
 
     assert "summary.json" in capsys.readouterr().out
+
+
+def test_cli_shortcut_routes_load_history_profile_to_batch(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+):
+    image_path = tmp_path / "distal_radius.mha"
+    output_dir = tmp_path / "distal_radius_load_history"
+    image_path.write_bytes(b"placeholder")
+    seen = {}
+
+    def fake_run_batch_config(path, *, dry_run=None, work_dir=None):
+        import yaml
+
+        config_path = Path(path)
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        seen["path"] = config_path
+        seen["config"] = config
+        seen["dry_run"] = dry_run
+        seen["work_dir"] = work_dir
+        return {
+            "batch": {
+                "case_count": 3,
+                "summary": str(output_dir / "batch_summary.json"),
+            },
+            "cases": [],
+        }
+
+    monkeypatch.setattr("parosol_py.cli.run_batch_config", fake_run_batch_config)
+
+    assert (
+        main(
+            [
+                str(image_path),
+                "--profile",
+                "load_history_3",
+                "--output",
+                str(output_dir),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    config = seen["config"]
+    assert seen["path"] == output_dir / "parosol_batch.yaml"
+    assert seen["dry_run"] is True
+    assert seen["work_dir"] == output_dir
+    assert config["execution"]["interface"] == "shortcut"
+    assert config["execution"]["profile"] == "load_history_3"
+    assert config["input"]["image"] == str(image_path.resolve())
+    assert config["input"]["spacing"] == "auto"
+    assert config["case"]["name"] == "distal_radius"
+    assert config["case"]["work_dir"] == str(output_dir / "distal_radius")
+    assert config["batch"]["summary"] == str(output_dir / "batch_summary.json")
+    assert [case["name_suffix"] for case in config["batch"]["cases"]] == [
+        "compression_z",
+        "shear_zx",
+        "shear_zy",
+    ]
+    assert "batch_summary.json" in capsys.readouterr().out
 
 
 def test_cli_batch_runs_folder_with_profile(monkeypatch, tmp_path: Path, capsys):

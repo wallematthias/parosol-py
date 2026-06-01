@@ -99,11 +99,18 @@ def _case_config(
     config.setdefault("case", {})
     config["case"]["name"] = case_name
     parent_work_dir = Path(str(base_case.get("work_dir", base_name))).parent
-    config["case"]["work_dir"] = str(
-        _resolve_path(parent_work_dir / case_name, base_dir=base_dir)
-    )
+    case_work_dir = _resolve_path(parent_work_dir / case_name, base_dir=base_dir)
+    config["case"]["work_dir"] = str(case_work_dir)
     config.setdefault("output", {})
-    config["output"]["summary"] = str(Path(config["case"]["work_dir"]) / "summary.json")
+    config["output"]["summary"] = str(case_work_dir / "summary.json")
+    config["output"]["fields_dir"] = str(case_work_dir / "fields")
+    config["output"]["visualization"] = str(case_work_dir / "overview.png")
+    if "boundary_conditions" in config["output"]:
+        config["output"]["boundary_conditions"] = str(
+            case_work_dir / "boundary_conditions.json"
+        )
+    if "sets_dir" in config["output"]:
+        config["output"]["sets_dir"] = str(case_work_dir / "sets")
     return config
 
 

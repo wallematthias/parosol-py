@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import sys
 from pathlib import Path
 from typing import Any
@@ -314,8 +315,21 @@ def _config_template(args: argparse.Namespace) -> int:
 
 def _shortcut(args: argparse.Namespace) -> int:
     config = _shortcut_config(args)
-    output_dir = Path(config["case"]["work_dir"]).expanduser().resolve()
+    output_dir = Path(config["execution"]["output_dir"]).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    if "batch" in config:
+        config_path = output_dir / "parosol_batch.yaml"
+        config["execution"]["generated_config"] = str(config_path)
+        _write_yaml(config_path, config)
+        summary = run_batch_config(
+            config_path,
+            dry_run=True if args.dry_run else None,
+            work_dir=output_dir,
+        )
+        print(f"config: {config_path}")
+        print(f"summary: {summary['batch']['summary']}")
+        return 0
+
     config_path = output_dir / "parosol_case.yaml"
     config["execution"]["generated_config"] = str(config_path)
     _write_yaml(config_path, config)
@@ -334,7 +348,7 @@ def _shortcut(args: argparse.Namespace) -> int:
 
 
 def _shortcut_config(args: argparse.Namespace) -> dict[str, Any]:
-    config = _load_profile(args.profile)
+    config = _load_shortcut_profile(args.profile)
     image_path = Path(args.image).expanduser().resolve()
     mask_path = Path(args.mask).expanduser().resolve() if args.mask else None
     output_dir = (
@@ -343,15 +357,32 @@ def _shortcut_config(args: argparse.Namespace) -> dict[str, Any]:
         else image_path.parent / f"{_case_stem(image_path)}_parosol"
     )
     case_name = args.name or _case_stem(image_path)
+    is_batch_profile = "batch" in config
 
     case_cfg = _dict_section(config, "case")
     case_cfg["name"] = case_name
-    case_cfg["work_dir"] = str(output_dir)
+    case_cfg["work_dir"] = (
+        str(output_dir / case_name) if is_batch_profile else str(output_dir)
+    )
+    if is_batch_profile:
+        batch_cfg = _dict_section(config, "batch")
+        batch_cfg["work_dir"] = str(output_dir)
+        batch_cfg["summary"] = str(output_dir / "batch_summary.json")
     output_cfg = _dict_section(config, "output")
-    output_cfg["summary"] = str(output_dir / "summary.json")
+    output_cfg["summary"] = str(
+        output_dir / case_name / "summary.json"
+        if is_batch_profile
+        else output_dir / "summary.json"
+    )
     output_cfg.setdefault("fields", ["sed"])
-    output_cfg["fields_dir"] = str(output_dir / "fields")
-    output_cfg["visualization"] = str(output_dir / "overview.png")
+    output_cfg["fields_dir"] = str(
+        output_dir / case_name / "fields" if is_batch_profile else output_dir / "fields"
+    )
+    output_cfg["visualization"] = str(
+        output_dir / case_name / "overview.png"
+        if is_batch_profile
+        else output_dir / "overview.png"
+    )
 
     if "model" in config:
         model_cfg = _dict_section(config, "model")
@@ -457,6 +488,23 @@ def _load_profile(profile: str) -> dict[str, Any]:
         raise ImportError("PyYAML is required to run built-in profiles") from exc
     loaded = yaml.safe_load(read_config_template(profile))
     return {} if loaded is None else loaded
+
+
+def _load_shortcut_profile(profile: str) -> dict[str, Any]:
+    loaded = _load_profile(profile)
+    if "batch" not in loaded:
+        return loaded
+    config = _load_profile("default")
+    _deep_update(config, loaded)
+    return config
+
+
+def _deep_update(target: dict[str, Any], update: dict[str, Any]) -> None:
+    for key, value in update.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _deep_update(target[key], value)
+        else:
+            target[key] = copy.deepcopy(value)
 
 
 def _write_yaml(path: Path, config: dict[str, Any]) -> None:

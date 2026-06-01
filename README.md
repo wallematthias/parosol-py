@@ -102,16 +102,18 @@ bases:
 - `load_history_3.yaml`: compression, shear in x, and shear in y.
 - `load_history_6.yaml`: compression, shear x/y, bending x/y, and torsion z.
 
-Start by printing a profile and adding the same input/material settings you
-would use for a normal XtremeCTI/XtremeCTII case. In `parosol
-config-template`, omit the `.yaml` suffix from the profile name:
+Run it with the same shortcut structure as any other profile. In the CLI,
+omit the `.yaml` suffix from the profile name:
 
 ```bash
-parosol config-template --profile load_history_3 > load_history_case.yaml
-parosol batch load_history_case.yaml
+parosol distal-radius.AIM \
+  --profile load_history_3 \
+  --output outputs/distal-radius_load_history
 ```
 
-After the three or six SED fields exist, run the optimizer step:
+This writes `parosol_batch.yaml`, solves the three or six load cases into
+separate case folders, and writes `batch_summary.json`. After the SED fields
+exist, run the optimizer step:
 
 ```bash
 parosol load-history \
