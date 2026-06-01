@@ -16,6 +16,7 @@ from .api import SolveResult, solve, solve_aim
 from .core import Model
 from .images import normalize_array
 from .load_cases import (
+    AxialCompression,
     BodyWeightCompression,
     ConfinedCompression,
     SimpleShear,
@@ -149,6 +150,14 @@ def run_case_config(
             material_cfg=material_cfg,
             base_dir=base_dir,
         )
+        common["strain"] = _effective_strain_for_displacement(
+            material,
+            spacing=spacing,
+            origin=origin,
+            array_order="zyx",
+            load_case_cfg=load_case_cfg,
+            fallback=float(common["strain"]),
+        )
         boundary_conditions = _boundary_conditions_from_config(
             material,
             spacing=spacing,
@@ -199,6 +208,23 @@ def _boundary_conditions_from_config(
             raise ValueError(
                 "nodesets were configured but load_case.type is axial; use type='nodeset'"
             )
+        displacement = _load_case_displacement(load_case_cfg)
+        if displacement is not None:
+            model = Model.from_array(
+                material_zyx,
+                spacing=spacing,
+                origin=origin,
+                array_order=array_order,
+            )
+            return AxialCompression(
+                axis=str(load_case_cfg.get("axis", "z")),
+                strain=float(
+                    load_case_cfg.get(
+                        "strain", load_case_cfg.get("normal_strain", -0.01)
+                    )
+                ),
+                displacement=displacement,
+            ).generate(model)
         return None
     if load_type in {"uniaxial", "uniaxial_compression"}:
         if nodeset_cfg:
@@ -217,6 +243,7 @@ def _boundary_conditions_from_config(
             strain=float(
                 load_case_cfg.get("strain", load_case_cfg.get("normal_strain", -0.01))
             ),
+            displacement=_load_case_displacement(load_case_cfg),
         ).generate(model)
     if load_type in {"shear", "simple_shear", "directional_shear"}:
         if nodeset_cfg:
@@ -233,6 +260,8 @@ def _boundary_conditions_from_config(
             axis=str(load_case_cfg.get("axis", "z")),
             direction=str(load_case_cfg.get("direction", "x")),
             strain=float(load_case_cfg.get("strain", 0.01)),
+            displacement=_load_case_displacement(load_case_cfg),
+            vector=_load_case_vector(load_case_cfg),
         ).generate(model)
     if load_type in {"body_weight", "force", "force_compression"}:
         if nodeset_cfg:
@@ -271,6 +300,7 @@ def _boundary_conditions_from_config(
             strain=float(
                 load_case_cfg.get("strain", load_case_cfg.get("normal_strain", -0.01))
             ),
+            displacement=_load_case_displacement(load_case_cfg),
         ).generate(model)
     if load_type not in {"nodeset", "custom"}:
         raise NotImplementedError(
@@ -301,6 +331,48 @@ def _boundary_conditions_from_config(
         dimensions_xyz=tuple(int(v) for v in material_grid.array_xyz.shape),
         spacing=material_grid.spacing,
     )
+
+
+def _load_case_displacement(load_case_cfg: dict[str, Any]) -> float | None:
+    value = load_case_cfg.get("displacement", load_case_cfg.get("normal_displacement"))
+    if value is None:
+        return None
+    return float(value)
+
+
+def _load_case_vector(load_case_cfg: dict[str, Any]) -> tuple[float, float] | None:
+    value = load_case_cfg.get("shear_vector", load_case_cfg.get("vector"))
+    if value is None:
+        return None
+    if len(value) != 2:
+        raise ValueError("load_case.shear_vector must contain exactly two values")
+    return tuple(float(v) for v in value)
+
+
+def _effective_strain_for_displacement(
+    material_zyx: np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    array_order: str,
+    load_case_cfg: dict[str, Any],
+    fallback: float,
+) -> float:
+    displacement = _load_case_displacement(load_case_cfg)
+    if displacement is None:
+        return fallback
+    axis = str(load_case_cfg.get("axis", "z")).strip().lower()
+    axis_index = {"x": 0, "y": 1, "z": 2}[axis]
+    grid = normalize_array(
+        material_zyx,
+        spacing=spacing,
+        origin=origin,
+        array_order=array_order,
+    )
+    height = grid.array_xyz.shape[axis_index] * grid.spacing[axis_index]
+    if np.isclose(height, 0.0):
+        raise ValueError("cannot convert displacement to strain for zero height")
+    return float(displacement) / float(height)
 
 
 def _load_node_sets(

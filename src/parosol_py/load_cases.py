@@ -12,14 +12,20 @@ from .core import BoundaryConditionSet, Model
 class AxialCompression:
     axis: str = "z"
     strain: float = -0.01
+    displacement: float | None = None
 
     def generate(self, model: Model) -> BoundaryConditionSet:
         axis = _axis_token(self.axis)
         axis_index = AXIS_TO_INDEX[axis]
+        strain = _strain_from_displacement(
+            self.displacement,
+            strain=self.strain,
+            height=model.material_xyz.shape[axis_index] * model.spacing[axis_index],
+        )
         coords, values = axial_compression(
             model.material_xyz,
             axis=axis,
-            strain=self.strain,
+            strain=strain,
             voxel_size_mm=model.spacing[axis_index],
         )
         return BoundaryConditionSet(
@@ -33,13 +39,18 @@ class AxialCompression:
 class UniaxialCompression:
     axis: str = "z"
     strain: float = -0.01
+    displacement: float | None = None
 
     def generate(self, model: Model) -> BoundaryConditionSet:
         axis = _axis_token(self.axis)
         axis_index = AXIS_TO_INDEX[axis]
         dimensions = tuple(int(v) for v in model.material_xyz.shape)
         height = dimensions[axis_index] * model.spacing[axis_index]
-        displacement = float(self.strain) * float(height)
+        displacement = _displacement_from_strain(
+            self.displacement,
+            strain=self.strain,
+            height=height,
+        )
         node_sets = _top_bottom_sets(model.material_xyz, axis)
         constraints: dict[tuple[int, int, int, int], float] = {}
 
@@ -82,11 +93,16 @@ class BodyWeightCompression:
 class ConfinedCompression:
     axis: str = "z"
     strain: float = -0.01
+    displacement: float | None = None
 
     def generate(self, model: Model) -> BoundaryConditionSet:
         axis = _axis_token(self.axis)
         axis_index = AXIS_TO_INDEX[axis]
-        base = AxialCompression(axis=axis, strain=self.strain).generate(model)
+        base = AxialCompression(
+            axis=axis,
+            strain=self.strain,
+            displacement=self.displacement,
+        ).generate(model)
         constraints = {
             tuple(int(v) for v in coord): float(value)
             for coord, value in zip(base.fixed_coordinates, base.fixed_values)
@@ -115,6 +131,8 @@ class SimpleShear:
     axis: str = "z"
     direction: str = "x"
     strain: float = 0.01
+    displacement: float | None = None
+    vector: tuple[float, float] | None = None
 
     def generate(self, model: Model) -> BoundaryConditionSet:
         axis = _axis_token(self.axis)
@@ -126,12 +144,29 @@ class SimpleShear:
 
         bc = AxialCompression(axis=axis, strain=0.0).generate(model)
         height = model.material_xyz.shape[axis_index] * model.spacing[axis_index]
-        displacement = float(self.strain) * float(height)
         fixed = bc.fixed_coordinates.copy()
         values = bc.fixed_values.copy()
         top_axis_value = model.material_xyz.shape[axis_index]
-        mask = (fixed[:, axis_index] == top_axis_value) & (fixed[:, 3] == direction_index)
-        values[mask] = displacement
+        if self.vector is None:
+            displacement = _displacement_from_strain(
+                self.displacement,
+                strain=self.strain,
+                height=height,
+            )
+            mask = (fixed[:, axis_index] == top_axis_value) & (
+                fixed[:, 3] == direction_index
+            )
+            values[mask] = displacement
+        else:
+            lateral_axes = [idx for idx in range(3) if idx != axis_index]
+            vector = tuple(float(v) for v in self.vector)
+            if len(vector) != 2:
+                raise ValueError("shear vector must contain exactly two values")
+            for lateral_axis, component in zip(lateral_axes, vector, strict=True):
+                mask = (fixed[:, axis_index] == top_axis_value) & (
+                    fixed[:, 3] == lateral_axis
+                )
+                values[mask] = component * float(height)
         return BoundaryConditionSet(
             fixed_coordinates=fixed,
             fixed_values=values,
@@ -183,6 +218,30 @@ def _active_nodes(stiffness_xyz: np.ndarray) -> set[tuple[int, int, int]]:
                         )
                     )
     return nodes
+
+
+def _displacement_from_strain(
+    displacement: float | None,
+    *,
+    strain: float,
+    height: float,
+) -> float:
+    if displacement is not None:
+        return float(displacement)
+    return float(strain) * float(height)
+
+
+def _strain_from_displacement(
+    displacement: float | None,
+    *,
+    strain: float,
+    height: float,
+) -> float:
+    if displacement is None:
+        return float(strain)
+    if np.isclose(height, 0.0):
+        raise ValueError("cannot convert displacement to strain for zero height")
+    return float(displacement) / float(height)
 
 
 def _axis_token(axis: str) -> str:

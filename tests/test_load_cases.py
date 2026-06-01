@@ -23,6 +23,17 @@ def test_axial_compression_generates_named_top_and_bottom_sets():
     assert np.min(bc.fixed_values) == np.float32(-0.01)
 
 
+def test_axial_compression_accepts_absolute_displacement():
+    model = Model.from_array(np.ones((2, 2, 2)), spacing=(1, 1, 1))
+
+    bc = AxialCompression(axis="z", displacement=-0.25).generate(model)
+
+    top_z_values = bc.fixed_values[
+        (bc.fixed_coordinates[:, 2] == 2) & (bc.fixed_coordinates[:, 3] == 2)
+    ]
+    assert np.any(np.isclose(top_z_values, -0.25))
+
+
 def test_body_weight_compression_distributes_total_force_over_top_nodes():
     model = Model.from_array(np.ones((2, 2, 2)), spacing=(1, 1, 1))
 
@@ -69,6 +80,32 @@ def test_simple_shear_supports_y_direction_on_z_axis():
     ]
     assert np.any(np.isclose(top_y_values, 0.04))
     assert np.allclose(top_x_values, 0.0)
+
+
+def test_simple_shear_accepts_absolute_displacement():
+    model = Model.from_array(np.ones((2, 2, 2)), spacing=(1, 1, 1))
+
+    bc = SimpleShear(axis="z", direction="x", displacement=0.25).generate(model)
+
+    top_x_values = bc.fixed_values[
+        (bc.fixed_coordinates[:, 2] == 2) & (bc.fixed_coordinates[:, 3] == 0)
+    ]
+    assert np.any(np.isclose(top_x_values, 0.25))
+
+
+def test_simple_shear_accepts_xy_vector_for_z_axis():
+    model = Model.from_array(np.ones((2, 2, 2)), spacing=(1, 1, 1))
+
+    bc = SimpleShear(axis="z", vector=(0.02, 0.03)).generate(model)
+
+    top_x_values = bc.fixed_values[
+        (bc.fixed_coordinates[:, 2] == 2) & (bc.fixed_coordinates[:, 3] == 0)
+    ]
+    top_y_values = bc.fixed_values[
+        (bc.fixed_coordinates[:, 2] == 2) & (bc.fixed_coordinates[:, 3] == 1)
+    ]
+    assert np.any(np.isclose(top_x_values, 0.04))
+    assert np.any(np.isclose(top_y_values, 0.06))
 
 
 def test_simple_shear_rejects_axis_parallel_direction():

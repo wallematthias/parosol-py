@@ -47,6 +47,9 @@ load_case:
   type: axial
   axis: z
   strain: -0.01
+  # Use displacement instead of strain when you want an absolute top-plate
+  # displacement in image length units.
+  # displacement: -0.06
 
   # Other built-in load case examples:
   # type: uniaxial
@@ -62,6 +65,8 @@ load_case:
   # direction: x
   # strain: 0.01
   # Use direction: y for the paired z-normal shear case.
+  # Use shear_vector for two-component z-normal directional shear.
+  # shear_vector: [0.01, 0.0]
   #
   # type: body_weight
   # axis: z

@@ -129,3 +129,5 @@ reference JSON.
 
 See `docs/legacy-feature-map.md` for the compatibility roadmap and the cleaner
 ParOSol-py equivalents of useful legacy workflow features.
+See `docs/n88-reference-verification.md` for the current local reference
+verification results for standard load cases.
