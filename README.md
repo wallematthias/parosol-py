@@ -18,11 +18,10 @@ Once published to a package index:
 pip install parosol-py
 ```
 
-For private distribution from the private GitHub repository, authenticate with
-the GitHub CLI and use the helper script:
+For private distribution from the private GitHub repository, use the helper
+script:
 
 ```bash
-gh auth login
 git clone git@github.com:wallematthias/parosol-py.git
 cd parosol-py
 python scripts/install_prebuilt.py
@@ -31,6 +30,8 @@ python scripts/install_prebuilt.py
 The helper downloads all release wheels and lets `pip` choose the matching wheel
 for the active Python/platform. This is different from `pip install -e .`, which
 is an editable source install and compiles the native solver locally.
+If GitHub CLI is not authenticated yet, run `gh auth login` once before using
+the helper.
 
 Manual equivalent:
 
