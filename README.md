@@ -102,19 +102,28 @@ solver:
   level: 6
   outputs: [sed]
 
-failure:
-  criterion: pistoia
-  critical_volume_percent: 2.0
-  critical_strain: 0.007
+postprocess:
+  pistoia:
+    criterion: pistoia
+    critical_volume_percent: 2.0
+    critical_strain: 0.007
 
 output:
   summary: outputs/VITD_0003_RL_M06_HOM_LS/summary.json
+  fields: [sed]
+  export_fields: true
+  visualize: true
 ```
 
 The Pistoia-style failure factor is computed from the strain/SED field for all
 load cases. Compression reports a failure force, while shear, bending, and
 torsion also report a `failure_generalized_load` whose interpretation follows
 the load case, for example force or moment.
+
+Config-driven runs write a professional overview PNG by default. It shows
+axial, sagittal, and coronal mid-slices of the material image, the selected
+result field on the second row when available, and boundary-condition markers
+and direction arrows for quick debugging.
 
 Run it:
 
@@ -138,9 +147,13 @@ A batch config uses the same top-level input/material/solver/output sections as
 a normal case, plus a `batch.cases` list. Each case override is expanded into an
 individual run directory and summarized in one `batch_summary.json`.
 
+Scanner/load-case profiles are available as `XtremeCTI` and `XtremeCTII`. Each
+profile defines the standard binary bone material table, constrained z-axis
+compression at 1% strain, SED output, and Pistoia post-processing defaults.
+
 Load-history profiles are available as `load_history_3` and `load_history_6`.
-They generate the solved SED fields for the NNLS load-history post-processing
-step:
+They declare a `postprocess.load_history` block and generate the solved SED
+fields for the NNLS load-history post-processing step:
 
 ```bash
 parosol load-history compression_sed.nii.gz shear_x_sed.nii.gz shear_y_sed.nii.gz \

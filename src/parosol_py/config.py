@@ -35,6 +35,7 @@ from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxe
 from .profiles import get_output_profile, get_solver_profile
 from .reports import solve_summary_dict, write_summary_json
 from .set_export import write_element_sets, write_node_sets
+from .visualization import dense_scalar_field, write_case_overview
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -72,7 +73,8 @@ def run_case_config(
     solver_cfg = _section(config, "solver")
     output_cfg = _section(config, "output")
     preprocessing_cfg = _section(config, "preprocessing")
-    failure_cfg = _section(config, "failure")
+    postprocess_cfg = _section(config, "postprocess")
+    pistoia_cfg = _pistoia_config(postprocess_cfg)
     solver_profile = get_solver_profile(config.get("solver_profile"))
     output_profile = get_output_profile(config.get("output_profile"))
 
@@ -142,10 +144,10 @@ def run_case_config(
         ),
         "work_dir": run_dir,
         "export_dir": export_dir if export_fields and not dry else None,
-        "failure_criterion": str(failure_cfg.get("criterion", "pistoia")),
-        "critical_strain": _optional_float(failure_cfg.get("critical_strain", 0.007)),
+        "failure_criterion": str(pistoia_cfg.get("criterion", "pistoia")),
+        "critical_strain": _optional_float(pistoia_cfg.get("critical_strain", 0.007)),
         "critical_volume_percent": _optional_float(
-            failure_cfg.get("critical_volume_percent", 2.0)
+            pistoia_cfg.get("critical_volume_percent", 2.0)
         ),
         "dry_run": dry,
     }
@@ -207,7 +209,9 @@ def run_case_config(
                 )
                 write_summary_json(bc_path, boundary_conditions.to_dict())
         debug_boundary_conditions = boundary_conditions
-        if debug_boundary_conditions is None and output_cfg.get("export_sets", False):
+        if debug_boundary_conditions is None and (
+            output_cfg.get("export_sets", False) or _visualization_enabled(output_cfg)
+        ):
             debug_boundary_conditions = _default_boundary_conditions_for_export(
                 material,
                 spacing=spacing,
@@ -224,6 +228,19 @@ def run_case_config(
         )
         result = solve(material=material, array_order="zyx", **common)
         result.exported.update(set_exports)
+        result.exported.update(
+            _export_overview(
+                material,
+                spacing=spacing,
+                origin=origin,
+                output_cfg=output_cfg,
+                base_dir=base_dir,
+                run_dir=run_dir,
+                case_name=case_name,
+                result=result,
+                boundary_conditions=debug_boundary_conditions,
+            )
+        )
 
     load_type = str(load_case_cfg.get("type", "constrained_axial")).strip().lower()
     extra: dict[str, Any] = {
@@ -252,6 +269,21 @@ def _output_fields(output_cfg: dict[str, Any], output_profile) -> tuple[str, ...
     if fields is None:
         return tuple(output_profile.image_fields)
     return tuple(str(value) for value in fields)
+
+
+def _pistoia_config(postprocess_cfg: dict[str, Any]) -> dict[str, Any]:
+    pistoia = postprocess_cfg.get("pistoia", {})
+    if pistoia is False:
+        return {
+            "criterion": "none",
+            "critical_strain": None,
+            "critical_volume_percent": None,
+        }
+    if pistoia is True:
+        return {}
+    if not isinstance(pistoia, dict):
+        raise ValueError("postprocess.pistoia must be a table/object or boolean")
+    return pistoia
 
 
 def _coarsen_material(
@@ -316,6 +348,49 @@ def _export_debug_sets(
             )
         )
     return out
+
+
+def _export_overview(
+    material_zyx: np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    output_cfg: dict[str, Any],
+    base_dir: Path,
+    run_dir: Path,
+    case_name: str,
+    result: SolveResult,
+    boundary_conditions,
+) -> dict[str, Path]:
+    if not _visualization_enabled(output_cfg):
+        return {}
+    path_value = output_cfg.get("overview", output_cfg.get("visualization"))
+    if path_value is None or isinstance(path_value, bool):
+        path_value = run_dir / f"{case_name}_overview.png"
+    overview_path = _resolve_path(path_value, base_dir=base_dir)
+    grid = normalize_array(
+        material_zyx,
+        spacing=spacing,
+        origin=origin,
+        array_order="zyx",
+    )
+    field_name = str(output_cfg.get("visualization_field", "sed")).strip().lower()
+    field = dense_scalar_field(grid.array_xyz, result.fields.get(field_name))
+    out = write_case_overview(
+        grid.array_xyz,
+        output_path=overview_path,
+        spacing=grid.spacing,
+        origin=grid.origin,
+        field_xyz=field,
+        field_name=field_name.upper(),
+        boundary_conditions=boundary_conditions,
+        title=case_name,
+    )
+    return {"overview": out}
+
+
+def _visualization_enabled(output_cfg: dict[str, Any]) -> bool:
+    return bool(output_cfg.get("visualize", output_cfg.get("visualization", True)))
 
 
 def _default_boundary_conditions_for_export(

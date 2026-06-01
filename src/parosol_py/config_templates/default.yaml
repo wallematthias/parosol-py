@@ -156,10 +156,21 @@ solver:
   # max_relative_residual: 1.0e-6
   # max_iterations: 10000
 
-failure:
-  criterion: pistoia
-  critical_strain: 0.007
-  critical_volume_percent: 2.0
+postprocess:
+  # Pistoia-style failure estimate derived from the solved strain/SED fields.
+  pistoia:
+    criterion: pistoia
+    critical_strain: 0.007
+    critical_volume_percent: 2.0
+  # Load-history post-processing combines SED fields from a solved batch.
+  # The load_history_3 and load_history_6 profiles provide ready-made batches.
+  # load_history:
+  #   enabled: false
+  #   method: nnls
+  #   fields: [sed]
+  #   bone_mask: bone_mask.nii.gz
+  #   summary: parosol_run/example_case/load_history_summary.json
+  #   output: parosol_run/example_case/load_history.nii.gz
 
 output:
   summary: parosol_run/example_case/summary.json
@@ -168,6 +179,11 @@ output:
   fields: [sed]
   export_fields: true
   fields_dir: parosol_run/example_case/fields
+  # Write a PNG overview for every config-driven run. It shows material slices,
+  # the selected result field when available, and boundary-condition overlays.
+  visualize: true
+  visualization: parosol_run/example_case/example_case_overview.png
+  visualization_field: sed
   # Export selected node sets and material element sets for Slicer/ParaView.
   export_sets: false
   set_formats: [json]

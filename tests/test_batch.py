@@ -19,6 +19,15 @@ def test_run_batch_config_expands_cases_and_writes_combined_summary(
                 "case": {"name": "sample", "work_dir": "runs/sample"},
                 "input": {"image": "material.npy", "spacing": [1, 1, 1]},
                 "output": {"dry_run": True},
+                "postprocess": {
+                    "load_history": {
+                        "enabled": True,
+                        "method": "nnls",
+                        "fields": ["sed"],
+                        "summary": "runs/load_history_summary.json",
+                        "output": "runs/load_history.nii.gz",
+                    }
+                },
                 "batch": {
                     "summary": "runs/batch_summary.json",
                     "cases": [
@@ -88,6 +97,7 @@ def test_run_batch_config_expands_cases_and_writes_combined_summary(
     assert seen[0]["case"]["work_dir"].endswith("sample_compression_z")
     assert seen[0]["output"]["summary"].endswith("sample_compression_z/summary.json")
     assert summary["batch"]["case_count"] == 2
+    assert summary["postprocess"]["load_history"]["method"] == "nnls"
     assert summary["cases"][1]["load_case"]["direction"] == "x"
     assert summary["cases"][1]["failure_generalized_load"]["value"] == 20
     assert (tmp_path / "runs" / "batch_summary.json").exists()

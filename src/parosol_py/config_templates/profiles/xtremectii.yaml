@@ -1,4 +1,4 @@
-# Standard XtremeCT I binary bone material preset.
+# Standard XtremeCTII binary bone compression profile.
 input:
   image_type: material_labels
 
@@ -7,11 +7,11 @@ materials:
   definitions:
     CorticalBone:
       Type: LinearIsotropic
-      E: 6829
+      E: 8748
       nu: 0.3
     TrabecularBone:
       Type: LinearIsotropic
-      E: 6829
+      E: 8748
       nu: 0.3
   table:
     100: TrabecularBone
@@ -21,3 +21,12 @@ load_case:
   type: constrained_axial
   axis: z
   strain: -0.01
+
+solver:
+  outputs: [sed]
+
+postprocess:
+  pistoia:
+    criterion: pistoia
+    critical_strain: 0.007
+    critical_volume_percent: 2.0

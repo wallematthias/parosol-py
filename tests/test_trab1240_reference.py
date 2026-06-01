@@ -82,10 +82,12 @@ def test_trab1240_axial_z_matches_reference(tmp_path: Path):
                     "summary": str(tmp_path / "summary.json"),
                     "export_fields": False,
                 },
-                "failure": {
-                    "criterion": "pistoia",
-                    "critical_strain": reference["critical_strain"],
-                    "critical_volume_percent": reference["critical_volume_percent"],
+                "postprocess": {
+                    "pistoia": {
+                        "criterion": "pistoia",
+                        "critical_strain": reference["critical_strain"],
+                        "critical_volume_percent": reference["critical_volume_percent"],
+                    }
                 },
             }
         ),

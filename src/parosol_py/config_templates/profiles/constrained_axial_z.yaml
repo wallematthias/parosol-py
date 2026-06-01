@@ -7,7 +7,8 @@ load_case:
   axis: z
   strain: -0.01
 
-failure:
-  criterion: pistoia
-  critical_strain: 0.007
-  critical_volume_percent: 2.0
+postprocess:
+  pistoia:
+    criterion: pistoia
+    critical_strain: 0.007
+    critical_volume_percent: 2.0

@@ -48,6 +48,51 @@ def test_run_case_config_dry_run_writes_summary_json(tmp_path: Path):
     assert summary["failure"]["status"] == "not_computed"
 
 
+def test_run_case_config_prefers_postprocess_pistoia(monkeypatch, tmp_path: Path):
+    material = np.ones((2, 2, 2), dtype=np.float64) * 1000.0
+    np.save(tmp_path / "material.npy", material)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "postprocess": {
+                    "pistoia": {
+                        "criterion": "pistoia",
+                        "critical_strain": 0.012,
+                        "critical_volume_percent": 5.0,
+                    }
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((2, 2, 2), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    assert captured["failure_criterion"] == "pistoia"
+    assert captured["critical_strain"] == pytest.approx(0.012)
+    assert captured["critical_volume_percent"] == pytest.approx(5.0)
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    assert summary["failure"]["critical_strain"] == pytest.approx(0.012)
+    assert summary["failure"]["critical_volume_percent"] == pytest.approx(5.0)
+
+
 def test_run_case_config_reads_image_metadata_for_auto_spacing(tmp_path: Path):
     material_zyx = np.ones((2, 2, 2), dtype=np.float32) * 1000.0
     image = sitk.GetImageFromArray(material_zyx)
@@ -207,6 +252,44 @@ def test_run_case_config_can_disable_field_export(monkeypatch, tmp_path: Path):
     run_case_config(config_path)
 
     assert captured["export_dir"] is None
+
+
+def test_run_case_config_writes_overview_png_for_dry_run(monkeypatch, tmp_path: Path):
+    material = np.ones((3, 3, 3), dtype=np.float64) * 1000.0
+    np.save(tmp_path / "material.npy", material)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "case": {"name": "cube"},
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "output": {
+                    "summary": "summary.json",
+                    "dry_run": True,
+                    "visualization": "cube_overview.png",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_solve(**kwargs):
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((3, 3, 3), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    result = run_case_config(config_path)
+
+    overview = tmp_path / "cube_overview.png"
+    assert overview.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    assert result.exported["overview"] == overview.resolve()
 
 
 def test_run_case_config_applies_named_profiles(monkeypatch, tmp_path: Path):

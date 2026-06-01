@@ -16,6 +16,7 @@ dependencies = [
   "SimpleITK>=2.3",
   "aimio-py>=0.1.1",
   "PyYAML>=6",
+  "matplotlib>=3.8",
   "tomli>=2; python_version<'3.11'",
 ]
 

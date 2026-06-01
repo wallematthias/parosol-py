@@ -38,3 +38,12 @@ solver:
 output:
   fields: [sed]
   export_fields: true
+
+postprocess:
+  load_history:
+    enabled: true
+    method: nnls
+    fields: [sed]
+    cases: [compression_z, shear_zx, shear_zy, bending_x, bending_y, torsion_z]
+    summary: load_history_6/load_history_summary.json
+    output: load_history_6/load_history.nii.gz

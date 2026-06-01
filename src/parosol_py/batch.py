@@ -63,6 +63,9 @@ def run_batch_config(
         },
         "cases": case_summaries,
     }
+    postprocess_cfg = _section(config, "postprocess")
+    if postprocess_cfg:
+        summary["postprocess"] = copy.deepcopy(postprocess_cfg)
     write_summary_json(summary_path, summary)
     return summary
 

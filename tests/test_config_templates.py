@@ -8,6 +8,9 @@ def test_default_config_template_documents_material_and_nodeset_workflow():
     assert "image_type: material_labels" in text
     assert "nodesets:" in text
     assert "selection: surface_nodes" in text
+    assert "postprocess:" in text
+    assert "pistoia:" in text
+    assert "load_history:" in text
     assert "native ParOSol currently uses one global Poisson" in text
 
 
@@ -24,8 +27,8 @@ def test_profile_override_templates_are_available():
     assert "direct_mechanics_manifest" in profiles
     assert "load_history_3" in profiles
     assert "load_history_6" in profiles
-    assert "xtremecti_materials" in profiles
-    assert "xtremectii_materials" in profiles
+    assert "XtremeCTI" in profiles
+    assert "XtremeCTII" in profiles
     assert "standard_mechanics_fields" in profiles
     assert "debug_sets" in profiles
     assert "coarse_preview" in profiles
@@ -41,9 +44,16 @@ def test_profile_override_templates_are_available():
     assert "image_type: density" in read_config_template("density_power")
     assert "compression_x" in read_config_template("direct_mechanics_manifest")
     assert "load_history_3" in read_config_template("load_history_3")
+    assert "postprocess:" in read_config_template("load_history_3")
+    assert "load_history:" in read_config_template("load_history_6")
     assert "bending_x" in read_config_template("load_history_6")
-    assert "E: 6829" in read_config_template("xtremecti_materials")
-    assert "E: 8748" in read_config_template("xtremectii_materials")
+    xtremecti = read_config_template("XtremeCTI")
+    xtremectii = read_config_template("XtremeCTII")
+    assert "E: 6829" in xtremecti
+    assert "E: 8748" in xtremectii
+    assert "type: constrained_axial" in xtremectii
+    assert "strain: -0.01" in xtremectii
+    assert "pistoia:" in xtremectii
     assert "effective_strain" in read_config_template("standard_mechanics_fields")
     assert "set_formats: [json, vtk]" in read_config_template("debug_sets")
     assert "coarsen:" in read_config_template("coarse_preview")
