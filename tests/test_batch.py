@@ -122,6 +122,108 @@ def test_cli_batch_runs_manifest(monkeypatch, tmp_path: Path, capsys):
     assert "summary.json" in capsys.readouterr().out
 
 
+def test_cli_batch_runs_folder_with_profile(monkeypatch, tmp_path: Path, capsys):
+    input_dir = tmp_path / "inputs"
+    output_dir = tmp_path / "outputs"
+    input_dir.mkdir()
+    np.save(input_dir / "sample_a.npy", np.ones((2, 2, 2), dtype=np.uint8) * 100)
+    np.save(input_dir / "sample_b.npy", np.ones((2, 2, 2), dtype=np.uint8) * 127)
+    (input_dir / "notes.txt").write_text("ignore me", encoding="utf-8")
+    _stub_cli_case_runner(monkeypatch)
+
+    assert (
+        main(
+            [
+                "batch",
+                str(input_dir),
+                "--profile",
+                "XtremeCTII",
+                "--output",
+                str(output_dir),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    stdout = capsys.readouterr().out
+    batch_summary = output_dir / "batch_summary.json"
+    assert str(batch_summary) in stdout
+    summary = json.loads(batch_summary.read_text(encoding="utf-8"))
+    assert summary["batch"]["mode"] == "folder"
+    assert summary["batch"]["profile"] == "XtremeCTII"
+    assert summary["batch"]["case_count"] == 2
+    assert [case["case"]["name"] for case in summary["cases"]] == [
+        "sample_a",
+        "sample_b",
+    ]
+    assert (output_dir / "sample_a" / "parosol_case.yaml").exists()
+    assert (output_dir / "sample_b" / "summary.json").exists()
+
+
+def test_cli_batch_folder_uses_mask_pattern_for_model_profile(
+    monkeypatch,
+    tmp_path: Path,
+):
+    input_dir = tmp_path / "images"
+    mask_dir = tmp_path / "masks"
+    output_dir = tmp_path / "runs"
+    input_dir.mkdir()
+    mask_dir.mkdir()
+    np.save(input_dir / "case_01.npy", np.ones((2, 2, 2), dtype=np.float32))
+    np.save(mask_dir / "case_01_SEG.npy", np.ones((2, 2, 2), dtype=np.uint8) * 20)
+    _stub_cli_case_runner(monkeypatch)
+
+    assert (
+        main(
+            [
+                "batch",
+                str(input_dir),
+                "--profile",
+                "vertebra",
+                "--mask-dir",
+                str(mask_dir),
+                "--mask-pattern",
+                "{stem}_SEG.npy",
+                "--output",
+                str(output_dir),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    case_summary = json.loads(
+        (output_dir / "case_01" / "summary.json").read_text(encoding="utf-8")
+    )
+    assert case_summary["execution"]["mask"] == str(mask_dir / "case_01_SEG.npy")
+    assert case_summary["execution"]["interface"] == "batch-folder"
+
+
+def _stub_cli_case_runner(monkeypatch):
+    def fake_run_case_config(path, *, dry_run=None, work_dir=None):
+        import yaml
+
+        config = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        summary_path = Path(config["output"]["summary"])
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(
+            json.dumps(
+                {
+                    "case": {"name": config["case"]["name"]},
+                    "execution": config["execution"],
+                    "load_case": config.get("load_case", {}),
+                    "mechanics": {},
+                    "failure": {"status": "dry_run"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return object()
+
+    monkeypatch.setattr("parosol_py.cli.run_case_config", fake_run_case_config)
+
+
 def test_run_batch_config_dry_run_executes_real_case_expansion(tmp_path: Path):
     np.save(tmp_path / "material.npy", np.ones((2, 2, 2), dtype=np.float32) * 1000)
     batch_path = tmp_path / "batch.json"

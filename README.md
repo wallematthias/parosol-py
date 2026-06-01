@@ -18,15 +18,33 @@ Once published to a package index:
 pip install parosol-py
 ```
 
-For private distribution, use a private package index or GitHub Release wheel:
+For private distribution from the private GitHub repository, authenticate with
+the GitHub CLI, download the release wheels, and let `pip` choose the matching
+wheel for your Python/platform:
 
 ```bash
-pip install parosol-py --extra-index-url https://<private-index>
-pip install https://github.com/<owner>/parosol-py/releases/download/v0.1.0/parosol_py-<version>-<tags>.whl
+gh auth login
+tmpdir="$(mktemp -d)"
+gh release download --repo wallematthias/parosol-py --pattern "*.whl" --dir "$tmpdir"
+python -m pip install --no-index --find-links "$tmpdir" parosol-py
+```
+
+On Windows PowerShell:
+
+```powershell
+gh auth login
+$wheelDir = New-Item -ItemType Directory -Path ([System.IO.Path]::GetTempPath()) -Name "parosol-wheels-$([guid]::NewGuid())"
+gh release download --repo wallematthias/parosol-py --pattern "*.whl" --dir $wheelDir.FullName
+python -m pip install --no-index --find-links $wheelDir.FullName parosol-py
 ```
 
 The GitHub Actions wheel matrix builds Linux x86_64, Windows AMD64, macOS arm64,
-and macOS x86_64 artifacts.
+and macOS x86_64 artifacts for supported Python versions. Downloading all wheels
+from a release avoids manual wheel selection.
+
+That same command works from Python 3.10, 3.11, 3.12, or 3.13 environments as
+long as the release contains a wheel for that Python/platform tag. `pip` picks
+the compatible wheel automatically.
 
 ### Developer Install
 
@@ -137,8 +155,18 @@ mapped = density_to_material_map(
 
 Label-image material tables can define different Poisson ratios per material.
 ParOSol-py writes those as an optional native per-element Poisson ratio image.
-For continuous density inputs, `materials.poisson_ratio` equations are currently
-reduced to one scalar value before solve.
+For config files, prefer the project-native material syntax:
+
+```yaml
+materials:
+  units: MPa
+  labels:
+    100: {name: trabecular_bone, E: 8748, nu: 0.3}
+    127: {name: cortical_bone, E: 8748, nu: 0.3}
+```
+
+Continuous density profiles keep the modulus conversion and Poisson ratio
+together under `materials.density`.
 
 ## Command Line
 
@@ -191,18 +219,15 @@ input:
 
 materials:
   units: MPa
-  definitions:
-    TrabecularBone:
-      Type: LinearIsotropic
+  labels:
+    100:
+      name: trabecular_bone
       E: 8748
       nu: 0.3
-    CorticalBone:
-      Type: LinearIsotropic
+    127:
+      name: cortical_bone
       E: 8748
       nu: 0.3
-  table:
-    100: TrabecularBone
-    127: CorticalBone
 
 load_case:
   type: constrained_axial
@@ -256,8 +281,26 @@ A batch config uses the same top-level input/material/solver/output sections as
 a normal case, plus a `batch.cases` list. Each case override is expanded into an
 individual run directory and summarized in one `batch_summary.json`.
 
+Run a whole folder with the same profile:
+
+```bash
+parosol batch /data/xtremectii_inputs \
+  --profile XtremeCTII \
+  --output /data/xtremectii_results
+```
+
+For model-building profiles, point the batch at a mask folder:
+
+```bash
+parosol batch /data/qct_images \
+  --profile vertebra \
+  --mask-dir /data/segmentations \
+  --mask-pattern "{stem}_SEG.nii.gz" \
+  --output /data/vertebra_results
+```
+
 Scanner/load-case profiles are available as `XtremeCTI` and `XtremeCTII`. Each
-profile defines the standard binary bone material table, constrained z-axis
+profile defines the standard binary bone material labels, constrained z-axis
 compression at 1% strain, SED output, and Pistoia post-processing defaults.
 
 All built-in profiles are documented in

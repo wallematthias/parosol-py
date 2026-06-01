@@ -5,9 +5,10 @@ input:
 materials:
   units: MPa
   density:
-    equation: power
-    coefficient: 10000
-    exponent: 1.7
-    reference_density: 1000
-    mask_threshold: 0
-  poisson_ratio: 0.3
+    E:
+      equation: power
+      coefficient: 10000
+      exponent: 1.7
+      reference_density: 1000
+    nu: 0.3
+    active_threshold: 0

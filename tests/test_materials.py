@@ -141,3 +141,18 @@ def test_linear_isotropic_materials_from_inline_config():
 
     assert parsed.youngs_modulus_mpa == {100: 6829.0, 127: 8748.0}
     assert parsed.poisson_ratio == {100: 0.3, 127: 0.3}
+
+
+def test_linear_isotropic_materials_from_label_config():
+    parsed = linear_isotropic_materials_from_config(
+        {
+            "units": "MPa",
+            "labels": {
+                100: {"name": "trabecular_bone", "E": 6829, "nu": 0.25},
+                127: {"name": "cortical_bone", "E": 8748, "nu": 0.3},
+            },
+        }
+    )
+
+    assert parsed.youngs_modulus_mpa == {100: 6829.0, 127: 8748.0}
+    assert parsed.poisson_ratio == {100: 0.25, 127: 0.3}

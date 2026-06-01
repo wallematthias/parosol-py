@@ -24,11 +24,12 @@ model:
 materials:
   units: MPa
   density:
-    equation: linear
-    slope: 10.0
-    intercept: 0.0
-    mask_threshold: 0.0
-  poisson_ratio: 0.3
+    E:
+      equation: linear
+      slope: 10.0
+      intercept: 0.0
+    nu: 0.3
+    active_threshold: 0.0
   pmma:
     E: 2500
     nu: 0.3

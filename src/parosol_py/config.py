@@ -950,22 +950,37 @@ def _load_material_array(
         )
     if image_type in {"density", "density_mg_ha", "density_mgcm3", "rho"}:
         density_cfg = _section(material_cfg, "density")
+        e_cfg = density_cfg.get("E", density_cfg.get("youngs_modulus", density_cfg))
+        if not isinstance(e_cfg, dict):
+            raise ValueError("materials.density.E must be an object")
+        poisson_spec = density_cfg.get(
+            "nu",
+            density_cfg.get(
+                "poisson_ratio",
+                material_cfg.get("poisson_ratio", material_cfg.get("nu", 0.3)),
+            ),
+        )
         mapped = density_to_material_map(
             array_zyx,
-            equation=str(density_cfg.get("equation", "power")),
-            poisson_ratio=material_cfg.get(
-                "poisson_ratio", material_cfg.get("nu", 0.3)
+            equation=str(e_cfg.get("equation", "power")),
+            poisson_ratio=poisson_spec,
+            mask_threshold=float(
+                density_cfg.get(
+                    "active_threshold", density_cfg.get("mask_threshold", 0.0)
+                )
             ),
-            mask_threshold=float(density_cfg.get("mask_threshold", 0.0)),
-            minimum_e_mpa=float(density_cfg.get("minimum_e_mpa", 0.0)),
-            maximum_e_mpa=_optional_float(density_cfg.get("maximum_e_mpa")),
+            minimum_e_mpa=float(
+                e_cfg.get("minimum_e_mpa", density_cfg.get("minimum_e_mpa", 0.0))
+            ),
+            maximum_e_mpa=_optional_float(
+                e_cfg.get("maximum_e_mpa", density_cfg.get("maximum_e_mpa"))
+            ),
             **{
                 key: value
-                for key, value in density_cfg.items()
+                for key, value in e_cfg.items()
                 if key
                 not in {
                     "equation",
-                    "mask_threshold",
                     "minimum_e_mpa",
                     "maximum_e_mpa",
                 }
@@ -998,7 +1013,17 @@ def _continuous_poisson_ratio(
     *,
     fallback: float,
 ) -> float:
-    spec = material_cfg.get("poisson_ratio", material_cfg.get("nu"))
+    density_cfg = material_cfg.get("density")
+    if isinstance(density_cfg, dict):
+        spec = density_cfg.get(
+            "nu",
+            density_cfg.get(
+                "poisson_ratio",
+                material_cfg.get("poisson_ratio", material_cfg.get("nu")),
+            ),
+        )
+    else:
+        spec = material_cfg.get("poisson_ratio", material_cfg.get("nu"))
     if spec is None:
         return fallback
     return poisson_ratio_from_spec(spec, values, active_mask=np.asarray(values) > 0)
@@ -1019,7 +1044,22 @@ def _poisson_ratio(
     image_type: str,
     base_dir: Path,
 ) -> float:
-    explicit = material_cfg.get("poisson_ratio", material_cfg.get("nu"))
+    density_cfg = material_cfg.get("density")
+    if isinstance(density_cfg, dict) and image_type in {
+        "density",
+        "density_mg_ha",
+        "density_mgcm3",
+        "rho",
+    }:
+        explicit = density_cfg.get(
+            "nu",
+            density_cfg.get(
+                "poisson_ratio",
+                material_cfg.get("poisson_ratio", material_cfg.get("nu")),
+            ),
+        )
+    else:
+        explicit = material_cfg.get("poisson_ratio", material_cfg.get("nu"))
     if explicit is not None:
         if isinstance(explicit, dict):
             return float(

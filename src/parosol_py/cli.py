@@ -54,7 +54,36 @@ def _build_parser() -> argparse.ArgumentParser:
 
     batch_parser = subparsers.add_parser("batch", help="Run a ParOSol batch config")
     batch_parser.add_argument(
-        "config", help="Path to a .yaml, .toml, or .json batch config"
+        "target", help="Path to a batch config or an input image folder"
+    )
+    batch_parser.add_argument(
+        "--profile",
+        choices=available_config_profiles(),
+        help="Built-in profile to apply when TARGET is a folder",
+    )
+    batch_parser.add_argument(
+        "-o",
+        "--output",
+        help="Output directory for folder batches. Defaults to TARGET/parosol_batch.",
+    )
+    batch_parser.add_argument(
+        "--pattern",
+        action="append",
+        help="Input glob for folder batches. Can be repeated. Defaults to image files.",
+    )
+    batch_parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help="Recursively discover input files in folder batch mode.",
+    )
+    batch_parser.add_argument(
+        "--mask-dir",
+        help="Folder containing masks for model profiles in folder batch mode.",
+    )
+    batch_parser.add_argument(
+        "--mask-pattern",
+        default="{stem}_SEG.nii.gz",
+        help="Mask filename pattern for folder batches; supports {stem} and {name}.",
     )
     batch_parser.add_argument(
         "--dry-run",
@@ -158,13 +187,94 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def _batch(args: argparse.Namespace) -> int:
-    summary = run_batch_config(
-        args.config,
-        dry_run=True if args.dry_run else None,
-        work_dir=args.work_dir,
-    )
+    target = Path(args.target).expanduser()
+    if target.is_dir():
+        summary = _batch_folder(args, target.resolve())
+    else:
+        if args.profile:
+            raise ValueError("--profile is only used when batch TARGET is a folder")
+        summary = run_batch_config(
+            target,
+            dry_run=True if args.dry_run else None,
+            work_dir=args.work_dir,
+        )
     print(summary["batch"]["summary"])
     return 0
+
+
+def _batch_folder(args: argparse.Namespace, input_dir: Path) -> dict[str, Any]:
+    if not args.profile:
+        raise ValueError("folder batch mode requires --profile")
+    output_root = (
+        Path(args.output).expanduser().resolve()
+        if args.output
+        else input_dir / "parosol_batch"
+    )
+    images = _discover_batch_images(
+        input_dir,
+        patterns=args.pattern,
+        recursive=bool(args.recursive),
+    )
+    if not images:
+        raise ValueError(f"no input images found in {input_dir}")
+
+    output_root.mkdir(parents=True, exist_ok=True)
+    case_summaries: list[dict[str, Any]] = []
+    for image_path in images:
+        case_name = _case_stem(image_path)
+        case_dir = output_root / case_name
+        mask_path = _batch_mask_path(args, image_path) if args.mask_dir else None
+        case_args = argparse.Namespace(
+            image=str(image_path),
+            profile=args.profile,
+            mask=None if mask_path is None else str(mask_path),
+            output=str(case_dir),
+            name=case_name,
+            dry_run=args.dry_run,
+            side=None,
+            reference_points=None,
+            _argv=[
+                "batch",
+                str(input_dir),
+                "--profile",
+                args.profile,
+                "--output",
+                str(output_root),
+            ],
+        )
+        config = _shortcut_config(case_args)
+        config["execution"]["interface"] = "batch-folder"
+        config["execution"]["batch_input_dir"] = str(input_dir)
+        config["execution"]["batch_output_dir"] = str(output_root)
+        case_dir.mkdir(parents=True, exist_ok=True)
+        config_path = case_dir / "parosol_case.yaml"
+        config["execution"]["generated_config"] = str(config_path)
+        _write_yaml(config_path, config)
+        run_case_config(
+            config_path,
+            dry_run=True if args.dry_run else None,
+            work_dir=case_dir,
+        )
+        summary_path = case_dir / "summary.json"
+        case_summaries.append(_folder_case_summary(summary_path))
+
+    summary_path = output_root / "batch_summary.json"
+    summary = {
+        "batch": {
+            "name": input_dir.name,
+            "mode": "folder",
+            "profile": args.profile,
+            "case_count": len(case_summaries),
+            "input_dir": str(input_dir),
+            "output_dir": str(output_root),
+            "summary": str(summary_path),
+            "patterns": args.pattern or ["<supported image files>"],
+            "recursive": bool(args.recursive),
+        },
+        "cases": case_summaries,
+    }
+    write_summary_json(summary_path, summary)
+    return summary
 
 
 def _load_history(args: argparse.Namespace) -> int:
@@ -284,6 +394,61 @@ def _shortcut_config(args: argparse.Namespace) -> dict[str, Any]:
     return config
 
 
+def _discover_batch_images(
+    input_dir: Path,
+    *,
+    patterns: list[str] | None,
+    recursive: bool,
+) -> list[Path]:
+    candidates: list[Path] = []
+    if patterns:
+        for pattern in patterns:
+            matches = input_dir.rglob(pattern) if recursive else input_dir.glob(pattern)
+            candidates.extend(path for path in matches if path.is_file())
+    else:
+        iterator = input_dir.rglob("*") if recursive else input_dir.iterdir()
+        candidates.extend(
+            path
+            for path in iterator
+            if path.is_file() and _is_supported_input_image(path)
+        )
+    return sorted(set(candidates), key=lambda path: str(path))
+
+
+def _batch_mask_path(args: argparse.Namespace, image_path: Path) -> Path:
+    mask_dir = Path(args.mask_dir).expanduser().resolve()
+    mask_name = args.mask_pattern.format(
+        stem=_case_stem(image_path),
+        name=image_path.name,
+    )
+    mask_path = mask_dir / mask_name
+    if not mask_path.exists():
+        raise ValueError(f"mask not found for {image_path.name}: {mask_path}")
+    return mask_path
+
+
+def _folder_case_summary(summary_path: Path) -> dict[str, Any]:
+    import json
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    mechanics = summary.get("mechanics", {})
+    failure = summary.get("failure", {})
+    return {
+        "case": summary.get("case", {}),
+        "image": summary.get("execution", {}).get("image"),
+        "mask": summary.get("execution", {}).get("mask"),
+        "summary": str(summary_path),
+        "load_case": summary.get("load_case", {}),
+        "generalized_load": mechanics.get("generalized_load"),
+        "generalized_stiffness": mechanics.get("generalized_stiffness"),
+        "failure_generalized_load": failure.get("failure_generalized_load"),
+        "failure": {
+            "factor": failure.get("factor"),
+            "status": failure.get("status"),
+        },
+    }
+
+
 def _load_profile(profile: str) -> dict[str, Any]:
     try:
         import yaml
@@ -319,6 +484,13 @@ def _case_stem(path: Path) -> str:
 def _supports_image_metadata(path: Path) -> bool:
     suffixes = "".join(path.suffixes).lower()
     return suffixes.endswith((".aim", ".mha", ".mhd", ".nii", ".nii.gz", ".npz"))
+
+
+def _is_supported_input_image(path: Path) -> bool:
+    suffixes = "".join(path.suffixes).lower()
+    return suffixes.endswith(
+        (".aim", ".mha", ".mhd", ".nii", ".nii.gz", ".npy", ".npz")
+    )
 
 
 if __name__ == "__main__":

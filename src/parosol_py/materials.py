@@ -220,6 +220,36 @@ def parse_linear_isotropic_materials(text: str) -> LinearIsotropicMaterials:
 def linear_isotropic_materials_from_config(
     config: dict[str, Any],
 ) -> LinearIsotropicMaterials:
+    labels_cfg = config.get("labels")
+    if labels_cfg is not None:
+        if not isinstance(labels_cfg, dict):
+            raise ValueError("materials.labels must be a table/object")
+        youngs_by_label: dict[int, float] = {}
+        poisson_by_label: dict[int, float] = {}
+        default_nu = config.get("poisson_ratio", config.get("nu", 0.3))
+        for label, spec in labels_cfg.items():
+            if not isinstance(spec, dict):
+                raise ValueError(f"materials.labels.{label} must be an object")
+            youngs = spec.get(
+                "E",
+                spec.get(
+                    "youngs_modulus",
+                    spec.get("youngs_modulus_mpa", spec.get("modulus_mpa")),
+                ),
+            )
+            if youngs is None:
+                raise ValueError(f"materials.labels.{label} requires E")
+            nu = spec.get("nu", spec.get("poisson_ratio", default_nu))
+            numeric_label = int(label)
+            youngs_by_label[numeric_label] = float(youngs)
+            poisson_by_label[numeric_label] = float(nu)
+        if not youngs_by_label:
+            raise ValueError("materials.labels contains no labels")
+        return LinearIsotropicMaterials(
+            youngs_modulus_mpa=youngs_by_label,
+            poisson_ratio=poisson_by_label,
+        )
+
     definitions_cfg = config.get("definitions", config.get("MaterialDefinitions"))
     table_cfg = config.get("table", config.get("MaterialTable"))
     if not isinstance(definitions_cfg, dict) or not isinstance(table_cfg, dict):

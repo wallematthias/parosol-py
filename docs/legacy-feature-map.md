@@ -9,10 +9,10 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 | Legacy concept | ParOSol-py equivalent | Status |
 | --- | --- | --- |
 | Segmented image input with material IDs | `input.image` plus `image_type: material_labels` | Implemented for AIM, NIfTI, MetaImage, NPY, NPZ |
-| Material definition/table files | Inline `materials.definitions` and `materials.table`, or optional `materials.file` | Implemented for linear isotropic E/nu tables |
+| Material definition/table files | Inline `materials.labels`, or optional legacy `materials.file` fallback | Implemented for linear isotropic E/nu tables |
 | Continuous density input | `input.image_type: density` plus `materials.density` equation | Implemented for power, linear, and polynomial E mappings |
-| Material-specific Poisson ratio | Per-label `nu` in `materials.definitions`/`materials.table` | Implemented via optional native per-element Poisson ratio image |
-| Poisson ratio from equation | `materials.poisson_ratio` scalar or equation reduced to one value | Implemented for continuous density inputs as a reduced scalar |
+| Material-specific Poisson ratio | Per-label `nu` in `materials.labels` | Implemented via optional native per-element Poisson ratio image |
+| Poisson ratio from equation | `materials.density.nu` scalar or equation reduced to one value | Implemented for continuous density inputs as a reduced scalar |
 | Connectivity filtering | `preprocessing.connectivity_filter: true` | Implemented as largest non-zero component |
 | Constrained axial plate compression | `load_case.type: constrained_axial` or `plate_compression` | Implemented |
 | Uniaxial compression | `load_case.type: uniaxial` | Implemented |
@@ -40,7 +40,7 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 
 | Legacy concept | Proposed ParOSol-py equivalent | Notes |
 | --- | --- | --- |
-| Direct mechanics batches | `profiles/direct_mechanics_manifest.yaml` plus `parosol batch` | Implemented for x/y/z compression and z-normal shear |
+| Direct mechanics batches | `profiles/direct_mechanics_manifest.yaml` plus `parosol batch`, or `parosol batch FOLDER --profile PROFILE` | Implemented for x/y/z compression, z-normal shear, and folder-level scanner batches |
 | Full-resolution interpolation from coarse solve | Initial guess/reprojection API | Requires native solver support for restart/initial displacement fields |
 | Nonlinear material behavior | Separate nonlinear engine/profile | Out of first stable linear API scope |
 

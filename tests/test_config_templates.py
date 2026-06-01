@@ -11,7 +11,8 @@ def test_default_config_template_documents_material_and_nodeset_workflow():
     assert "postprocess:" in text
     assert "pistoia:" in text
     assert "load_history:" in text
-    assert "Material-specific nu values are preserved" in text
+    assert "Material-specific nu" in text
+    assert "values are preserved" in text
 
 
 def test_profile_override_templates_are_available():

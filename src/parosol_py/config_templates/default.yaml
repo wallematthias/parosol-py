@@ -18,42 +18,35 @@ input:
   origin: auto
 
 materials:
-  # Inline MaterialDefinitions and MaterialTable sections.
-  # Material-specific nu values are preserved for label images and written as
-  # an optional per-element Poisson ratio image for the native solver.
+  # Label images use a compact ParOSol-py material map. Material-specific nu
+  # values are preserved and written as an optional native per-element Poisson
+  # ratio image.
   units: MPa
-  definitions:
-    TrabecularBone:
-      Type: LinearIsotropic
+  labels:
+    100:
+      name: trabecular_bone
       E: 8748
       nu: 0.3
-    CorticalBone:
-      Type: LinearIsotropic
+    127:
+      name: cortical_bone
       E: 8748
       nu: 0.3
-  table:
-    100: TrabecularBone
-    127: CorticalBone
-  # Alternatively, keep materials in a separate YAML file:
+  # Existing legacy-style MaterialDefinitions/MaterialTable files can still be
+  # loaded when needed:
   # file: material_cort_trab.yaml
   # Use a scalar override to intentionally force one Poisson ratio for all
-  # labels, even if material definitions contain different nu values.
-  # poisson_ratio: 0.3
-  # For continuous density inputs you may provide an equation here; parosol-py
-  # currently reduces continuous nu fields to one scalar value before solving.
-  # poisson_ratio:
-  #   equation: linear
-  #   slope: 0.0
-  #   intercept: 0.3
-  #   reduce: mean
+  # labels, even if label entries contain different nu values.
+  # nu: 0.3
   #
   # Continuous density-to-E mapping. E is produced in MPa.
   # density:
-  #   equation: power
-  #   coefficient: 10000
-  #   exponent: 1.7
-  #   reference_density: 1000
-  #   mask_threshold: 0
+  #   E:
+  #     equation: power
+  #     coefficient: 10000
+  #     exponent: 1.7
+  #     reference_density: 1000
+  #   nu: 0.3
+  #   active_threshold: 0
 
 preprocessing:
   # Keep only the largest non-zero connected component before modelling/solving.

@@ -33,10 +33,24 @@ project:
 python -m pip install parosol-py --extra-index-url https://<private-index>
 ```
 
-For a private GitHub Release wheel:
+For private distribution from the private GitHub repository, authenticate with
+the GitHub CLI, download all wheels from the release, and let `pip` choose the
+wheel matching the current Python version and operating system:
 
 ```bash
-python -m pip install https://github.com/<owner>/parosol-py/releases/download/v0.1.0/parosol_py-<version>-<tags>.whl
+gh auth login
+tmpdir="$(mktemp -d)"
+gh release download --repo wallematthias/parosol-py --pattern "*.whl" --dir "$tmpdir"
+python -m pip install --no-index --find-links "$tmpdir" parosol-py
+```
+
+On Windows PowerShell:
+
+```powershell
+gh auth login
+$wheelDir = New-Item -ItemType Directory -Path ([System.IO.Path]::GetTempPath()) -Name "parosol-wheels-$([guid]::NewGuid())"
+gh release download --repo wallematthias/parosol-py --pattern "*.whl" --dir $wheelDir.FullName
+python -m pip install --no-index --find-links $wheelDir.FullName parosol-py
 ```
 
 The repository currently builds wheel artifacts for:
@@ -45,6 +59,10 @@ The repository currently builds wheel artifacts for:
 - Windows AMD64
 - macOS arm64
 - macOS x86_64
+
+Wheels are built for the supported Python versions declared in `pyproject.toml`.
+Because the install command points `pip` at the whole wheel directory, users do
+not need to manually choose `cp310`, `cp311`, `cp312`, or `cp313`.
 
 The repository can stay private while wheels are distributed through GitHub
 Releases, GitHub Packages, a private package index, or later public PyPI.
@@ -120,6 +138,24 @@ Run a batch config:
 
 ```bash
 parosol batch load_history_3.yaml
+```
+
+Run every supported image in a folder with one profile:
+
+```bash
+parosol batch /data/xtremectii_inputs \
+  --profile XtremeCTII \
+  --output /data/xtremectii_results
+```
+
+For model-building profiles, provide masks through the standard mask arguments:
+
+```bash
+parosol batch /data/qct_images \
+  --profile vertebra \
+  --mask-dir /data/segmentations \
+  --mask-pattern "{stem}_SEG.nii.gz" \
+  --output /data/vertebra_results
 ```
 
 ## Output Files
@@ -374,11 +410,16 @@ Continuous density input profile. It changes `input.image_type` to `density`
 and maps density to Young's modulus with:
 
 ```yaml
-equation: power
-coefficient: 10000
-exponent: 1.7
-reference_density: 1000
-mask_threshold: 0
+materials:
+  units: MPa
+  density:
+    E:
+      equation: power
+      coefficient: 10000
+      exponent: 1.7
+      reference_density: 1000
+    nu: 0.3
+    active_threshold: 0
 ```
 
 Use this when voxel values are density-like rather than material labels.
@@ -488,26 +529,38 @@ Label images can define a different `E` and `nu` per material:
 ```yaml
 materials:
   units: MPa
-  definitions:
-    TrabecularBone:
-      Type: LinearIsotropic
+  labels:
+    100:
+      name: trabecular_bone
       E: 8748
       nu: 0.25
-    CorticalBone:
-      Type: LinearIsotropic
+    127:
+      name: cortical_bone
       E: 12000
       nu: 0.3
-  table:
-    100: TrabecularBone
-    127: CorticalBone
 ```
 
 ParOSol-py writes a native per-element Poisson-ratio image when material labels
 use different `nu` values. Scalar `nu = 0.3` behavior remains compatible with the
 standard reference runs.
 
-For continuous density input, `materials.poisson_ratio` may be a scalar or an
-equation; equation-based values are currently reduced to one scalar before solve.
+For continuous density input, keep the modulus equation and Poisson ratio inside
+`materials.density`:
+
+```yaml
+materials:
+  units: MPa
+  density:
+    E:
+      equation: linear
+      slope: 10.0
+      intercept: 0.0
+    nu: 0.3
+    active_threshold: 0
+```
+
+`materials.density.nu` may be a scalar or an equation; equation-based values are
+currently reduced to one scalar before solve.
 
 ## Validation and Reference Behavior
 
@@ -521,4 +574,3 @@ PAROSOL_RUN_REFERENCE_TESTS=1 pytest tests/test_trab1240_reference.py
 
 For the CABHS HR-pQCT sample, the XtremeCTII profile has been checked against
 legacy axial/Pistoia output with close agreement in stiffness and failure load.
-

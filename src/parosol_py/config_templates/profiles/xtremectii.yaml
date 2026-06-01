@@ -4,18 +4,15 @@ input:
 
 materials:
   units: MPa
-  definitions:
-    CorticalBone:
-      Type: LinearIsotropic
+  labels:
+    100:
+      name: trabecular_bone
       E: 8748
       nu: 0.3
-    TrabecularBone:
-      Type: LinearIsotropic
+    127:
+      name: cortical_bone
       E: 8748
       nu: 0.3
-  table:
-    100: TrabecularBone
-    127: CorticalBone
 
 load_case:
   type: constrained_axial

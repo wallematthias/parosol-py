@@ -151,11 +151,13 @@ def test_run_case_config_uses_model_section_for_dry_run(tmp_path: Path):
                 },
                 "materials": {
                     "density": {
-                        "equation": "linear",
-                        "slope": 10.0,
-                        "intercept": 0.0,
+                        "E": {
+                            "equation": "linear",
+                            "slope": 10.0,
+                            "intercept": 0.0,
+                        },
+                        "nu": 0.3,
                     },
-                    "poisson_ratio": 0.3,
                     "pmma": {"E": 2500, "nu": 0.3},
                 },
                 "load_case": {"type": "spine_compression", "displacement": -0.2},
@@ -362,7 +364,7 @@ def test_run_case_config_reads_compressed_npz_label_image(tmp_path: Path):
     assert result.summary.origin == (1.0, 2.0, 3.0)
 
 
-def test_run_case_config_accepts_inline_material_table(monkeypatch, tmp_path: Path):
+def test_run_case_config_accepts_label_material_map(monkeypatch, tmp_path: Path):
     labels = np.asarray([[[100, 127]]], dtype=np.uint8)
     np.save(tmp_path / "labels.npy", labels)
     config_path = tmp_path / "case.json"
@@ -375,19 +377,18 @@ def test_run_case_config_accepts_inline_material_table(monkeypatch, tmp_path: Pa
                     "spacing": [1, 1, 1],
                 },
                 "materials": {
-                    "definitions": {
-                        "TrabecularBone": {
-                            "Type": "LinearIsotropic",
+                    "labels": {
+                        100: {
+                            "name": "trabecular_bone",
                             "E": 6829,
-                            "nu": 0.3,
+                            "nu": 0.25,
                         },
-                        "CorticalBone": {
-                            "Type": "LinearIsotropic",
+                        127: {
+                            "name": "cortical_bone",
                             "E": 8748,
                             "nu": 0.3,
                         },
                     },
-                    "table": {100: "TrabecularBone", 127: "CorticalBone"},
                 },
                 "output": {"summary": "summary.json", "dry_run": True},
             }
@@ -412,7 +413,7 @@ def test_run_case_config_accepts_inline_material_table(monkeypatch, tmp_path: Pa
     run_case_config(config_path)
 
     assert captured["material"].tolist() == [[[6829.0, 8748.0]]]
-    assert captured["poisson_ratio"] == 0.3
+    np.testing.assert_allclose(captured["poisson_ratio"], [[[0.25, 0.3]]])
 
 
 def test_run_case_config_can_disable_field_export(monkeypatch, tmp_path: Path):
@@ -740,15 +741,17 @@ def test_run_case_config_maps_density_input_with_poisson_equation(
                 },
                 "materials": {
                     "density": {
-                        "equation": "power",
-                        "coefficient": 10000,
-                        "exponent": 2,
-                        "reference_density": 1000,
-                    },
-                    "poisson_ratio": {
-                        "equation": "linear",
-                        "slope": 0.0001,
-                        "intercept": 0.2,
+                        "E": {
+                            "equation": "power",
+                            "coefficient": 10000,
+                            "exponent": 2,
+                            "reference_density": 1000,
+                        },
+                        "nu": {
+                            "equation": "linear",
+                            "slope": 0.0001,
+                            "intercept": 0.2,
+                        },
                     },
                 },
                 "output": {"summary": "summary.json", "dry_run": True},
