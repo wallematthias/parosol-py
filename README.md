@@ -12,14 +12,8 @@ installation guide, profile reference, and workflow documentation.
 The recommended installation is from prebuilt wheels. Wheels include the native
 ParOSol executable, so users do not need to compile C++ code locally.
 
-Once published to a package index:
-
-```bash
-pip install parosol-py
-```
-
-For private distribution from the private GitHub repository, use the helper
-script:
+For now, parosol-py is distributed privately from GitHub Release wheels. Clone
+the private repository and use the helper script:
 
 ```bash
 git clone git@github.com:wallematthias/parosol-py.git
@@ -41,9 +35,9 @@ gh release download --repo wallematthias/parosol-py --pattern "*.whl" --dir "$tm
 python -m pip install --no-index --find-links "$tmpdir" parosol-py
 ```
 
-The GitHub Actions wheel matrix builds Linux x86_64, Windows AMD64, macOS arm64,
-and macOS x86_64 artifacts for supported Python versions. Downloading all wheels
-from a release avoids manual wheel selection.
+The GitHub Actions wheel matrix builds private Linux x86_64, Windows AMD64,
+macOS arm64, and macOS x86_64 artifacts for supported Python versions.
+Downloading all wheels from a release avoids manual wheel selection.
 
 That same command works from Python 3.10, 3.11, 3.12, or 3.13 environments as
 long as the release contains a wheel for that Python/platform tag. `pip` picks

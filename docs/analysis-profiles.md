@@ -20,21 +20,8 @@ The easiest installation should be from a wheel built by the GitHub Actions
 matrix. Wheels include the native ParOSol executable, so users do not need CMake,
 MPI, HDF5, Eigen, or a compiler on their workstation.
 
-Once a wheel index or release artifact is available:
-
-```bash
-python -m pip install parosol-py
-```
-
-For a private package index, use the authenticated index URL provided by the
-project:
-
-```bash
-python -m pip install parosol-py --extra-index-url https://<private-index>
-```
-
-For private distribution from the private GitHub repository, use the helper
-script:
+For now, parosol-py is distributed privately from GitHub Release wheels. Clone
+the private repository and use the helper script:
 
 ```bash
 git clone git@github.com:wallematthias/parosol-py.git
@@ -68,8 +55,8 @@ Wheels are built for the supported Python versions declared in `pyproject.toml`.
 Because the install command points `pip` at the whole wheel directory, users do
 not need to manually choose `cp310`, `cp311`, `cp312`, or `cp313`.
 
-The repository can stay private while wheels are distributed through GitHub
-Releases, GitHub Packages, a private package index, or later public PyPI.
+The repository stays private while wheels are distributed through GitHub
+Releases.
 
 ### Developer Install from Source
 
