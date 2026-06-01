@@ -92,6 +92,35 @@ The default mask labels are `20 = vertebral body` and
 lightweight ICP alignment to a reference point cloud, runs spine compression,
 and reports Pistoia plus linear vertebral strength estimates.
 
+### Vertebral Load Estimation
+
+The vertebra profile writes load estimates directly into `summary.json`:
+
+- `mechanics.generalized_stiffness.value`: axial stiffness in `N/mm`.
+- `failure.failure_generalized_load.value`: Pistoia failure load.
+- `failure.linear_reaction_at_deformation`: reaction force scaled to the
+  configured linear deformation, by default `0.2%`.
+- `failure.crawford_stiffness_height`: Crawford-style estimate from stiffness
+  and vertebral height.
+
+Example:
+
+```bash
+parosol 10001_QCT.nii.gz \
+  --mask 10001_SEG.nii.gz \
+  --profile vertebra \
+  --output outputs/10001_vertebra
+
+python - <<'PY'
+import json
+summary = json.load(open("outputs/10001_vertebra/summary.json"))
+print(summary["mechanics"]["generalized_stiffness"])
+print(summary["failure"]["failure_generalized_load"])
+print(summary["failure"]["linear_reaction_at_deformation"])
+print(summary["failure"]["crawford_stiffness_height"])
+PY
+```
+
 ### Proximal Femur Sideways Fall
 
 Use the proximal femur profile for a density image plus femur mask:

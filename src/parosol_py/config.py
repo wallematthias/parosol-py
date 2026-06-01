@@ -33,6 +33,7 @@ from .materials import (
 )
 from .modeling import build_model
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
+from .paths import suffix_text
 from .profiles import get_output_profile, get_solver_profile
 from .reports import solve_summary_dict, write_summary_json
 from .set_export import write_element_sets, write_node_sets
@@ -221,7 +222,7 @@ def run_case_config(
                 else None,
             )
         )
-    elif image_path.suffix.lower() == ".aim" and image_type in {
+    elif suffix_text(image_path).endswith(".aim") and image_type in {
         "material_mpa",
         "mpa",
         "gpa",
@@ -1085,7 +1086,7 @@ def _poisson_ratio(
 
 
 def _read_image_array_zyx(path: Path) -> np.ndarray:
-    suffixes = "".join(path.suffixes).lower()
+    suffixes = suffix_text(path)
     if suffixes.endswith(".npy"):
         return np.load(path)
     if suffixes.endswith(".npz"):
@@ -1163,7 +1164,7 @@ def _optional_float(value) -> float | None:
 def _image_metadata(
     path: Path,
 ) -> tuple[tuple[float, float, float] | None, tuple[float, float, float] | None]:
-    suffixes = "".join(path.suffixes).lower()
+    suffixes = suffix_text(path)
     if suffixes.endswith(".npz"):
         with np.load(path) as data:
             spacing = _npz_metadata_triple(data, "spacing_xyz", "spacing")

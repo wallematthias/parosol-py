@@ -9,6 +9,7 @@ from .batch import run_batch_config
 from .config import run_case_config
 from .config_templates import available_config_profiles, read_config_template
 from .load_history import estimate_load_history_from_files
+from .paths import image_stem, suffix_text
 from .reports import parse_legacy_analysis_file, parse_pistoia_file, write_summary_json
 
 _COMMANDS = {"run", "batch", "load-history", "summarize-legacy", "config-template"}
@@ -474,20 +475,16 @@ def _dict_section(config: dict[str, Any], name: str) -> dict[str, Any]:
 
 
 def _case_stem(path: Path) -> str:
-    name = path.name
-    for suffix in (".nii.gz", ".nii", ".mha", ".mhd", ".aim", ".AIM", ".npy", ".npz"):
-        if name.endswith(suffix):
-            return name[: -len(suffix)]
-    return path.stem
+    return image_stem(path)
 
 
 def _supports_image_metadata(path: Path) -> bool:
-    suffixes = "".join(path.suffixes).lower()
+    suffixes = suffix_text(path)
     return suffixes.endswith((".aim", ".mha", ".mhd", ".nii", ".nii.gz", ".npz"))
 
 
 def _is_supported_input_image(path: Path) -> bool:
-    suffixes = "".join(path.suffixes).lower()
+    suffixes = suffix_text(path)
     return suffixes.endswith(
         (".aim", ".mha", ".mhd", ".nii", ".nii.gz", ".npy", ".npz")
     )

@@ -1346,6 +1346,39 @@ def test_cli_shortcut_direct_profile_uses_auto_spacing_for_metadata_images(
     assert summary["image"]["spacing"] == [0.0607, 0.0607, 0.0607]
 
 
+def test_cli_shortcut_accepts_aim_version_suffix(monkeypatch, tmp_path: Path):
+    image_path = tmp_path / "STRAMBO_0003_RL_Y04.AIM;1"
+    output_dir = tmp_path / "out"
+
+    def fake_read_aim(path):
+        assert path.endswith("STRAMBO_0003_RL_Y04.AIM;1")
+        return (
+            np.ones((3, 3, 3), dtype=np.uint8) * 100,
+            {"element_size": (0.0607, 0.0607, 0.0607), "position": (0, 0, 0)},
+        )
+
+    monkeypatch.setattr("parosol_py.api.read_aim", fake_read_aim)
+
+    assert (
+        main(
+            [
+                str(image_path),
+                "--profile",
+                "XtremeCTI",
+                "--output",
+                str(output_dir),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["case"]["name"] == "STRAMBO_0003_RL_Y04"
+    assert summary["execution"]["image"] == str(image_path.resolve())
+    assert summary["image"]["spacing"] == [0.0607, 0.0607, 0.0607]
+
+
 def test_cli_shortcut_runs_model_profile_with_standard_mask_argument(tmp_path: Path):
     density = np.zeros((8, 7, 6), dtype=np.float32)
     mask = np.zeros_like(density, dtype=np.uint8)

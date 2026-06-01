@@ -5,6 +5,8 @@ from pathlib import Path
 import numpy as np
 import SimpleITK as sitk
 
+from parosol_py.paths import suffix_text
+
 
 def resolve_path(value, *, base_dir: Path) -> Path:
     path = Path(value).expanduser()
@@ -16,7 +18,7 @@ def resolve_path(value, *, base_dir: Path) -> Path:
 def read_image_zyx(
     path: Path,
 ) -> tuple[np.ndarray, tuple[float, float, float], tuple[float, float, float]]:
-    suffixes = "".join(path.suffixes).lower()
+    suffixes = suffix_text(path)
     if suffixes.endswith(".npy"):
         return np.load(path), (1.0, 1.0, 1.0), (0.0, 0.0, 0.0)
     if suffixes.endswith(".npz"):
