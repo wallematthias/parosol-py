@@ -295,7 +295,7 @@ def estimate_rigid_icp(
 ) -> dict[str, Any]:
     moving = _points_array(moving_points, "moving_points")
     fixed = _points_array(fixed_points, "fixed_points")
-    rotation, translation = _initial_pca_transform(moving, fixed)
+    rotation, translation = _best_initial_transform(moving, fixed)
     previous_error = np.inf
     used_iterations = 0
     for used_iterations in range(1, max(1, int(iterations)) + 1):
@@ -315,6 +315,18 @@ def estimate_rigid_icp(
         "iterations": used_iterations,
         "mean_distance": previous_error,
     }
+
+
+def _best_initial_transform(
+    moving: np.ndarray, fixed: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    moving_center = moving.mean(axis=0)
+    fixed_center = fixed.mean(axis=0)
+    candidates = [
+        (np.eye(3), fixed_center - moving_center),
+        _initial_pca_transform(moving, fixed),
+    ]
+    return min(candidates, key=lambda item: _nearest_mean_distance(moving, fixed, *item))
 
 
 def _read_ascii_vtk_points(path: Path) -> np.ndarray:
@@ -411,6 +423,17 @@ def _nearest_indices(query: np.ndarray, target: np.ndarray) -> np.ndarray:
     except ImportError:
         return _nearest_indices_numpy(query, target)
     return cKDTree(target).query(query, workers=-1)[1]
+
+
+def _nearest_mean_distance(
+    moving: np.ndarray,
+    fixed: np.ndarray,
+    rotation: np.ndarray,
+    translation: np.ndarray,
+) -> float:
+    transformed = moving @ rotation.T + translation
+    matched = fixed[_nearest_indices(transformed, fixed)]
+    return float(np.mean(np.linalg.norm(transformed - matched, axis=1)))
 
 
 def _nearest_indices_numpy(query: np.ndarray, target: np.ndarray) -> np.ndarray:
