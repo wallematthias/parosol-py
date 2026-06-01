@@ -42,10 +42,29 @@ nodesets:
     selection: surface_nodes
 
 load_case:
-  # Built-in legacy-compatible compression:
+  # Built-in plate compression. This fixes bottom nodes and applies axial
+  # displacement on the top plate while restraining top lateral motion.
   type: axial
   axis: z
   strain: -0.01
+
+  # Other built-in load case examples:
+  # type: uniaxial
+  # axis: z
+  # strain: -0.01
+  #
+  # type: confined
+  # axis: z
+  # strain: -0.01
+  #
+  # type: shear
+  # axis: z
+  # direction: x
+  # strain: 0.01
+  #
+  # type: body_weight
+  # axis: z
+  # force_n: -700
 
   # Custom nodeset-driven loading. Change type to nodeset to use this block.
   # type: nodeset

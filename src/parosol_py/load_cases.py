@@ -30,6 +30,34 @@ class AxialCompression:
 
 
 @dataclass(frozen=True)
+class UniaxialCompression:
+    axis: str = "z"
+    strain: float = -0.01
+
+    def generate(self, model: Model) -> BoundaryConditionSet:
+        axis = _axis_token(self.axis)
+        axis_index = AXIS_TO_INDEX[axis]
+        dimensions = tuple(int(v) for v in model.material_xyz.shape)
+        height = dimensions[axis_index] * model.spacing[axis_index]
+        displacement = float(self.strain) * float(height)
+        node_sets = _top_bottom_sets(model.material_xyz, axis)
+        constraints: dict[tuple[int, int, int, int], float] = {}
+
+        for node in node_sets["bottom"]:
+            constraints[(*node, axis_index)] = 0.0
+        for node in node_sets["top"]:
+            constraints[(*node, axis_index)] = displacement
+
+        coords = np.asarray([coord for coord in sorted(constraints)], dtype=np.uint16)
+        values = np.asarray([constraints[tuple(coord)] for coord in coords], dtype=np.float32)
+        return BoundaryConditionSet(
+            fixed_coordinates=coords,
+            fixed_values=values,
+            node_sets=node_sets,
+        )
+
+
+@dataclass(frozen=True)
 class BodyWeightCompression:
     axis: str = "z"
     force_n: float = -1.0
@@ -46,6 +74,38 @@ class BodyWeightCompression:
             fixed_values=base.fixed_values,
             loaded_coordinates=coords,
             loaded_values=values,
+            node_sets=base.node_sets,
+        )
+
+
+@dataclass(frozen=True)
+class ConfinedCompression:
+    axis: str = "z"
+    strain: float = -0.01
+
+    def generate(self, model: Model) -> BoundaryConditionSet:
+        axis = _axis_token(self.axis)
+        axis_index = AXIS_TO_INDEX[axis]
+        base = AxialCompression(axis=axis, strain=self.strain).generate(model)
+        constraints = {
+            tuple(int(v) for v in coord): float(value)
+            for coord, value in zip(base.fixed_coordinates, base.fixed_values)
+        }
+        dimensions = tuple(int(v) for v in model.material_xyz.shape)
+        lateral_axes = [idx for idx in range(3) if idx != axis_index]
+
+        for node in _active_nodes(model.material_xyz):
+            for direction in lateral_axes:
+                if node[direction] in {0, dimensions[direction]}:
+                    constraints[(*node, direction)] = 0.0
+
+        coords = np.asarray([coord for coord in sorted(constraints)], dtype=np.uint16)
+        values = np.asarray([constraints[tuple(coord)] for coord in coords], dtype=np.float32)
+        return BoundaryConditionSet(
+            fixed_coordinates=coords,
+            fixed_values=values,
+            loaded_coordinates=base.loaded_coordinates,
+            loaded_values=base.loaded_values,
             node_sets=base.node_sets,
         )
 
@@ -107,6 +167,22 @@ def _top_bottom_sets(
                     node[lateral_axes[1]] += dv
                     out[label].add(tuple(node))
     return {name: sorted(coords) for name, coords in out.items()}
+
+
+def _active_nodes(stiffness_xyz: np.ndarray) -> set[tuple[int, int, int]]:
+    nodes: set[tuple[int, int, int]] = set()
+    for element in np.argwhere(np.asarray(stiffness_xyz) > 0):
+        for dx in (0, 1):
+            for dy in (0, 1):
+                for dz in (0, 1):
+                    nodes.add(
+                        (
+                            int(element[0]) + dx,
+                            int(element[1]) + dy,
+                            int(element[2]) + dz,
+                        )
+                    )
+    return nodes
 
 
 def _axis_token(axis: str) -> str:

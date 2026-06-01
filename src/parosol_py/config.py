@@ -13,7 +13,14 @@ except ModuleNotFoundError:
     import tomli as tomllib
 
 from .api import SolveResult, solve, solve_aim
+from .core import Model
 from .images import normalize_array
+from .load_cases import (
+    BodyWeightCompression,
+    ConfinedCompression,
+    SimpleShear,
+    UniaxialCompression,
+)
 from .materials import parse_linear_isotropic_materials
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .profiles import get_output_profile, get_solver_profile
@@ -193,9 +200,82 @@ def _boundary_conditions_from_config(
                 "nodesets were configured but load_case.type is axial; use type='nodeset'"
             )
         return None
+    if load_type in {"uniaxial", "uniaxial_compression"}:
+        if nodeset_cfg:
+            raise ValueError(
+                "nodesets were configured but load_case.type is uniaxial; "
+                "use type='nodeset'"
+            )
+        model = Model.from_array(
+            material_zyx,
+            spacing=spacing,
+            origin=origin,
+            array_order=array_order,
+        )
+        return UniaxialCompression(
+            axis=str(load_case_cfg.get("axis", "z")),
+            strain=float(
+                load_case_cfg.get("strain", load_case_cfg.get("normal_strain", -0.01))
+            ),
+        ).generate(model)
+    if load_type in {"shear", "simple_shear", "directional_shear"}:
+        if nodeset_cfg:
+            raise ValueError(
+                "nodesets were configured but load_case.type is shear; use type='nodeset'"
+            )
+        model = Model.from_array(
+            material_zyx,
+            spacing=spacing,
+            origin=origin,
+            array_order=array_order,
+        )
+        return SimpleShear(
+            axis=str(load_case_cfg.get("axis", "z")),
+            direction=str(load_case_cfg.get("direction", "x")),
+            strain=float(load_case_cfg.get("strain", 0.01)),
+        ).generate(model)
+    if load_type in {"body_weight", "force", "force_compression"}:
+        if nodeset_cfg:
+            raise ValueError(
+                "nodesets were configured but load_case.type is body_weight; "
+                "use type='nodeset'"
+            )
+        model = Model.from_array(
+            material_zyx,
+            spacing=spacing,
+            origin=origin,
+            array_order=array_order,
+        )
+        force = load_case_cfg.get(
+            "force_n",
+            load_case_cfg.get("force", load_case_cfg.get("value", -1.0)),
+        )
+        return BodyWeightCompression(
+            axis=str(load_case_cfg.get("axis", "z")),
+            force_n=float(force),
+        ).generate(model)
+    if load_type in {"confined", "confined_compression"}:
+        if nodeset_cfg:
+            raise ValueError(
+                "nodesets were configured but load_case.type is confined; "
+                "use type='nodeset'"
+            )
+        model = Model.from_array(
+            material_zyx,
+            spacing=spacing,
+            origin=origin,
+            array_order=array_order,
+        )
+        return ConfinedCompression(
+            axis=str(load_case_cfg.get("axis", "z")),
+            strain=float(
+                load_case_cfg.get("strain", load_case_cfg.get("normal_strain", -0.01))
+            ),
+        ).generate(model)
     if load_type not in {"nodeset", "custom"}:
         raise NotImplementedError(
-            "load_case.type must be axial/compression or nodeset/custom"
+            "load_case.type must be axial/compression, shear, body_weight, "
+            "confined, uniaxial, or nodeset/custom"
         )
     if not nodeset_cfg:
         raise ValueError("load_case.type='nodeset' requires a nodesets section")

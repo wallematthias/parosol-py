@@ -126,3 +126,6 @@ By default, tests validate the compressed fixture metadata without running the s
 Set `PAROSOL_RUN_REFERENCE_TESTS=1` to run the ParOSol axial-compression regression
 and compare stiffness, reaction force, and Pistoia failure load against the fixed
 reference JSON.
+
+See `docs/legacy-feature-map.md` for the compatibility roadmap and the cleaner
+ParOSol-py equivalents of useful legacy workflow features.
