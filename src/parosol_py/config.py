@@ -16,10 +16,12 @@ from .api import SolveResult, solve, solve_aim
 from .core import Model
 from .images import normalize_array
 from .load_cases import (
-    AxialCompression,
+    Bending,
     BodyWeightCompression,
     ConfinedCompression,
+    ConstrainedAxialCompression,
     SimpleShear,
+    Torsion,
     UniaxialCompression,
 )
 from .materials import parse_linear_isotropic_materials
@@ -203,10 +205,11 @@ def _boundary_conditions_from_config(
     base_dir: Path,
 ):
     load_type = str(load_case_cfg.get("type", "axial")).strip().lower()
-    if load_type in {"axial", "compression"}:
+    if load_type in {"axial", "compression", "constrained_axial", "plate_compression"}:
         if nodeset_cfg:
             raise ValueError(
-                "nodesets were configured but load_case.type is axial; use type='nodeset'"
+                "nodesets were configured but load_case.type is constrained axial; "
+                "use type='nodeset'"
             )
         displacement = _load_case_displacement(load_case_cfg)
         if displacement is not None:
@@ -216,7 +219,7 @@ def _boundary_conditions_from_config(
                 origin=origin,
                 array_order=array_order,
             )
-            return AxialCompression(
+            return ConstrainedAxialCompression(
                 axis=str(load_case_cfg.get("axis", "z")),
                 strain=float(
                     load_case_cfg.get(
@@ -283,6 +286,56 @@ def _boundary_conditions_from_config(
             axis=str(load_case_cfg.get("axis", "z")),
             force_n=float(force),
         ).generate(model)
+    if load_type in {"torsion", "twist"}:
+        if nodeset_cfg:
+            raise ValueError(
+                "nodesets were configured but load_case.type is torsion; "
+                "use type='nodeset'"
+            )
+        model = Model.from_array(
+            material_zyx,
+            spacing=spacing,
+            origin=origin,
+            array_order=array_order,
+        )
+        return Torsion(
+            axis=str(load_case_cfg.get("axis", "z")),
+            twist_angle_degrees=float(
+                load_case_cfg.get(
+                    "twist_angle_degrees",
+                    load_case_cfg.get("twist_angle", load_case_cfg.get("angle", 1.0)),
+                )
+            ),
+            center=_load_case_center(load_case_cfg),
+        ).generate(model)
+    if load_type in {"bending", "bend"}:
+        if nodeset_cfg:
+            raise ValueError(
+                "nodesets were configured but load_case.type is bending; "
+                "use type='nodeset'"
+            )
+        model = Model.from_array(
+            material_zyx,
+            spacing=spacing,
+            origin=origin,
+            array_order=array_order,
+        )
+        return Bending(
+            axis=str(load_case_cfg.get("axis", "z")),
+            bending_angle_degrees=float(
+                load_case_cfg.get(
+                    "bending_angle_degrees",
+                    load_case_cfg.get("bending_angle", load_case_cfg.get("angle", 1.0)),
+                )
+            ),
+            neutral_axis_angle_degrees=float(
+                load_case_cfg.get(
+                    "neutral_axis_angle_degrees",
+                    load_case_cfg.get("neutral_axis_angle", 90.0),
+                )
+            ),
+            center=_load_case_center(load_case_cfg),
+        ).generate(model)
     if load_type in {"confined", "confined_compression"}:
         if nodeset_cfg:
             raise ValueError(
@@ -304,8 +357,9 @@ def _boundary_conditions_from_config(
         ).generate(model)
     if load_type not in {"nodeset", "custom"}:
         raise NotImplementedError(
-            "load_case.type must be axial/compression, shear, body_weight, "
-            "confined, uniaxial, or nodeset/custom"
+            "load_case.type must be constrained_axial/plate_compression, "
+            "uniaxial, confined, shear, torsion, bending, body_weight, "
+            "or nodeset/custom"
         )
     if not nodeset_cfg:
         raise ValueError("load_case.type='nodeset' requires a nodesets section")
@@ -346,6 +400,19 @@ def _load_case_vector(load_case_cfg: dict[str, Any]) -> tuple[float, float] | No
         return None
     if len(value) != 2:
         raise ValueError("load_case.shear_vector must contain exactly two values")
+    return tuple(float(v) for v in value)
+
+
+def _load_case_center(load_case_cfg: dict[str, Any]) -> tuple[float, float] | None:
+    value = load_case_cfg.get("center", load_case_cfg.get("central_axis"))
+    if value is None or str(value).strip().lower() in {
+        "center",
+        "center_of_mass",
+        "center_of_bounds",
+    }:
+        return None
+    if len(value) != 2:
+        raise ValueError("load_case.center must contain exactly two values")
     return tuple(float(v) for v in value)
 
 

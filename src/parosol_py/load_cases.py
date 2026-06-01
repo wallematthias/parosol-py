@@ -9,7 +9,7 @@ from .core import BoundaryConditionSet, Model
 
 
 @dataclass(frozen=True)
-class AxialCompression:
+class ConstrainedAxialCompression:
     axis: str = "z"
     strain: float = -0.01
     displacement: float | None = None
@@ -76,7 +76,7 @@ class BodyWeightCompression:
     def generate(self, model: Model) -> BoundaryConditionSet:
         axis = _axis_token(self.axis)
         axis_index = AXIS_TO_INDEX[axis]
-        base = AxialCompression(axis=axis, strain=0.0).generate(model)
+        base = ConstrainedAxialCompression(axis=axis, strain=0.0).generate(model)
         top = base.node_sets["top"]
         values = np.full((len(top),), float(self.force_n) / len(top), dtype=np.float32)
         coords = np.asarray([(*coord, axis_index) for coord in top], dtype=np.uint16)
@@ -98,7 +98,7 @@ class ConfinedCompression:
     def generate(self, model: Model) -> BoundaryConditionSet:
         axis = _axis_token(self.axis)
         axis_index = AXIS_TO_INDEX[axis]
-        base = AxialCompression(
+        base = ConstrainedAxialCompression(
             axis=axis,
             strain=self.strain,
             displacement=self.displacement,
@@ -142,7 +142,7 @@ class SimpleShear:
         if axis_index == direction_index:
             raise ValueError("shear axis and direction must differ")
 
-        bc = AxialCompression(axis=axis, strain=0.0).generate(model)
+        bc = ConstrainedAxialCompression(axis=axis, strain=0.0).generate(model)
         height = model.material_xyz.shape[axis_index] * model.spacing[axis_index]
         fixed = bc.fixed_coordinates.copy()
         values = bc.fixed_values.copy()
@@ -173,6 +173,92 @@ class SimpleShear:
             loaded_coordinates=bc.loaded_coordinates,
             loaded_values=bc.loaded_values,
             node_sets=bc.node_sets,
+        )
+
+
+@dataclass(frozen=True)
+class Torsion:
+    axis: str = "z"
+    twist_angle_degrees: float = 1.0
+    center: tuple[float, float] | None = None
+
+    def generate(self, model: Model) -> BoundaryConditionSet:
+        axis = _axis_token(self.axis)
+        axis_index = AXIS_TO_INDEX[axis]
+        lateral_axes = [idx for idx in range(3) if idx != axis_index]
+        node_sets = _top_bottom_sets(model.material_xyz, axis)
+        center = _center_on_lateral_plane(
+            model.material_xyz,
+            model.spacing,
+            lateral_axes,
+            self.center,
+        )
+        angle = np.deg2rad(float(self.twist_angle_degrees))
+        cos_angle = float(np.cos(angle))
+        sin_angle = float(np.sin(angle))
+        constraints: dict[tuple[int, int, int, int], float] = {}
+
+        for node in node_sets["bottom"]:
+            for direction in range(3):
+                constraints[(*node, direction)] = 0.0
+
+        for node in node_sets["top"]:
+            position = _physical_node_position(node, model.spacing)
+            u = position[lateral_axes[0]] - center[0]
+            v = position[lateral_axes[1]] - center[1]
+            rotated_u = cos_angle * u - sin_angle * v
+            rotated_v = sin_angle * u + cos_angle * v
+            constraints[(*node, lateral_axes[0])] = rotated_u - u
+            constraints[(*node, lateral_axes[1])] = rotated_v - v
+            constraints[(*node, axis_index)] = 0.0
+
+        coords = np.asarray([coord for coord in sorted(constraints)], dtype=np.uint16)
+        values = np.asarray([constraints[tuple(coord)] for coord in coords], dtype=np.float32)
+        return BoundaryConditionSet(
+            fixed_coordinates=coords,
+            fixed_values=values,
+            node_sets=node_sets,
+        )
+
+
+@dataclass(frozen=True)
+class Bending:
+    axis: str = "z"
+    bending_angle_degrees: float = 1.0
+    neutral_axis_angle_degrees: float = 90.0
+    center: tuple[float, float] | None = None
+
+    def generate(self, model: Model) -> BoundaryConditionSet:
+        axis = _axis_token(self.axis)
+        axis_index = AXIS_TO_INDEX[axis]
+        lateral_axes = [idx for idx in range(3) if idx != axis_index]
+        node_sets = _top_bottom_sets(model.material_xyz, axis)
+        center = _center_on_lateral_plane(
+            model.material_xyz,
+            model.spacing,
+            lateral_axes,
+            self.center,
+        )
+        neutral_angle = np.deg2rad(float(self.neutral_axis_angle_degrees))
+        tilt = np.tan(np.deg2rad(float(self.bending_angle_degrees)) / 2.0)
+        constraints: dict[tuple[int, int, int, int], float] = {}
+
+        for surface, sign in (("bottom", -1.0), ("top", 1.0)):
+            for node in node_sets[surface]:
+                position = _physical_node_position(node, model.spacing)
+                u = position[lateral_axes[0]] - center[0]
+                v = position[lateral_axes[1]] - center[1]
+                distance = np.sin(neutral_angle) * u + np.cos(neutral_angle) * v
+                for direction in lateral_axes:
+                    constraints[(*node, direction)] = 0.0
+                constraints[(*node, axis_index)] = sign * float(distance) * float(tilt)
+
+        coords = np.asarray([coord for coord in sorted(constraints)], dtype=np.uint16)
+        values = np.asarray([constraints[tuple(coord)] for coord in coords], dtype=np.float32)
+        return BoundaryConditionSet(
+            fixed_coordinates=coords,
+            fixed_values=values,
+            node_sets=node_sets,
         )
 
 
@@ -218,6 +304,30 @@ def _active_nodes(stiffness_xyz: np.ndarray) -> set[tuple[int, int, int]]:
                         )
                     )
     return nodes
+
+
+def _physical_node_position(
+    node: tuple[int, int, int],
+    spacing: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    return tuple((float(index) - 0.5) * float(step) for index, step in zip(node, spacing))
+
+
+def _center_on_lateral_plane(
+    stiffness_xyz: np.ndarray,
+    spacing: tuple[float, float, float],
+    lateral_axes: list[int],
+    center: tuple[float, float] | None,
+) -> tuple[float, float]:
+    if center is not None:
+        if len(center) != 2:
+            raise ValueError("center must contain exactly two coordinates")
+        return tuple(float(value) for value in center)
+    dimensions = tuple(int(value) for value in stiffness_xyz.shape)
+    return tuple(
+        ((float(dimensions[axis]) - 1.0) / 2.0) * float(spacing[axis])
+        for axis in lateral_axes
+    )
 
 
 def _displacement_from_strain(

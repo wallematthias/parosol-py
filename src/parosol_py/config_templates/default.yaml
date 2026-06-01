@@ -44,7 +44,7 @@ nodesets:
 load_case:
   # Built-in plate compression. This fixes bottom nodes and applies axial
   # displacement on the top plate while restraining top lateral motion.
-  type: axial
+  type: constrained_axial
   axis: z
   strain: -0.01
   # Use displacement instead of strain when you want an absolute top-plate
@@ -71,6 +71,17 @@ load_case:
   # type: body_weight
   # axis: z
   # force_n: -700
+  #
+  # type: torsion
+  # axis: z
+  # twist_angle_degrees: 1
+  # center: center_of_mass
+  #
+  # type: bending
+  # axis: z
+  # bending_angle_degrees: 1
+  # neutral_axis_angle_degrees: 90
+  # center: center_of_mass
 
   # Custom nodeset-driven loading. Change type to nodeset to use this block.
   # type: nodeset

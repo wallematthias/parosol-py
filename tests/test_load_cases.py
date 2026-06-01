@@ -2,19 +2,21 @@ import pytest
 import numpy as np
 
 from parosol_py import (
-    AxialCompression,
+    Bending,
     BodyWeightCompression,
     ConfinedCompression,
+    ConstrainedAxialCompression,
     Model,
     SimpleShear,
+    Torsion,
     UniaxialCompression,
 )
 
 
-def test_axial_compression_generates_named_top_and_bottom_sets():
+def test_constrained_axial_compression_generates_named_top_and_bottom_sets():
     model = Model.from_array(np.ones((2, 2, 2)), spacing=(0.5, 0.5, 0.5))
 
-    bc = AxialCompression(axis="z", strain=-0.01).generate(model)
+    bc = ConstrainedAxialCompression(axis="z", strain=-0.01).generate(model)
 
     assert "top" in bc.node_sets
     assert "bottom" in bc.node_sets
@@ -23,10 +25,10 @@ def test_axial_compression_generates_named_top_and_bottom_sets():
     assert np.min(bc.fixed_values) == np.float32(-0.01)
 
 
-def test_axial_compression_accepts_absolute_displacement():
+def test_constrained_axial_compression_accepts_absolute_displacement():
     model = Model.from_array(np.ones((2, 2, 2)), spacing=(1, 1, 1))
 
-    bc = AxialCompression(axis="z", displacement=-0.25).generate(model)
+    bc = ConstrainedAxialCompression(axis="z", displacement=-0.25).generate(model)
 
     top_z_values = bc.fixed_values[
         (bc.fixed_coordinates[:, 2] == 2) & (bc.fixed_coordinates[:, 3] == 2)
@@ -132,3 +134,42 @@ def test_confined_compression_fixes_top_and_bottom_lateral_motion():
     assert np.allclose(top_lateral, 0.0)
     assert np.any(np.isclose(top_axial, -0.02))
     assert np.allclose(bottom_values, 0.0)
+
+
+def test_torsion_rotates_top_surface_around_center():
+    model = Model.from_array(np.ones((3, 3, 3)), spacing=(1, 1, 1))
+
+    bc = Torsion(axis="z", twist_angle_degrees=1.0).generate(model)
+
+    node = (0, 0, 3)
+    x_value = bc.fixed_values[
+        np.all(bc.fixed_coordinates == (*node, 0), axis=1)
+    ][0]
+    y_value = bc.fixed_values[
+        np.all(bc.fixed_coordinates == (*node, 1), axis=1)
+    ][0]
+    z_value = bc.fixed_values[
+        np.all(bc.fixed_coordinates == (*node, 2), axis=1)
+    ][0]
+    assert x_value == pytest.approx(0.0264070667)
+    assert y_value == pytest.approx(-0.0259501524)
+    assert z_value == pytest.approx(0.0)
+
+
+def test_bending_tilts_top_and_bottom_surfaces_in_opposing_directions():
+    model = Model.from_array(np.ones((3, 3, 3)), spacing=(1, 1, 1))
+
+    bc = Bending(
+        axis="z",
+        bending_angle_degrees=1.0,
+        neutral_axis_angle_degrees=90.0,
+    ).generate(model)
+
+    top_left = bc.fixed_values[
+        np.all(bc.fixed_coordinates == (0, 0, 3, 2), axis=1)
+    ][0]
+    bottom_left = bc.fixed_values[
+        np.all(bc.fixed_coordinates == (0, 0, 0, 2), axis=1)
+    ][0]
+    assert top_left == pytest.approx(-0.0130903013)
+    assert bottom_left == pytest.approx(0.0130903013)

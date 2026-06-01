@@ -16,6 +16,8 @@ Boundary-condition coordinate/value sets matched exactly for:
 | Confined compression | `--test confined --test_axis z --normal_strain -0.01` | Exact match |
 | Directional shear x | `--test dshear --test_axis z --shear_vector 0.02,0` | Exact match |
 | Directional shear y | `--test dshear --test_axis z --shear_vector 0,0.02` | Exact match |
+| Torsion | `--test torsion --test_axis z --twist_angle 1` | Exact match |
+| Bending | `--test bending --test_axis z --bending_angle 1 --neutral_axis_angle 90` | Exact match |
 
 ## SED Fields
 

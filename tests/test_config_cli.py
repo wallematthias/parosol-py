@@ -24,7 +24,7 @@ def test_run_case_config_dry_run_writes_summary_json(tmp_path: Path):
                     "image_type": "material_mpa",
                     "spacing": [1.0, 1.0, 1.0],
                 },
-                "load_case": {"type": "axial", "axis": "z", "strain": -0.01},
+                "load_case": {"type": "constrained_axial", "axis": "z", "strain": -0.01},
                 "solver": {"outputs": ["sed"], "tolerance": 1e-6, "level": 2},
                 "output": {"summary": "run/cube_summary.json", "dry_run": True},
             }
@@ -159,7 +159,7 @@ def test_run_case_config_applies_named_profiles(monkeypatch, tmp_path: Path):
         json.dumps(
             {
                 "input": {"image": "material.npy", "spacing": [1, 1, 1]},
-                "solver_profile": "legacy_axial",
+                "solver_profile": "standard",
                 "output_profile": "quick_summary",
                 "output": {"summary": "summary.json"},
             }
@@ -401,7 +401,7 @@ def test_run_case_config_builds_axial_absolute_displacement_load_case(
             {
                 "input": {"image": "material.npy", "spacing": [1, 1, 1]},
                 "load_case": {
-                    "type": "axial",
+                    "type": "constrained_axial",
                     "axis": "z",
                     "displacement": -0.25,
                 },
@@ -514,6 +514,94 @@ def test_run_case_config_builds_body_weight_load_case(monkeypatch, tmp_path: Pat
     bc = captured["boundary_conditions"]
     assert bc.loaded_coordinates.shape[0] == 9
     assert np.sum(bc.loaded_values) == np.float32(-90.0)
+
+
+def test_run_case_config_builds_torsion_load_case(monkeypatch, tmp_path: Path):
+    material = np.ones((3, 3, 3), dtype=np.float64) * 1000.0
+    np.save(tmp_path / "material.npy", material)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "load_case": {
+                    "type": "torsion",
+                    "axis": "z",
+                    "twist_angle_degrees": 1.0,
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((3, 3, 3), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    bc = captured["boundary_conditions"]
+    assert np.any(
+        (bc.fixed_coordinates[:, 2] == 3)
+        & (bc.fixed_coordinates[:, 3] == 0)
+        & np.isclose(bc.fixed_values, 0.0264070667)
+    )
+
+
+def test_run_case_config_builds_bending_load_case(monkeypatch, tmp_path: Path):
+    material = np.ones((3, 3, 3), dtype=np.float64) * 1000.0
+    np.save(tmp_path / "material.npy", material)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "load_case": {
+                    "type": "bending",
+                    "axis": "z",
+                    "bending_angle_degrees": 1.0,
+                    "neutral_axis_angle_degrees": 90.0,
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((3, 3, 3), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    bc = captured["boundary_conditions"]
+    assert np.any(
+        (bc.fixed_coordinates[:, 0] == 0)
+        & (bc.fixed_coordinates[:, 2] == 3)
+        & (bc.fixed_coordinates[:, 3] == 2)
+        & np.isclose(bc.fixed_values, -0.0130903013)
+    )
 
 
 def test_run_case_config_builds_confined_load_case(monkeypatch, tmp_path: Path):

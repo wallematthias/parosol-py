@@ -65,7 +65,7 @@ def test_trab1240_axial_z_matches_reference(tmp_path: Path):
                     "spacing": [z_spacing, z_spacing, z_spacing],
                 },
                 "materials": {"file": str(FIXTURE_ROOT / "material_table.yaml")},
-                "load_case": {"type": "axial", "axis": "z", "strain": -0.01},
+                "load_case": {"type": "constrained_axial", "axis": "z", "strain": -0.01},
                 "solver": {
                     "outputs": ["sed"],
                     "convergence_tolerance": 1e-6,

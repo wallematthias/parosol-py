@@ -1,9 +1,9 @@
-# Override snippet for legacy-compatible axial compression validation.
-solver_profile: legacy_axial
+# Override snippet for z-axis compression with laterally constrained plates.
+solver_profile: standard
 output_profile: quick_summary
 
 load_case:
-  type: axial
+  type: constrained_axial
   axis: z
   strain: -0.01
 

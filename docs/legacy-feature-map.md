@@ -11,7 +11,7 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 | Segmented image input with material IDs | `input.image` plus `image_type: material_labels` | Implemented for AIM, NIfTI, MetaImage, NPY, NPZ |
 | Material definition/table files | `materials.file` with `MaterialDefinitions` and `MaterialTable` | Implemented for linear isotropic E/nu tables |
 | Connectivity filtering | Store connected fixtures and add preprocessing helpers | Fixture implemented; helper API planned |
-| Axial plate compression | `load_case.type: axial` | Implemented |
+| Constrained axial plate compression | `load_case.type: constrained_axial` or `plate_compression` | Implemented |
 | Uniaxial compression | `load_case.type: uniaxial` | Implemented |
 | Confined compression | `load_case.type: confined` | Implemented |
 | Absolute compression displacement | `load_case.displacement` or `normal_displacement` | Implemented |
@@ -28,8 +28,8 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 | Legacy concept | Proposed ParOSol-py equivalent | Notes |
 | --- | --- | --- |
 | Visible/uneven top-bottom surfaces | `surface: visible` or label-image plate helpers | Needed for curved plates and anatomy-aware BCs |
-| Bending tests | `load_case.type: bending` with axis, neutral axis, angle/curvature | Needs careful torque and reaction summary definitions |
-| Torsion tests | `load_case.type: torsion` with axis and angle | Similar to bending: must define summary moments |
+| Bending tests | `load_case.type: bending` with axis, neutral axis, and angle | Boundary conditions implemented; moment summary still needed |
+| Torsion tests | `load_case.type: torsion` with axis and twist angle | Boundary conditions implemented; torque summary still needed |
 | Direct mechanics batches | `profiles/direct_mechanics.yaml` generating x/y/z compression and shear cases | Good batch feature after load cases are stable |
 | Export node/element sets | `.vtp`/`.vtk` or `.json` debug exports for selected node sets | Useful before Slicer integration |
 | Field export selection | `output.fields: [sed, von_mises, effective_strain]` | Mostly present, needs profile polishing |

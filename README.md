@@ -64,7 +64,7 @@ materials:
   poisson_ratio: 0.3
 
 load_case:
-  type: axial
+  type: constrained_axial
   axis: z
   strain: -0.01
 
