@@ -18,11 +18,24 @@ input:
   origin: auto
 
 materials:
-  # MaterialDefinitions and MaterialTable sections.
+  # Inline MaterialDefinitions and MaterialTable sections.
   # native ParOSol currently uses one global Poisson's ratio, so all material nu
   # values must match unless a global poisson_ratio/nu override is set here.
-  file: material_cort_trab.txt
   units: MPa
+  definitions:
+    TrabecularBone:
+      Type: LinearIsotropic
+      E: 8748
+      nu: 0.3
+    CorticalBone:
+      Type: LinearIsotropic
+      E: 8748
+      nu: 0.3
+  table:
+    100: TrabecularBone
+    127: CorticalBone
+  # Alternatively, keep materials in a separate YAML file:
+  # file: material_cort_trab.yaml
   # poisson_ratio: 0.3
   # Current native ParOSol uses one global Poisson's ratio. For continuous
   # inputs you may provide an equation here; parosol-py reduces it to one

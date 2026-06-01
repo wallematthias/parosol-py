@@ -11,6 +11,7 @@ from .load_cases import (
     Torsion,
     UniaxialCompression,
 )
+from .load_history import LoadHistoryResult, estimate_load_history
 from .materials import MaterialMap, density_to_material_map, labels_to_material_map
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .profiles import get_output_profile, get_solver_profile
@@ -24,6 +25,7 @@ __all__ = [
     "ConfinedCompression",
     "ConstrainedAxialCompression",
     "Model",
+    "LoadHistoryResult",
     "MaterialMap",
     "OutputProfile",
     "SimpleShear",
@@ -38,6 +40,7 @@ __all__ = [
     "get_solver_profile",
     "boundary_conditions_from_nodesets",
     "density_to_material_map",
+    "estimate_load_history",
     "labels_to_material_map",
     "nodes_from_labeled_voxels",
     "run_batch_config",

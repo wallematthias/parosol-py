@@ -217,6 +217,47 @@ def parse_linear_isotropic_materials(text: str) -> LinearIsotropicMaterials:
     return LinearIsotropicMaterials(youngs_modulus_mpa=youngs, poisson_ratio=poisson)
 
 
+def linear_isotropic_materials_from_config(
+    config: dict[str, Any],
+) -> LinearIsotropicMaterials:
+    definitions_cfg = config.get("definitions", config.get("MaterialDefinitions"))
+    table_cfg = config.get("table", config.get("MaterialTable"))
+    if not isinstance(definitions_cfg, dict) or not isinstance(table_cfg, dict):
+        raise ValueError("inline materials require definitions and table sections")
+
+    definitions: dict[str, tuple[float, float]] = {}
+    for name, spec in definitions_cfg.items():
+        if not isinstance(spec, dict):
+            raise ValueError(f"material definition '{name}' must be an object")
+        material_type = str(spec.get("Type", spec.get("type", "LinearIsotropic")))
+        if material_type.strip().lower() != "linearisotropic":
+            raise ValueError(f"unsupported material type for '{name}': {material_type}")
+        youngs = spec.get(
+            "E", spec.get("youngs_modulus", spec.get("youngs_modulus_mpa"))
+        )
+        nu = spec.get("nu", spec.get("poisson_ratio"))
+        if youngs is None or nu is None:
+            raise ValueError(f"material definition '{name}' requires E and nu")
+        definitions[str(name)] = (float(youngs), float(nu))
+
+    youngs_by_label: dict[int, float] = {}
+    poisson_by_label: dict[int, float] = {}
+    for label, name in table_cfg.items():
+        token = str(name)
+        if token not in definitions:
+            raise ValueError(f"MaterialTable references undefined material '{token}'")
+        numeric_label = int(label)
+        youngs_by_label[numeric_label], poisson_by_label[numeric_label] = definitions[
+            token
+        ]
+    if not youngs_by_label:
+        raise ValueError("inline MaterialTable contains no labels")
+    return LinearIsotropicMaterials(
+        youngs_modulus_mpa=youngs_by_label,
+        poisson_ratio=poisson_by_label,
+    )
+
+
 def _global_poisson_ratio(values, *, override: float | None) -> float:
     if override is not None:
         return float(override)

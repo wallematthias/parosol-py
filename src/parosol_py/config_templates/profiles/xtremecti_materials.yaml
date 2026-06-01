@@ -1,0 +1,23 @@
+# Standard XtremeCT I binary bone material preset.
+input:
+  image_type: material_labels
+
+materials:
+  units: MPa
+  definitions:
+    CorticalBone:
+      Type: LinearIsotropic
+      E: 6829
+      nu: 0.3
+    TrabecularBone:
+      Type: LinearIsotropic
+      E: 6829
+      nu: 0.3
+  table:
+    100: TrabecularBone
+    127: CorticalBone
+
+load_case:
+  type: constrained_axial
+  axis: z
+  strain: -0.01

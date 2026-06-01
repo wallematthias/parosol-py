@@ -75,9 +75,19 @@ input:
   spacing: [0.061, 0.061, 0.061]
 
 materials:
-  file: material_cort_trab.txt
   units: MPa
-  poisson_ratio: 0.3
+  definitions:
+    TrabecularBone:
+      Type: LinearIsotropic
+      E: 8748
+      nu: 0.3
+    CorticalBone:
+      Type: LinearIsotropic
+      E: 8748
+      nu: 0.3
+  table:
+    100: TrabecularBone
+    127: CorticalBone
 
 load_case:
   type: constrained_axial
@@ -127,6 +137,17 @@ parosol batch direct_mechanics.yaml
 A batch config uses the same top-level input/material/solver/output sections as
 a normal case, plus a `batch.cases` list. Each case override is expanded into an
 individual run directory and summarized in one `batch_summary.json`.
+
+Load-history profiles are available as `load_history_3` and `load_history_6`.
+They generate the solved SED fields for the NNLS load-history post-processing
+step:
+
+```bash
+parosol load-history compression_sed.nii.gz shear_x_sed.nii.gz shear_y_sed.nii.gz \
+  --bone-mask bone_mask.nii.gz \
+  --summary load_history_summary.json \
+  -o load_history.nii.gz
+```
 
 Useful output controls:
 

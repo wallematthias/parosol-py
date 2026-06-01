@@ -9,7 +9,7 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 | Legacy concept | ParOSol-py equivalent | Status |
 | --- | --- | --- |
 | Segmented image input with material IDs | `input.image` plus `image_type: material_labels` | Implemented for AIM, NIfTI, MetaImage, NPY, NPZ |
-| Material definition/table files | `materials.file` with `MaterialDefinitions` and `MaterialTable` | Implemented for linear isotropic E/nu tables |
+| Material definition/table files | Inline `materials.definitions` and `materials.table`, or optional `materials.file` | Implemented for linear isotropic E/nu tables |
 | Continuous density input | `input.image_type: density` plus `materials.density` equation | Implemented for power, linear, and polynomial E mappings |
 | Poisson ratio from equation | `materials.poisson_ratio` scalar or equation reduced to one value | Implemented; native solve still uses one global value |
 | Connectivity filtering | `preprocessing.connectivity_filter: true` | Implemented as largest non-zero component |
@@ -30,6 +30,7 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 | Solution quality report | `quality` section with residual/runtime/iteration checks | Implemented |
 | Coarse preview solve | `preprocessing.coarsen` or `profiles/coarse_preview.yaml` | Implemented as downsampled solve grid |
 | Progressive loading sequence | `profiles/progressive_loading_manifest.yaml` plus `parosol batch` | Implemented as linear load increments |
+| Load-history estimation | `profiles/load_history_3.yaml`, `profiles/load_history_6.yaml`, and `parosol load-history` | Implemented as NNLS SED post-processing |
 | Visible/uneven top-bottom surfaces | `load_case.surface: {mode: smart, depth: auto}` | Implemented |
 | Bending tests | `load_case.type: bending` with axis, neutral axis, and angle | Boundary conditions implemented; moment summary implemented |
 | Torsion tests | `load_case.type: torsion` with axis and twist angle | Boundary conditions implemented; torque summary implemented |

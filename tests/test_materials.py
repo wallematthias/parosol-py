@@ -4,6 +4,7 @@ import pytest
 from parosol_py.materials import (
     density_to_material_map,
     labels_to_material_map,
+    linear_isotropic_materials_from_config,
     material_to_stiffness_gpa,
     parse_linear_isotropic_materials,
     poisson_ratio_from_spec,
@@ -115,3 +116,18 @@ def test_poisson_ratio_from_spec_can_reduce_continuous_field():
     )
 
     assert nu == pytest.approx(0.275)
+
+
+def test_linear_isotropic_materials_from_inline_config():
+    parsed = linear_isotropic_materials_from_config(
+        {
+            "definitions": {
+                "TrabecularBone": {"Type": "LinearIsotropic", "E": 6829, "nu": 0.3},
+                "CorticalBone": {"Type": "LinearIsotropic", "E": 8748, "nu": 0.3},
+            },
+            "table": {100: "TrabecularBone", 127: "CorticalBone"},
+        }
+    )
+
+    assert parsed.youngs_modulus_mpa == {100: 6829.0, 127: 8748.0}
+    assert parsed.poisson_ratio == {100: 0.3, 127: 0.3}

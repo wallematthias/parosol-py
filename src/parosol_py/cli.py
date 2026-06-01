@@ -7,6 +7,7 @@ from pathlib import Path
 from .batch import run_batch_config
 from .config import run_case_config
 from .config_templates import available_config_profiles, read_config_template
+from .load_history import estimate_load_history_from_files
 from .reports import parse_legacy_analysis_file, parse_pistoia_file, write_summary_json
 
 
@@ -50,6 +51,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     batch_parser.set_defaults(func=_batch)
 
+    history_parser = subparsers.add_parser(
+        "load-history",
+        help="Estimate load history from solved SED fields",
+    )
+    history_parser.add_argument("load_cases", nargs="+", help="SED image/array paths")
+    history_parser.add_argument(
+        "--bone-mask", required=True, help="Bone mask image/array"
+    )
+    history_parser.add_argument(
+        "-o", "--output", help="Output load-history image/array"
+    )
+    history_parser.add_argument("--summary", required=True, help="Output summary JSON")
+    history_parser.add_argument("--target-average", type=float, default=0.02)
+    history_parser.add_argument("--cutoff-percentile", type=float, default=95.0)
+    history_parser.set_defaults(func=_load_history)
+
     summary_parser = subparsers.add_parser(
         "summarize-legacy",
         help="Convert old legacy solver analysis/Pistoia text outputs to compact JSON",
@@ -92,6 +109,19 @@ def _batch(args: argparse.Namespace) -> int:
         work_dir=args.work_dir,
     )
     print(summary["batch"]["summary"])
+    return 0
+
+
+def _load_history(args: argparse.Namespace) -> int:
+    estimate_load_history_from_files(
+        args.load_cases,
+        bone_mask_path=args.bone_mask,
+        output_path=args.output,
+        summary_path=args.summary,
+        target_average=args.target_average,
+        cutoff_percentile=args.cutoff_percentile,
+    )
+    print(args.summary)
     return 0
 
 

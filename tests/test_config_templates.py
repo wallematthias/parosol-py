@@ -22,6 +22,10 @@ def test_profile_override_templates_are_available():
     assert "smart_bone_compression_z" in profiles
     assert "density_power" in profiles
     assert "direct_mechanics_manifest" in profiles
+    assert "load_history_3" in profiles
+    assert "load_history_6" in profiles
+    assert "xtremecti_materials" in profiles
+    assert "xtremectii_materials" in profiles
     assert "standard_mechanics_fields" in profiles
     assert "debug_sets" in profiles
     assert "coarse_preview" in profiles
@@ -36,6 +40,10 @@ def test_profile_override_templates_are_available():
     assert "mode: smart" in read_config_template("smart_bone_compression_z")
     assert "image_type: density" in read_config_template("density_power")
     assert "compression_x" in read_config_template("direct_mechanics_manifest")
+    assert "load_history_3" in read_config_template("load_history_3")
+    assert "bending_x" in read_config_template("load_history_6")
+    assert "E: 6829" in read_config_template("xtremecti_materials")
+    assert "E: 8748" in read_config_template("xtremectii_materials")
     assert "effective_strain" in read_config_template("standard_mechanics_fields")
     assert "set_formats: [json, vtk]" in read_config_template("debug_sets")
     assert "coarsen:" in read_config_template("coarse_preview")

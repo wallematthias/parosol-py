@@ -27,6 +27,7 @@ from .load_cases import (
 from .materials import (
     density_to_material_map,
     labels_to_material_map,
+    linear_isotropic_materials_from_config,
     parse_linear_isotropic_materials,
     poisson_ratio_from_spec,
 )
@@ -756,12 +757,11 @@ def _load_material_array(
 
     materials_file = material_cfg.get("file")
     if materials_file is None:
-        raise ValueError(
-            "materials.file is required when input.image_type is material_labels"
+        table = linear_isotropic_materials_from_config(material_cfg)
+    else:
+        table = parse_linear_isotropic_materials(
+            _resolve_path(materials_file, base_dir=base_dir).read_text(encoding="utf-8")
         )
-    table = parse_linear_isotropic_materials(
-        _resolve_path(materials_file, base_dir=base_dir).read_text(encoding="utf-8")
-    )
     mapped = labels_to_material_map(
         array_zyx,
         table,
@@ -808,10 +808,14 @@ def _poisson_ratio(
         return 0.3
     materials_file = material_cfg.get("file")
     if materials_file is None:
-        return 0.3
-    table = parse_linear_isotropic_materials(
-        _resolve_path(materials_file, base_dir=base_dir).read_text(encoding="utf-8")
-    )
+        try:
+            table = linear_isotropic_materials_from_config(material_cfg)
+        except ValueError:
+            return 0.3
+    else:
+        table = parse_linear_isotropic_materials(
+            _resolve_path(materials_file, base_dir=base_dir).read_text(encoding="utf-8")
+        )
     values = sorted({round(float(value), 12) for value in table.poisson_ratio.values()})
     if len(values) > 1:
         raise ValueError(
