@@ -1,0 +1,6 @@
+# Override snippet for exporting node/element set debug geometry.
+output:
+  export_sets: true
+  set_formats: [json, vtk]
+  sets_dir: parosol_run/sets
+  export_boundary_conditions: true

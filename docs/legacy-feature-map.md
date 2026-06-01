@@ -25,6 +25,11 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 | Derived SED field | `solver.outputs: [sed]` and optional `.nii.gz` export | Implemented |
 | Compact analysis output | `output.summary` JSON | Implemented |
 | Boundary-condition debug export | `output.export_boundary_conditions: true` | Implemented as JSON |
+| Export node/element sets | `output.export_sets: true` with `set_formats: [json, vtk]` | Implemented for node sets and material element sets |
+| Field export selection | `output.fields: [sed, von_mises, effective_strain]` | Implemented |
+| Solution quality report | `quality` section with residual/runtime/iteration checks | Implemented |
+| Coarse preview solve | `preprocessing.coarsen` or `profiles/coarse_preview.yaml` | Implemented as downsampled solve grid |
+| Progressive loading sequence | `profiles/progressive_loading_manifest.yaml` plus `parosol batch` | Implemented as linear load increments |
 | Visible/uneven top-bottom surfaces | `load_case.surface: {mode: smart, depth: auto}` | Implemented |
 | Bending tests | `load_case.type: bending` with axis, neutral axis, and angle | Boundary conditions implemented; moment summary implemented |
 | Torsion tests | `load_case.type: torsion` with axis and twist angle | Boundary conditions implemented; torque summary implemented |
@@ -34,11 +39,8 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 | Legacy concept | Proposed ParOSol-py equivalent | Notes |
 | --- | --- | --- |
 | Direct mechanics batches | `profiles/direct_mechanics_manifest.yaml` plus `parosol batch` | Implemented for x/y/z compression and z-normal shear |
-| Export node/element sets | `.vtp`/`.vtk` or `.json` debug exports for selected node sets | Useful before Slicer integration |
-| Field export selection | `output.fields: [sed, von_mises, effective_strain]` | Mostly present, needs profile polishing |
-| Solution quality report | Residual/iteration/runtime plus optional checks | Summary already has core solver values |
-| Coarsen/interpolate workflow | Downsampled solve plus interpolated full-resolution initial guess | Deferred optimization feature |
-| Nonlinear/progressive loading | Separate nonlinear engine/profile | Out of first stable linear API scope |
+| Full-resolution interpolation from coarse solve | Initial guess/reprojection API | Requires native solver support for restart/initial displacement fields |
+| Nonlinear material behavior | Separate nonlinear engine/profile | Out of first stable linear API scope |
 
 ## User-Facing Direction
 

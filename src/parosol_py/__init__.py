@@ -14,6 +14,7 @@ from .load_cases import (
 from .materials import MaterialMap, density_to_material_map, labels_to_material_map
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .profiles import get_output_profile, get_solver_profile
+from .set_export import write_element_sets, write_node_sets
 from .surfaces import SurfaceSelection, top_bottom_surface_nodes
 
 __all__ = [
@@ -43,4 +44,6 @@ __all__ = [
     "solve",
     "solve_aim",
     "top_bottom_surface_nodes",
+    "write_element_sets",
+    "write_node_sets",
 ]

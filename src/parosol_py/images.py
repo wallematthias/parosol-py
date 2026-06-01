@@ -91,6 +91,39 @@ def largest_connected_component(array, *, background: int | float = 0):
     return out
 
 
+def coarsen_array(array, *, factor: int, reducer: str = "mean") -> np.ndarray:
+    values = np.asarray(array)
+    if values.ndim != 3:
+        raise ValueError(f"array must be 3D, got shape {values.shape}")
+    factor = int(factor)
+    if factor < 1:
+        raise ValueError("coarsen factor must be >= 1")
+    if factor == 1:
+        return np.array(values, copy=True)
+    cropped_shape = tuple((size // factor) * factor for size in values.shape)
+    if any(size == 0 for size in cropped_shape):
+        raise ValueError("coarsen factor is larger than at least one image dimension")
+    cropped = values[tuple(slice(0, size) for size in cropped_shape)]
+    blocks = cropped.reshape(
+        cropped_shape[0] // factor,
+        factor,
+        cropped_shape[1] // factor,
+        factor,
+        cropped_shape[2] // factor,
+        factor,
+    )
+    token = reducer.strip().lower()
+    if token == "mean":
+        return blocks.mean(axis=(1, 3, 5))
+    if token == "max":
+        return blocks.max(axis=(1, 3, 5))
+    if token == "min":
+        return blocks.min(axis=(1, 3, 5))
+    if token in {"nearest", "first"}:
+        return blocks[:, 0, :, 0, :, 0]
+    raise ValueError("coarsen reducer must be mean, max, min, or nearest")
+
+
 def _component(
     mask: np.ndarray,
     visited: np.ndarray,

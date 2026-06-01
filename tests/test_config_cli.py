@@ -192,6 +192,44 @@ def test_run_case_config_applies_named_profiles(monkeypatch, tmp_path: Path):
     assert captured["export_dir"] is None
 
 
+def test_run_case_config_uses_output_fields_as_solver_outputs(
+    monkeypatch, tmp_path: Path
+):
+    material = np.ones((2, 2, 2), dtype=np.float64) * 1000.0
+    np.save(tmp_path / "material.npy", material)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "output": {
+                    "summary": "summary.json",
+                    "fields": ["sed", "effective_strain", "von_mises"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((2, 2, 2), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    assert captured["outputs"] == ("sed", "effective_strain", "von_mises")
+
+
 def test_run_case_config_builds_boundary_conditions_from_voxel_nodeset_labels(
     monkeypatch, tmp_path: Path
 ):
@@ -489,6 +527,82 @@ def test_run_case_config_can_export_boundary_conditions(monkeypatch, tmp_path: P
     exported = json.loads((tmp_path / "bc.json").read_text(encoding="utf-8"))
     assert exported["fixed_coordinates"]
     assert "top" in exported["node_sets"]
+
+
+def test_run_case_config_can_export_node_and_element_sets(monkeypatch, tmp_path: Path):
+    material = np.ones((2, 2, 2), dtype=np.float64) * 1000.0
+    np.save(tmp_path / "material.npy", material)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "output": {
+                    "summary": "summary.json",
+                    "dry_run": True,
+                    "export_sets": True,
+                    "set_formats": ["json", "vtk"],
+                    "sets_dir": "sets",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_solve(**kwargs):
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((2, 2, 2), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    result = run_case_config(config_path)
+
+    assert (tmp_path / "sets" / "element_sets.json").exists()
+    assert (tmp_path / "sets" / "node_sets.json").exists()
+    assert any(path.name.endswith("_nodes.vtk") for path in result.exported.values())
+
+
+def test_run_case_config_can_coarsen_material_before_solving(
+    monkeypatch, tmp_path: Path
+):
+    material = np.ones((4, 4, 4), dtype=np.float64) * 1000.0
+    np.save(tmp_path / "material.npy", material)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [0.5, 0.5, 0.5]},
+                "preprocessing": {"coarsen": {"factor": 2, "reducer": "mean"}},
+                "output": {"summary": "summary.json"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((2, 2, 2), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    assert captured["material"].shape == (2, 2, 2)
+    assert captured["spacing"] == (1.0, 1.0, 1.0)
 
 
 def test_run_case_config_builds_absolute_displacement_load_case(

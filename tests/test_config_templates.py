@@ -22,6 +22,10 @@ def test_profile_override_templates_are_available():
     assert "smart_bone_compression_z" in profiles
     assert "density_power" in profiles
     assert "direct_mechanics_manifest" in profiles
+    assert "standard_mechanics_fields" in profiles
+    assert "debug_sets" in profiles
+    assert "coarse_preview" in profiles
+    assert "progressive_loading_manifest" in profiles
     assert "batch" in profiles
     assert "debug" in profiles
     assert "type: constrained_axial" in read_config_template("constrained_axial_z")
@@ -32,6 +36,10 @@ def test_profile_override_templates_are_available():
     assert "mode: smart" in read_config_template("smart_bone_compression_z")
     assert "image_type: density" in read_config_template("density_power")
     assert "compression_x" in read_config_template("direct_mechanics_manifest")
+    assert "effective_strain" in read_config_template("standard_mechanics_fields")
+    assert "set_formats: [json, vtk]" in read_config_template("debug_sets")
+    assert "coarsen:" in read_config_template("coarse_preview")
+    assert "progressive_loading" in read_config_template("progressive_loading_manifest")
 
 
 def test_cli_prints_config_template(capsys):

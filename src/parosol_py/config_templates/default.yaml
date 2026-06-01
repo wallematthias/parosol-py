@@ -45,6 +45,11 @@ preprocessing:
   # Keep only the largest non-zero component before meshing. Useful for
   # segmented bone images with small disconnected islands.
   connectivity_filter: false
+  # Optional downsampled solve. This changes the solve grid and scales spacing.
+  # Use for exploratory coarse passes before full-resolution batches.
+  # coarsen:
+  #   factor: 2
+  #   reducer: mean
 
 nodesets:
   # Optional. Use for non-standard loading/fixation regions.
@@ -134,6 +139,9 @@ solver:
   mpi_launcher: mpirun
   # Output field names map to native ParOSol output flags.
   outputs: [sed]
+  # Optional summary checks.
+  # max_relative_residual: 1.0e-6
+  # max_iterations: 10000
 
 failure:
   criterion: pistoia
@@ -142,8 +150,15 @@ failure:
 
 output:
   summary: parosol_run/example_case/summary.json
+  # Fields to export as image volumes. These also become solver outputs unless
+  # solver.outputs is set explicitly.
+  fields: [sed]
   export_fields: true
   fields_dir: parosol_run/example_case/fields
+  # Export selected node sets and material element sets for Slicer/ParaView.
+  export_sets: false
+  set_formats: [json]
+  sets_dir: parosol_run/example_case/sets
   export_boundary_conditions: false
   boundary_conditions: parosol_run/example_case/boundary_conditions.json
   dry_run: false

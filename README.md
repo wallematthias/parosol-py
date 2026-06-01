@@ -128,6 +128,22 @@ A batch config uses the same top-level input/material/solver/output sections as
 a normal case, plus a `batch.cases` list. Each case override is expanded into an
 individual run directory and summarized in one `batch_summary.json`.
 
+Useful output controls:
+
+```yaml
+output:
+  fields: [sed, effective_strain, von_mises]
+  export_fields: true
+  export_sets: true
+  set_formats: [json, vtk]
+
+solver:
+  max_relative_residual: 1.0e-6
+```
+
+`output.fields` selects image-field outputs. `output.export_sets` writes node-set
+and material element-set debug files for Slicer/ParaView inspection.
+
 Convert old legacy solver text outputs into compact JSON:
 
 ```bash

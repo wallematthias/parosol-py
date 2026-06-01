@@ -66,10 +66,19 @@ def solve_summary_dict(
         },
         "fields": _summarize_fields(result.fields),
     }
+    data["quality"] = _solution_quality(data["solver"])
     if getattr(result, "diagnostics", None):
         data.update(_jsonable(result.diagnostics))
     if extra:
-        data.update(_jsonable(extra))
+        extra_json = _jsonable(extra)
+        if "quality" in extra_json:
+            data["quality"].update(extra_json.pop("quality"))
+            data["quality"].update(
+                _solution_quality(
+                    data["solver"], checks=data["quality"].get("checks", {})
+                )
+            )
+        data.update(extra_json)
     return data
 
 
@@ -177,6 +186,32 @@ def _summarize_fields(fields: dict[str, Any]) -> dict[str, Any]:
         if array.size and np.issubdtype(array.dtype, np.number):
             out[name] = field_statistics(array)
     return out
+
+
+def _solution_quality(
+    solver: dict[str, Any],
+    *,
+    checks: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    checks = {} if checks is None else checks
+    issues: list[str] = []
+    max_relative = checks.get("max_relative_residual")
+    max_iterations = checks.get("max_iterations")
+    if solver.get("relative_residual") is not None and max_relative is not None:
+        if float(solver["relative_residual"]) > float(max_relative):
+            issues.append("relative_residual")
+    if solver.get("iterations") is not None and max_iterations is not None:
+        if int(solver["iterations"]) > int(max_iterations):
+            issues.append("iterations")
+    if solver.get("iterations") is None and solver.get("runtime_seconds") is None:
+        status = "not_computed"
+    else:
+        status = "passed" if not issues else "warning"
+    return {
+        "status": status,
+        "issues": issues,
+        "checks": checks,
+    }
 
 
 def _parse_key_value_table(text: str, title: str) -> dict[str, Any]:

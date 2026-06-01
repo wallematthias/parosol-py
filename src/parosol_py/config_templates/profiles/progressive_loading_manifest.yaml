@@ -1,0 +1,14 @@
+# Batch manifest for progressive linear loading increments.
+# This is not nonlinear material behavior; it runs a sequence of linear cases.
+batch:
+  name: progressive_loading
+  summary: progressive_loading/batch_summary.json
+  cases:
+    - name_suffix: strain_0025
+      load_case: {type: constrained_axial, axis: z, strain: -0.0025}
+    - name_suffix: strain_0050
+      load_case: {type: constrained_axial, axis: z, strain: -0.005}
+    - name_suffix: strain_0075
+      load_case: {type: constrained_axial, axis: z, strain: -0.0075}
+    - name_suffix: strain_0100
+      load_case: {type: constrained_axial, axis: z, strain: -0.01}

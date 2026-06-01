@@ -14,7 +14,7 @@ except ModuleNotFoundError:
 
 from .api import SolveResult, solve, solve_aim
 from .core import Model
-from .images import largest_connected_component, normalize_array
+from .images import coarsen_array, largest_connected_component, normalize_array
 from .load_cases import (
     Bending,
     BodyWeightCompression,
@@ -33,6 +33,7 @@ from .materials import (
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .profiles import get_output_profile, get_solver_profile
 from .reports import solve_summary_dict, write_summary_json
+from .set_export import write_element_sets, write_node_sets
 
 
 def load_config(path: str | Path) -> dict[str, Any]:
@@ -82,19 +83,21 @@ def run_case_config(
         base_dir=base_dir,
     )
     export_dir = _resolve_path(output_cfg.get("fields_dir", run_dir), base_dir=base_dir)
-    export_fields = bool(
-        output_cfg.get(
-            "export_fields",
-            output_cfg.get("fields", output_profile.export_fields),
-        )
-    )
+    output_fields = _output_fields(output_cfg, output_profile)
+    export_fields = bool(output_cfg.get("export_fields", output_profile.export_fields))
     summary_path = _resolve_path(
         output_cfg.get("summary", run_dir / f"{case_name}_summary.json"),
         base_dir=base_dir,
     )
 
     dry = bool(output_cfg.get("dry_run", False) if dry_run is None else dry_run)
-    outputs = tuple(str(v) for v in solver_cfg.get("outputs", solver_profile.outputs))
+    outputs = tuple(
+        str(v)
+        for v in solver_cfg.get(
+            "outputs",
+            output_fields if output_fields else solver_profile.outputs,
+        )
+    )
     image_path = _resolve_path(input_cfg["image"], base_dir=base_dir)
     image_type = str(input_cfg.get("image_type", "material_mpa")).strip().lower()
     spacing = _spacing(input_cfg, image_path=image_path)
@@ -167,6 +170,12 @@ def run_case_config(
         )
         if _connectivity_filter_enabled(preprocessing_cfg):
             material = largest_connected_component(material)
+        material, spacing = _coarsen_material(
+            material,
+            spacing=spacing,
+            preprocessing_cfg=preprocessing_cfg,
+        )
+        common["spacing"] = spacing
         common["poisson_ratio"] = mapped_poisson_ratio
         common["strain"] = _effective_strain_for_displacement(
             material,
@@ -196,7 +205,24 @@ def run_case_config(
                     base_dir=base_dir,
                 )
                 write_summary_json(bc_path, boundary_conditions.to_dict())
+        debug_boundary_conditions = boundary_conditions
+        if debug_boundary_conditions is None and output_cfg.get("export_sets", False):
+            debug_boundary_conditions = _default_boundary_conditions_for_export(
+                material,
+                spacing=spacing,
+                origin=origin,
+                load_case_cfg=load_case_cfg,
+            )
+        set_exports = _export_debug_sets(
+            material,
+            spacing=spacing,
+            origin=origin,
+            output_cfg=output_cfg,
+            base_dir=base_dir,
+            boundary_conditions=debug_boundary_conditions,
+        )
         result = solve(material=material, array_order="zyx", **common)
+        result.exported.update(set_exports)
 
     load_type = str(load_case_cfg.get("type", "constrained_axial")).strip().lower()
     extra: dict[str, Any] = {
@@ -214,9 +240,127 @@ def run_case_config(
             "critical_volume_percent": common["critical_volume_percent"],
             "status": "not_computed",
         }
+    extra["quality"] = _quality_config(solver_cfg)
     summary = solve_summary_dict(result, extra=extra)
     write_summary_json(summary_path, summary)
     return result
+
+
+def _output_fields(output_cfg: dict[str, Any], output_profile) -> tuple[str, ...]:
+    fields = output_cfg.get("fields", output_cfg.get("image_fields"))
+    if fields is None:
+        return tuple(output_profile.image_fields)
+    return tuple(str(value) for value in fields)
+
+
+def _coarsen_material(
+    material: np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    preprocessing_cfg: dict[str, Any],
+) -> tuple[np.ndarray, tuple[float, float, float]]:
+    coarsen = preprocessing_cfg.get("coarsen")
+    if not coarsen:
+        return material, spacing
+    if isinstance(coarsen, dict):
+        factor = int(coarsen.get("factor", 1))
+        reducer = str(coarsen.get("reducer", "mean"))
+    else:
+        factor = int(coarsen)
+        reducer = "mean"
+    if factor == 1:
+        return material, spacing
+    return coarsen_array(material, factor=factor, reducer=reducer), tuple(
+        float(value) * factor for value in spacing
+    )
+
+
+def _export_debug_sets(
+    material_zyx: np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    output_cfg: dict[str, Any],
+    base_dir: Path,
+    boundary_conditions,
+) -> dict[str, Path]:
+    if not output_cfg.get("export_sets", False):
+        return {}
+    formats = tuple(str(value) for value in output_cfg.get("set_formats", ("json",)))
+    sets_dir = _resolve_path(
+        output_cfg.get("sets_dir", output_cfg.get("fields_dir", "sets")),
+        base_dir=base_dir,
+    )
+    grid = normalize_array(
+        material_zyx,
+        spacing=spacing,
+        origin=origin,
+        array_order="zyx",
+    )
+    out = write_element_sets(
+        grid.array_xyz,
+        directory=sets_dir,
+        spacing=grid.spacing,
+        origin=grid.origin,
+        formats=formats,
+    )
+    if boundary_conditions is not None:
+        out.update(
+            write_node_sets(
+                boundary_conditions.node_sets,
+                directory=sets_dir,
+                spacing=grid.spacing,
+                origin=grid.origin,
+                formats=formats,
+            )
+        )
+    return out
+
+
+def _default_boundary_conditions_for_export(
+    material_zyx: np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    load_case_cfg: dict[str, Any],
+):
+    load_type = str(load_case_cfg.get("type", "constrained_axial")).strip().lower()
+    if load_type not in {
+        "axial",
+        "compression",
+        "constrained_axial",
+        "plate_compression",
+    }:
+        return None
+    model = Model.from_array(
+        material_zyx,
+        spacing=spacing,
+        origin=origin,
+        array_order="zyx",
+    )
+    return ConstrainedAxialCompression(
+        axis=str(load_case_cfg.get("axis", "z")),
+        strain=float(
+            load_case_cfg.get("strain", load_case_cfg.get("normal_strain", -0.01))
+        ),
+        displacement=_load_case_displacement(load_case_cfg),
+        surface=_load_case_surface(load_case_cfg),
+    ).generate(model)
+
+
+def _quality_config(solver_cfg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "checks": {
+            "max_relative_residual": _optional_float(
+                solver_cfg.get("max_relative_residual")
+            ),
+            "max_iterations": (
+                None
+                if solver_cfg.get("max_iterations") is None
+                else int(solver_cfg["max_iterations"])
+            ),
+        }
+    }
 
 
 def _boundary_conditions_from_config(

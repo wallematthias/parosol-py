@@ -8,8 +8,11 @@ from parosol_py.reports import (
     field_statistics,
     parse_legacy_analysis_file,
     parse_pistoia_file,
+    solve_summary_dict,
     write_summary_json,
 )
+from parosol_py.api import SolveResult, SolveSummary
+from parosol_py.runner import RunSummary
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "reference"
 
@@ -36,3 +39,25 @@ def test_parse_legacy_outputs_to_compact_json(tmp_path: Path):
     )
     loaded = json.loads(out.read_text(encoding="utf-8"))
     assert loaded["pistoia"]["axial_stiffness"]["z"] == pytest.approx(74985.0)
+
+
+def test_solve_summary_includes_solution_quality_checks(tmp_path: Path):
+    result = SolveResult(
+        input_file=tmp_path / "input.h5",
+        command=["parosol"],
+        fields={},
+        summary=SolveSummary(
+            dimensions_xyz=(1, 1, 1),
+            spacing=(1, 1, 1),
+            origin=(0, 0, 0),
+            run=RunSummary(iterations=12, relative_residual=1e-5),
+        ),
+    )
+
+    summary = solve_summary_dict(
+        result,
+        extra={"quality": {"checks": {"max_relative_residual": 1e-6}}},
+    )
+
+    assert summary["quality"]["status"] == "warning"
+    assert summary["quality"]["issues"] == ["relative_residual"]
