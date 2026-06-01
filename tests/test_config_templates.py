@@ -29,6 +29,8 @@ def test_profile_override_templates_are_available():
     assert "load_history_6" in profiles
     assert "XtremeCTI" in profiles
     assert "XtremeCTII" in profiles
+    assert "vertebra" in profiles
+    assert "proximal_femur" in profiles
     assert "standard_mechanics_fields" in profiles
     assert "debug_sets" in profiles
     assert "coarse_preview" in profiles
@@ -54,6 +56,10 @@ def test_profile_override_templates_are_available():
     assert "type: constrained_axial" in xtremectii
     assert "strain: -0.01" in xtremectii
     assert "pistoia:" in xtremectii
+    assert "type: spine_compression" in read_config_template("vertebra")
+    assert "body: 20" in read_config_template("vertebra")
+    assert "type: proximal_femur" in read_config_template("proximal_femur")
+    assert "femur: 2" in read_config_template("proximal_femur")
     assert "effective_strain" in read_config_template("standard_mechanics_fields")
     assert "set_formats: [json, vtk]" in read_config_template("debug_sets")
     assert "coarsen:" in read_config_template("coarse_preview")

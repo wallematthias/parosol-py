@@ -122,6 +122,63 @@ def test_run_case_config_reads_image_metadata_for_auto_spacing(tmp_path: Path):
     assert result.summary.origin == (1.0, 2.0, 3.0)
 
 
+def test_run_case_config_uses_model_section_for_dry_run(tmp_path: Path):
+    density = np.zeros((6, 5, 4), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[1:5, 1:4, 1:3] = 800.0
+    mask[1:5, 1:4, 1:3] = 2
+    mask[2:4, 2:3, 2:4] = 1
+    np.save(tmp_path / "density.npy", density)
+    np.save(tmp_path / "mask.npy", mask)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "case": {"name": "vertebra_model"},
+                "model": {
+                    "type": "vertebra",
+                    "density_image": "density.npy",
+                    "mask_image": "mask.npy",
+                    "labels": {"body": 2, "process": 1},
+                    "geometry": {"pmma_thickness_mm": 1, "axis": "z"},
+                    "outputs": {
+                        "material_image": "model/material.nii.gz",
+                        "nodeset_image": "model/nodesets.nii.gz",
+                        "manifest": "model/model.json",
+                        "qc_image": "model/qc.png",
+                    },
+                },
+                "materials": {
+                    "density": {
+                        "equation": "linear",
+                        "slope": 10.0,
+                        "intercept": 0.0,
+                    },
+                    "poisson_ratio": 0.3,
+                    "pmma": {"E": 2500, "nu": 0.3},
+                },
+                "load_case": {"type": "spine_compression", "displacement": -0.2},
+                "output": {
+                    "summary": "summary.json",
+                    "dry_run": True,
+                    "visualization": "overview.png",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_case_config(config_path)
+
+    assert result.summary.dimensions_xyz == (4, 5, 8)
+    assert (tmp_path / "model" / "material.nii.gz").exists()
+    assert (tmp_path / "model" / "nodesets.nii.gz").exists()
+    assert (tmp_path / "model" / "qc.png").exists()
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    assert summary["model"]["type"] == "spine_compression"
+    assert summary["model"]["node_sets"]["inferior"] > 0
+
+
 def test_run_case_config_reads_compressed_npz_label_image(tmp_path: Path):
     labels = np.ones((2, 2, 2), dtype=np.uint8)
     np.savez_compressed(

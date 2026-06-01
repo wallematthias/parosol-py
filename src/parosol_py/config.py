@@ -31,6 +31,7 @@ from .materials import (
     parse_linear_isotropic_materials,
     poisson_ratio_from_spec,
 )
+from .modeling import build_model
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .profiles import get_output_profile, get_solver_profile
 from .reports import solve_summary_dict, write_summary_json
@@ -67,6 +68,7 @@ def run_case_config(
 
     case_cfg = _section(config, "case")
     input_cfg = _section(config, "input")
+    model_cfg = _section(config, "model")
     material_cfg = _section(config, "materials")
     nodeset_cfg = _section(config, "nodesets")
     load_case_cfg = _section(config, "load_case")
@@ -101,10 +103,16 @@ def run_case_config(
             output_fields if output_fields else solver_profile.outputs,
         )
     )
-    image_path = _resolve_path(input_cfg["image"], base_dir=base_dir)
-    image_type = str(input_cfg.get("image_type", "material_mpa")).strip().lower()
-    spacing = _spacing(input_cfg, image_path=image_path)
-    origin = _origin(input_cfg, image_path=image_path)
+    image_path = None
+    if model_cfg:
+        image_type = "model"
+        spacing = (1.0, 1.0, 1.0)
+        origin = (0.0, 0.0, 0.0)
+    else:
+        image_path = _resolve_path(input_cfg["image"], base_dir=base_dir)
+        image_type = str(input_cfg.get("image_type", "material_mpa")).strip().lower()
+        spacing = _spacing(input_cfg, image_path=image_path)
+        origin = _origin(input_cfg, image_path=image_path)
     poisson_ratio = _poisson_ratio(
         material_cfg, image_type=image_type, base_dir=base_dir
     )
@@ -152,7 +160,45 @@ def run_case_config(
         "dry_run": dry,
     }
 
-    if image_path.suffix.lower() == ".aim" and image_type in {
+    built_model = None
+    if model_cfg:
+        built_model = build_model(
+            model_cfg,
+            base_dir=base_dir,
+            material_config=material_cfg,
+            load_case_config=load_case_cfg,
+        )
+        material = built_model.material
+        spacing = built_model.spacing
+        origin = built_model.origin
+        common["spacing"] = spacing
+        common["origin"] = origin
+        common["poisson_ratio"] = built_model.poisson_ratio
+        common["strain"] = _effective_strain_for_displacement(
+            material,
+            spacing=spacing,
+            origin=origin,
+            array_order="zyx",
+            load_case_cfg=load_case_cfg,
+            fallback=float(common["strain"]),
+        )
+        common["boundary_conditions"] = built_model.boundary_conditions
+        result = solve(material=material, array_order="zyx", **common)
+        result.exported.update(built_model.exported)
+        result.exported.update(
+            _export_overview(
+                material,
+                spacing=spacing,
+                origin=origin,
+                output_cfg=output_cfg,
+                base_dir=base_dir,
+                run_dir=run_dir,
+                case_name=case_name,
+                result=result,
+                boundary_conditions=built_model.boundary_conditions,
+            )
+        )
+    elif image_path.suffix.lower() == ".aim" and image_type in {
         "material_mpa",
         "mpa",
         "gpa",
@@ -258,6 +304,8 @@ def run_case_config(
             "critical_volume_percent": common["critical_volume_percent"],
             "status": "not_computed",
         }
+    if built_model is not None:
+        extra["model"] = _model_summary(built_model)
     extra["quality"] = _quality_config(solver_cfg)
     summary = solve_summary_dict(result, extra=extra)
     write_summary_json(summary_path, summary)
@@ -436,6 +484,18 @@ def _quality_config(solver_cfg: dict[str, Any]) -> dict[str, Any]:
                 else int(solver_cfg["max_iterations"])
             ),
         }
+    }
+
+
+def _model_summary(built_model) -> dict[str, Any]:
+    metadata = dict(built_model.metadata.get("model", {}))
+    return {
+        **metadata,
+        "node_sets": {
+            name: len(nodes) for name, nodes in built_model.node_sets.items()
+        },
+        "element_sets": dict(built_model.element_sets),
+        "exported": {name: str(path) for name, path in built_model.exported.items()},
     }
 
 

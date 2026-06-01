@@ -1,0 +1,49 @@
+model:
+  type: proximal_femur
+  density_image: density.nii.gz
+  mask_image: segmentation.nii.gz
+  side: left
+  labels:
+    femur: 2
+  geometry:
+    cap_axis: y
+    isotropic_spacing: auto
+    pmma_thickness_mm: 3
+    cap_method: pmma_contact_caps
+  outputs:
+    material_image: parosol_run/proximal_femur/model/material.nii.gz
+    nodeset_image: parosol_run/proximal_femur/model/nodesets.nii.gz
+    manifest: parosol_run/proximal_femur/model/model.json
+    qc_image: parosol_run/proximal_femur/model/qc.png
+
+materials:
+  units: MPa
+  density:
+    equation: linear
+    slope: 10.0
+    intercept: 0.0
+    mask_threshold: 0.0
+  poisson_ratio: 0.3
+  pmma:
+    E: 2500
+    nu: 0.3
+
+load_case:
+  type: sideways_fall
+  displacement: -1.0
+
+solver:
+  outputs: [sed]
+
+postprocess:
+  pistoia:
+    criterion: pistoia
+    critical_strain: 0.007
+    critical_volume_percent: 2.0
+
+output:
+  summary: parosol_run/proximal_femur/summary.json
+  fields: [sed]
+  export_fields: true
+  fields_dir: parosol_run/proximal_femur/fields
+  visualization: parosol_run/proximal_femur/overview.png
