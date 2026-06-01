@@ -96,7 +96,9 @@ def test_write_parosol_input_rejects_coordinate_outside_node_bounds(tmp_path: Pa
         )
 
 
-def test_write_parosol_input_rejects_coordinates_outside_native_coordinate_range(tmp_path: Path):
+def test_write_parosol_input_rejects_coordinates_outside_native_coordinate_range(
+    tmp_path: Path,
+):
     stiffness_xyz = np.ones((32768, 1, 1), dtype=np.float32)
     coords = np.array([[32768, 0, 0, 0]], dtype=np.int64)
     values = np.array([1e-16], dtype=np.float32)

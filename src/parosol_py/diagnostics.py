@@ -16,6 +16,10 @@ def build_fea_diagnostics(
     axis: str,
     strain: float,
     voxel_size_mm: float = 1.0,
+    load_case_type: str = "constrained_axial",
+    load_direction: str | None = None,
+    rotation_degrees: float | None = None,
+    load_case_center: tuple[float, float] | None = None,
     critical_strain: float | None = 0.007,
     critical_volume_percent: float | None = 2.0,
     failure_criterion: str = "pistoia",
@@ -32,6 +36,10 @@ def build_fea_diagnostics(
         axis=axis_token,
         strain=strain,
         voxel_size_mm=voxel_size_mm,
+        load_case_type=load_case_type,
+        load_direction=load_direction,
+        rotation_degrees=rotation_degrees,
+        load_case_center=load_case_center,
     )
     failure = _pistoia_failure(
         fields=fields,
@@ -52,17 +60,32 @@ def _mechanics_from_node_fields(
     axis: str,
     strain: float,
     voxel_size_mm: float,
+    load_case_type: str,
+    load_direction: str | None,
+    rotation_degrees: float | None,
+    load_case_center: tuple[float, float] | None,
 ) -> dict[str, Any]:
     axis_index = AXIS_TO_INDEX[axis]
+    load_type = load_case_type.strip().lower()
+    direction = _load_direction(load_type, axis, load_direction)
+    direction_index = AXIS_TO_INDEX[direction]
     dimensions = tuple(int(v) for v in stiffness_gpa_xyz.shape)
     applied = float(strain) * float(dimensions[axis_index]) * float(voxel_size_mm)
+    applied_rotation = (
+        None if rotation_degrees is None else np.deg2rad(float(rotation_degrees))
+    )
 
     result: dict[str, Any] = {
         "axis": axis,
+        "load_case_type": load_type,
+        "load_direction": direction,
         "applied_strain": float(strain),
         "applied_displacement": _xyz(axis_index, applied),
+        "applied_rotation_degrees": rotation_degrees,
         "reaction_force": _xyz(axis_index, None),
         "stiffness": _xyz(axis_index, None),
+        "generalized_load": {"name": "force", "value": None, "units": "N"},
+        "generalized_stiffness": {"name": "stiffness", "value": None, "units": "N/mm"},
         "top_node_count": 0,
         "bottom_node_count": 0,
         "status": "not_computed",
@@ -90,14 +113,37 @@ def _mechanics_from_node_fields(
     bottom_indices = [
         index for index, coord in enumerate(node_coords) if coord[axis_index] == 0
     ]
-    reaction = float(np.sum(forces[top_indices, axis_index]))
+    reaction_vector = np.sum(forces[top_indices, :], axis=0)
+    reaction = float(reaction_vector[direction_index])
+    generalized = _generalized_load(
+        forces=forces,
+        node_coords=node_coords,
+        node_indices=top_indices,
+        axis=axis,
+        direction=direction,
+        load_type=load_type,
+        dimensions=dimensions,
+        voxel_size_mm=voxel_size_mm,
+        center=load_case_center,
+    )
+    generalized_stiffness = _generalized_stiffness(
+        generalized,
+        applied=applied,
+        applied_rotation=applied_rotation,
+        load_type=load_type,
+    )
     result.update(
         {
-            "reaction_force": _xyz(axis_index, reaction),
+            "reaction_force": {
+                name: float(reaction_vector[index])
+                for index, name in enumerate(AXIS_NAMES)
+            },
             "stiffness": _xyz(
-                axis_index,
+                direction_index,
                 None if np.isclose(applied, 0.0) else reaction / applied,
             ),
+            "generalized_load": generalized,
+            "generalized_stiffness": generalized_stiffness,
             "top_node_count": len(top_indices),
             "bottom_node_count": len(bottom_indices),
             "status": "computed",
@@ -105,8 +151,8 @@ def _mechanics_from_node_fields(
     )
     if displacements is not None and displacements.shape[0] == len(node_coords):
         result["mean_top_displacement"] = _xyz(
-            axis_index,
-            float(np.mean(displacements[top_indices, axis_index]))
+            direction_index,
+            float(np.mean(displacements[top_indices, direction_index]))
             if top_indices
             else None,
         )
@@ -170,8 +216,15 @@ def _pistoia_failure(
         else float(critical_strain) / ees_at_critical_volume
     )
     reaction = mechanics.get("reaction_force", {}).get(axis)
+    generalized = mechanics.get("generalized_load", {})
+    generalized_value = generalized.get("value")
     failure_load = (
         None if factor is None or reaction is None else float(reaction) * factor
+    )
+    failure_generalized = (
+        None
+        if factor is None or generalized_value is None
+        else float(generalized_value) * factor
     )
 
     result.update(
@@ -179,6 +232,11 @@ def _pistoia_failure(
             "ees_at_critical_volume": ees_at_critical_volume,
             "factor": factor,
             "failure_load": _xyz(axis_index, failure_load),
+            "failure_generalized_load": {
+                "name": generalized.get("name", "load"),
+                "value": failure_generalized,
+                "units": generalized.get("units"),
+            },
             "ees_distribution": _array_statistics(ees),
             "status": "computed" if factor is not None else "not_computed",
         }
@@ -230,6 +288,106 @@ def _as_vector_field(value) -> np.ndarray | None:
     if array.ndim != 2 or array.shape[1] != 3:
         return None
     return array
+
+
+def _load_direction(load_type: str, axis: str, load_direction: str | None) -> str:
+    if load_direction is not None:
+        token = load_direction.strip().lower()
+        if token not in AXIS_TO_INDEX:
+            raise ValueError("load_direction must be one of: x, y, z")
+        return token
+    if load_type in {"shear", "simple_shear", "directional_shear"}:
+        return next(name for name in AXIS_NAMES if name != axis)
+    return axis
+
+
+def _generalized_load(
+    *,
+    forces: np.ndarray,
+    node_coords: list[tuple[int, int, int]],
+    node_indices: list[int],
+    axis: str,
+    direction: str,
+    load_type: str,
+    dimensions: tuple[int, int, int],
+    voxel_size_mm: float,
+    center: tuple[float, float] | None,
+) -> dict[str, Any]:
+    axis_index = AXIS_TO_INDEX[axis]
+    direction_index = AXIS_TO_INDEX[direction]
+    if load_type in {"bending", "bend", "torsion", "twist"}:
+        moment = _reaction_moment(
+            forces=forces,
+            node_coords=node_coords,
+            node_indices=node_indices,
+            dimensions=dimensions,
+            voxel_size_mm=voxel_size_mm,
+            center=center,
+        )
+        return {
+            "name": "moment",
+            "component": axis,
+            "value": float(moment[axis_index]),
+            "units": "N*mm",
+            "vector": {
+                name: float(moment[index]) for index, name in enumerate(AXIS_NAMES)
+            },
+        }
+    reaction = float(np.sum(forces[node_indices, direction_index]))
+    return {
+        "name": "force",
+        "component": direction,
+        "value": reaction,
+        "units": "N",
+    }
+
+
+def _reaction_moment(
+    *,
+    forces: np.ndarray,
+    node_coords: list[tuple[int, int, int]],
+    node_indices: list[int],
+    dimensions: tuple[int, int, int],
+    voxel_size_mm: float,
+    center: tuple[float, float] | None,
+) -> np.ndarray:
+    origin = np.asarray(
+        [
+            ((float(dimensions[index]) - 1.0) / 2.0) * float(voxel_size_mm)
+            for index in range(3)
+        ],
+        dtype=np.float64,
+    )
+    if center is not None:
+        origin[:2] = np.asarray(center, dtype=np.float64)
+    moment = np.zeros(3, dtype=np.float64)
+    for index in node_indices:
+        position = (np.asarray(node_coords[index], dtype=np.float64) - 0.5) * float(
+            voxel_size_mm
+        )
+        moment += np.cross(position - origin, forces[index])
+    return moment
+
+
+def _generalized_stiffness(
+    generalized_load: dict[str, Any],
+    *,
+    applied: float,
+    applied_rotation: float | None,
+    load_type: str,
+) -> dict[str, Any]:
+    value = generalized_load.get("value")
+    if value is None:
+        return {"name": "stiffness", "value": None, "units": None}
+    if load_type in {"bending", "bend", "torsion", "twist"}:
+        stiffness = (
+            None
+            if applied_rotation is None or np.isclose(applied_rotation, 0.0)
+            else float(value) / float(applied_rotation)
+        )
+        return {"name": "rotational_stiffness", "value": stiffness, "units": "N*mm/rad"}
+    stiffness = None if np.isclose(applied, 0.0) else float(value) / float(applied)
+    return {"name": "stiffness", "value": stiffness, "units": "N/mm"}
 
 
 def _active_element_coordinates(

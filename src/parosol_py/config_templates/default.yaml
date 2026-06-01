@@ -11,6 +11,8 @@ input:
   # Supported formats: .AIM, .nii, .nii.gz, .mha, .mhd, .npy, .npz.
   image: material_labels.AIM
   image_type: material_labels
+  # For continuous density input, use image_type: density and configure
+  # materials.density below.
   # Use auto for formats with metadata. For .npy, provide [x, y, z] spacing in mm.
   spacing: auto
   origin: auto
@@ -22,6 +24,27 @@ materials:
   file: material_cort_trab.txt
   units: MPa
   # poisson_ratio: 0.3
+  # Current native ParOSol uses one global Poisson's ratio. For continuous
+  # inputs you may provide an equation here; parosol-py reduces it to one
+  # scalar value before solving.
+  # poisson_ratio:
+  #   equation: linear
+  #   slope: 0.0
+  #   intercept: 0.3
+  #   reduce: mean
+  #
+  # Continuous density-to-E mapping. E is produced in MPa.
+  # density:
+  #   equation: power
+  #   coefficient: 10000
+  #   exponent: 1.7
+  #   reference_density: 1000
+  #   mask_threshold: 0
+
+preprocessing:
+  # Keep only the largest non-zero component before meshing. Useful for
+  # segmented bone images with small disconnected islands.
+  connectivity_filter: false
 
 nodesets:
   # Optional. Use for non-standard loading/fixation regions.
@@ -47,6 +70,11 @@ load_case:
   type: constrained_axial
   axis: z
   strain: -0.01
+  # For irregular anatomy, visible/smart surfaces follow the first material
+  # encountered along the load axis instead of requiring flat image bounds.
+  # surface:
+  #   mode: smart
+  #   depth: auto
   # Use displacement instead of strain when you want an absolute top-plate
   # displacement in image length units.
   # displacement: -0.06
@@ -116,4 +144,6 @@ output:
   summary: parosol_run/example_case/summary.json
   export_fields: true
   fields_dir: parosol_run/example_case/fields
+  export_boundary_conditions: false
+  boundary_conditions: parosol_run/example_case/boundary_conditions.json
   dry_run: false

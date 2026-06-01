@@ -19,6 +19,9 @@ def test_profile_override_templates_are_available():
     assert "shear_zy" in profiles
     assert "torsion_z" in profiles
     assert "bending_z" in profiles
+    assert "smart_bone_compression_z" in profiles
+    assert "density_power" in profiles
+    assert "direct_mechanics_manifest" in profiles
     assert "batch" in profiles
     assert "debug" in profiles
     assert "type: constrained_axial" in read_config_template("constrained_axial_z")
@@ -26,6 +29,9 @@ def test_profile_override_templates_are_available():
     assert "direction: y" in read_config_template("shear_zy")
     assert "type: torsion" in read_config_template("torsion_z")
     assert "type: bending" in read_config_template("bending_z")
+    assert "mode: smart" in read_config_template("smart_bone_compression_z")
+    assert "image_type: density" in read_config_template("density_power")
+    assert "compression_x" in read_config_template("direct_mechanics_manifest")
 
 
 def test_cli_prints_config_template(capsys):

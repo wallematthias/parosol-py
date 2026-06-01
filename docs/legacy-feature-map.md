@@ -10,7 +10,9 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 | --- | --- | --- |
 | Segmented image input with material IDs | `input.image` plus `image_type: material_labels` | Implemented for AIM, NIfTI, MetaImage, NPY, NPZ |
 | Material definition/table files | `materials.file` with `MaterialDefinitions` and `MaterialTable` | Implemented for linear isotropic E/nu tables |
-| Connectivity filtering | Store connected fixtures and add preprocessing helpers | Fixture implemented; helper API planned |
+| Continuous density input | `input.image_type: density` plus `materials.density` equation | Implemented for power, linear, and polynomial E mappings |
+| Poisson ratio from equation | `materials.poisson_ratio` scalar or equation reduced to one value | Implemented; native solve still uses one global value |
+| Connectivity filtering | `preprocessing.connectivity_filter: true` | Implemented as largest non-zero component |
 | Constrained axial plate compression | `load_case.type: constrained_axial` or `plate_compression` | Implemented |
 | Uniaxial compression | `load_case.type: uniaxial` | Implemented |
 | Confined compression | `load_case.type: confined` | Implemented |
@@ -22,15 +24,16 @@ scientific outputs, not a one-to-one clone of the old command-line interface.
 | Pistoia failure estimate | `failure.criterion: pistoia` in summary JSON | Implemented |
 | Derived SED field | `solver.outputs: [sed]` and optional `.nii.gz` export | Implemented |
 | Compact analysis output | `output.summary` JSON | Implemented |
+| Boundary-condition debug export | `output.export_boundary_conditions: true` | Implemented as JSON |
+| Visible/uneven top-bottom surfaces | `load_case.surface: {mode: smart, depth: auto}` | Implemented |
+| Bending tests | `load_case.type: bending` with axis, neutral axis, and angle | Boundary conditions implemented; moment summary implemented |
+| Torsion tests | `load_case.type: torsion` with axis and twist angle | Boundary conditions implemented; torque summary implemented |
 
 ## Next High-Value Features
 
 | Legacy concept | Proposed ParOSol-py equivalent | Notes |
 | --- | --- | --- |
-| Visible/uneven top-bottom surfaces | `surface: visible` or label-image plate helpers | Needed for curved plates and anatomy-aware BCs |
-| Bending tests | `load_case.type: bending` with axis, neutral axis, and angle | Boundary conditions implemented; moment summary still needed |
-| Torsion tests | `load_case.type: torsion` with axis and twist angle | Boundary conditions implemented; torque summary still needed |
-| Direct mechanics batches | `profiles/direct_mechanics.yaml` generating x/y/z compression and shear cases | Good batch feature after load cases are stable |
+| Direct mechanics batches | `profiles/direct_mechanics_manifest.yaml` generating x/y/z compression and shear cases | Template implemented; execution helper still needed |
 | Export node/element sets | `.vtp`/`.vtk` or `.json` debug exports for selected node sets | Useful before Slicer integration |
 | Field export selection | `output.fields: [sed, von_mises, effective_strain]` | Mostly present, needs profile polishing |
 | Solution quality report | Residual/iteration/runtime plus optional checks | Summary already has core solver values |

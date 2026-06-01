@@ -30,7 +30,9 @@ def read_solution_fields(
         solution = h5["Solution"]
         for output in requested:
             if output in OUTPUT_DATASETS:
-                fields[output] = _read_dataset(solution, output, OUTPUT_DATASETS[output])
+                fields[output] = _read_dataset(
+                    solution, output, OUTPUT_DATASETS[output]
+                )
             elif output == "strain":
                 fields[output] = _read_tensor(solution, prefix="e_")
             elif output == "stress":
@@ -50,12 +52,16 @@ def _read_tensor(solution: h5py.Group, *, prefix: str) -> dict[str, np.ndarray]:
     for axis in TENSOR_AXES:
         name = f"{prefix}{axis}"
         if name not in solution:
-            raise ValueError(f"Requested tensor component not found in /Solution/{name}")
+            raise ValueError(
+                f"Requested tensor component not found in /Solution/{name}"
+            )
         out[axis] = np.asarray(solution[name][...])
     return out
 
 
 def _read_dataset(solution: h5py.Group, output: str, dataset: str) -> np.ndarray:
     if dataset not in solution:
-        raise ValueError(f"Requested output '{output}' not found in /Solution/{dataset}")
+        raise ValueError(
+            f"Requested output '{output}' not found in /Solution/{dataset}"
+        )
     return np.asarray(solution[dataset][...])

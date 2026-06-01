@@ -293,7 +293,9 @@ def test_solve_accepts_explicit_boundary_condition_set(monkeypatch, tmp_path):
     )
 
     assert result.input_file.exists()
-    np.testing.assert_array_equal(captured["loaded_node_coordinates"], bc.loaded_coordinates)
+    np.testing.assert_array_equal(
+        captured["loaded_node_coordinates"], bc.loaded_coordinates
+    )
     np.testing.assert_array_equal(captured["loaded_node_values"], bc.loaded_values)
 
 

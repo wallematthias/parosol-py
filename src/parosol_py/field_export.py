@@ -26,20 +26,26 @@ class NativeFieldMapper:
                 tuple(int(v) for v in coord)
                 for coord in np.argwhere(np.asarray(self.stiffness_gpa_xyz) > 0)
             ]
-            self._active_coordinates = sorted(coords, key=lambda coord: morton_key(*coord))
+            self._active_coordinates = sorted(
+                coords, key=lambda coord: morton_key(*coord)
+            )
         return self._active_coordinates
 
     @property
     def dense_coordinates(self) -> list[tuple[int, int, int]]:
         if self._dense_coordinates is None:
-            x_dim, y_dim, z_dim = (int(v) for v in np.asarray(self.stiffness_gpa_xyz).shape)
+            x_dim, y_dim, z_dim = (
+                int(v) for v in np.asarray(self.stiffness_gpa_xyz).shape
+            )
             coords = [
                 (x, y, z)
                 for x in range(x_dim)
                 for y in range(y_dim)
                 for z in range(z_dim)
             ]
-            self._dense_coordinates = sorted(coords, key=lambda coord: morton_key(*coord))
+            self._dense_coordinates = sorted(
+                coords, key=lambda coord: morton_key(*coord)
+            )
         return self._dense_coordinates
 
     def scalar_to_dense(self, values) -> np.ndarray:

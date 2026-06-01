@@ -44,6 +44,22 @@ print(result.exported)
 Use `dry_run=True` to write the ParOSol HDF5 input and inspect the generated
 command without launching the solver.
 
+Material helpers are available for both label images and continuous density
+images:
+
+```python
+from parosol_py import density_to_material_map
+
+mapped = density_to_material_map(
+    density_image,
+    equation="power",
+    coefficient=10000,
+    exponent=1.7,
+    reference_density=1000,
+    poisson_ratio=0.3,
+)
+```
+
 ## Command Line
 
 Create a case config:
@@ -67,6 +83,9 @@ load_case:
   type: constrained_axial
   axis: z
   strain: -0.01
+  surface:
+    mode: smart
+    depth: auto
 
 solver:
   tolerance: 1e-6
@@ -81,6 +100,11 @@ failure:
 output:
   summary: outputs/VITD_0003_RL_M06_HOM_LS/summary.json
 ```
+
+The Pistoia-style failure factor is computed from the strain/SED field for all
+load cases. Compression reports a failure force, while shear, bending, and
+torsion also report a `failure_generalized_load` whose interpretation follows
+the load case, for example force or moment.
 
 Run it:
 

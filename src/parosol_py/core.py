@@ -49,7 +49,9 @@ class BoundaryConditionSet:
     loaded_coordinates: np.ndarray = field(
         default_factory=lambda: np.zeros((0, 4), dtype=np.uint16)
     )
-    loaded_values: np.ndarray = field(default_factory=lambda: np.zeros((0,), dtype=np.float32))
+    loaded_values: np.ndarray = field(
+        default_factory=lambda: np.zeros((0,), dtype=np.float32)
+    )
     node_sets: dict[str, list[tuple[int, int, int]]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -58,7 +60,9 @@ class BoundaryConditionSet:
             "fixed_coordinates",
             _coordinates(self.fixed_coordinates, "fixed_coordinates"),
         )
-        object.__setattr__(self, "fixed_values", _values(self.fixed_values, "fixed_values"))
+        object.__setattr__(
+            self, "fixed_values", _values(self.fixed_values, "fixed_values")
+        )
         object.__setattr__(
             self,
             "loaded_coordinates",

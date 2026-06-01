@@ -6,6 +6,7 @@ import numpy as np
 
 from .boundary_conditions import AXIS_TO_INDEX, axial_compression
 from .core import BoundaryConditionSet, Model
+from .surfaces import SurfaceSelection, top_bottom_surface_nodes
 
 
 @dataclass(frozen=True)
@@ -13,9 +14,22 @@ class ConstrainedAxialCompression:
     axis: str = "z"
     strain: float = -0.01
     displacement: float | None = None
+    surface: SurfaceSelection | str | dict | None = None
 
     def generate(self, model: Model) -> BoundaryConditionSet:
         axis = _axis_token(self.axis)
+        if self.surface is not None:
+            return _constrained_axial_from_surfaces(
+                model,
+                axis=axis,
+                displacement=_displacement_from_strain(
+                    self.displacement,
+                    strain=self.strain,
+                    height=model.material_xyz.shape[AXIS_TO_INDEX[axis]]
+                    * model.spacing[AXIS_TO_INDEX[axis]],
+                ),
+                surface=self.surface,
+            )
         axis_index = AXIS_TO_INDEX[axis]
         strain = _strain_from_displacement(
             self.displacement,
@@ -40,6 +54,7 @@ class UniaxialCompression:
     axis: str = "z"
     strain: float = -0.01
     displacement: float | None = None
+    surface: SurfaceSelection | str | dict | None = None
 
     def generate(self, model: Model) -> BoundaryConditionSet:
         axis = _axis_token(self.axis)
@@ -51,7 +66,7 @@ class UniaxialCompression:
             strain=self.strain,
             height=height,
         )
-        node_sets = _top_bottom_sets(model.material_xyz, axis)
+        node_sets = _top_bottom_sets(model.material_xyz, axis, surface=self.surface)
         constraints: dict[tuple[int, int, int, int], float] = {}
 
         for node in node_sets["bottom"]:
@@ -60,7 +75,9 @@ class UniaxialCompression:
             constraints[(*node, axis_index)] = displacement
 
         coords = np.asarray([coord for coord in sorted(constraints)], dtype=np.uint16)
-        values = np.asarray([constraints[tuple(coord)] for coord in coords], dtype=np.float32)
+        values = np.asarray(
+            [constraints[tuple(coord)] for coord in coords], dtype=np.float32
+        )
         return BoundaryConditionSet(
             fixed_coordinates=coords,
             fixed_values=values,
@@ -72,11 +89,16 @@ class UniaxialCompression:
 class BodyWeightCompression:
     axis: str = "z"
     force_n: float = -1.0
+    surface: SurfaceSelection | str | dict | None = None
 
     def generate(self, model: Model) -> BoundaryConditionSet:
         axis = _axis_token(self.axis)
         axis_index = AXIS_TO_INDEX[axis]
-        base = ConstrainedAxialCompression(axis=axis, strain=0.0).generate(model)
+        base = ConstrainedAxialCompression(
+            axis=axis,
+            strain=0.0,
+            surface=self.surface,
+        ).generate(model)
         top = base.node_sets["top"]
         values = np.full((len(top),), float(self.force_n) / len(top), dtype=np.float32)
         coords = np.asarray([(*coord, axis_index) for coord in top], dtype=np.uint16)
@@ -94,6 +116,7 @@ class ConfinedCompression:
     axis: str = "z"
     strain: float = -0.01
     displacement: float | None = None
+    surface: SurfaceSelection | str | dict | None = None
 
     def generate(self, model: Model) -> BoundaryConditionSet:
         axis = _axis_token(self.axis)
@@ -102,6 +125,7 @@ class ConfinedCompression:
             axis=axis,
             strain=self.strain,
             displacement=self.displacement,
+            surface=self.surface,
         ).generate(model)
         constraints = {
             tuple(int(v) for v in coord): float(value)
@@ -116,7 +140,9 @@ class ConfinedCompression:
                     constraints[(*node, direction)] = 0.0
 
         coords = np.asarray([coord for coord in sorted(constraints)], dtype=np.uint16)
-        values = np.asarray([constraints[tuple(coord)] for coord in coords], dtype=np.float32)
+        values = np.asarray(
+            [constraints[tuple(coord)] for coord in coords], dtype=np.float32
+        )
         return BoundaryConditionSet(
             fixed_coordinates=coords,
             fixed_values=values,
@@ -133,6 +159,7 @@ class SimpleShear:
     strain: float = 0.01
     displacement: float | None = None
     vector: tuple[float, float] | None = None
+    surface: SurfaceSelection | str | dict | None = None
 
     def generate(self, model: Model) -> BoundaryConditionSet:
         axis = _axis_token(self.axis)
@@ -142,7 +169,11 @@ class SimpleShear:
         if axis_index == direction_index:
             raise ValueError("shear axis and direction must differ")
 
-        bc = ConstrainedAxialCompression(axis=axis, strain=0.0).generate(model)
+        bc = ConstrainedAxialCompression(
+            axis=axis,
+            strain=0.0,
+            surface=self.surface,
+        ).generate(model)
         height = model.material_xyz.shape[axis_index] * model.spacing[axis_index]
         fixed = bc.fixed_coordinates.copy()
         values = bc.fixed_values.copy()
@@ -213,7 +244,9 @@ class Torsion:
             constraints[(*node, axis_index)] = 0.0
 
         coords = np.asarray([coord for coord in sorted(constraints)], dtype=np.uint16)
-        values = np.asarray([constraints[tuple(coord)] for coord in coords], dtype=np.float32)
+        values = np.asarray(
+            [constraints[tuple(coord)] for coord in coords], dtype=np.float32
+        )
         return BoundaryConditionSet(
             fixed_coordinates=coords,
             fixed_values=values,
@@ -254,7 +287,9 @@ class Bending:
                 constraints[(*node, axis_index)] = sign * float(distance) * float(tilt)
 
         coords = np.asarray([coord for coord in sorted(constraints)], dtype=np.uint16)
-        values = np.asarray([constraints[tuple(coord)] for coord in coords], dtype=np.float32)
+        values = np.asarray(
+            [constraints[tuple(coord)] for coord in coords], dtype=np.float32
+        )
         return BoundaryConditionSet(
             fixed_coordinates=coords,
             fixed_values=values,
@@ -265,29 +300,38 @@ class Bending:
 def _top_bottom_sets(
     stiffness_xyz: np.ndarray,
     axis: str,
+    surface: SurfaceSelection | str | dict | None = None,
 ) -> dict[str, list[tuple[int, int, int]]]:
+    return top_bottom_surface_nodes(stiffness_xyz, axis=axis, selection=surface)
+
+
+def _constrained_axial_from_surfaces(
+    model: Model,
+    *,
+    axis: str,
+    displacement: float,
+    surface: SurfaceSelection | str | dict,
+) -> BoundaryConditionSet:
     axis_index = AXIS_TO_INDEX[axis]
-    dims = tuple(int(v) for v in stiffness_xyz.shape)
-    occupied = np.asarray(stiffness_xyz) > 0
     lateral_axes = [idx for idx in range(3) if idx != axis_index]
-    out = {"bottom": set(), "top": set()}
-    for label, element_axis_value, node_axis_value in (
-        ("bottom", 0, 0),
-        ("top", dims[axis_index] - 1, dims[axis_index]),
-    ):
-        surface = np.take(occupied, indices=element_axis_value, axis=axis_index)
-        for lateral_index in np.argwhere(surface):
-            base = [0, 0, 0]
-            base[axis_index] = node_axis_value
-            base[lateral_axes[0]] = int(lateral_index[0])
-            base[lateral_axes[1]] = int(lateral_index[1])
-            for du in (0, 1):
-                for dv in (0, 1):
-                    node = base.copy()
-                    node[lateral_axes[0]] += du
-                    node[lateral_axes[1]] += dv
-                    out[label].add(tuple(node))
-    return {name: sorted(coords) for name, coords in out.items()}
+    node_sets = _top_bottom_sets(model.material_xyz, axis, surface=surface)
+    constraints: dict[tuple[int, int, int, int], float] = {}
+    for node in node_sets["bottom"]:
+        for direction in range(3):
+            constraints[(*node, direction)] = 0.0
+    for node in node_sets["top"]:
+        for direction in lateral_axes:
+            constraints[(*node, direction)] = 0.0
+        constraints[(*node, axis_index)] = float(displacement)
+    coords = np.asarray([coord for coord in sorted(constraints)], dtype=np.uint16)
+    values = np.asarray(
+        [constraints[tuple(coord)] for coord in coords], dtype=np.float32
+    )
+    return BoundaryConditionSet(
+        fixed_coordinates=coords,
+        fixed_values=values,
+        node_sets=node_sets,
+    )
 
 
 def _active_nodes(stiffness_xyz: np.ndarray) -> set[tuple[int, int, int]]:
@@ -310,7 +354,9 @@ def _physical_node_position(
     node: tuple[int, int, int],
     spacing: tuple[float, float, float],
 ) -> tuple[float, float, float]:
-    return tuple((float(index) - 0.5) * float(step) for index, step in zip(node, spacing))
+    return tuple(
+        (float(index) - 0.5) * float(step) for index, step in zip(node, spacing)
+    )
 
 
 def _center_on_lateral_plane(

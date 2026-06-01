@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from collections import deque
 
 import numpy as np
 import SimpleITK as sitk
@@ -14,7 +15,9 @@ class ImageGrid:
     origin: tuple[float, float, float]
 
 
-def _triple(values: tuple[float, float, float] | list[float] | np.ndarray, name: str) -> tuple[float, float, float]:
+def _triple(
+    values: tuple[float, float, float] | list[float] | np.ndarray, name: str
+) -> tuple[float, float, float]:
     if len(values) != 3:
         raise ValueError(f"{name} must contain exactly 3 values")
     return tuple(float(v) for v in values)
@@ -56,9 +59,58 @@ def to_output_order(array_xyz: np.ndarray, *, array_order: str = "zyx") -> np.nd
 def export_scalar_image(grid: ImageGrid, output_path: str | Path) -> Path:
     out = Path(output_path).expanduser().resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
-    arr_zyx = np.asarray(to_output_order(grid.array_xyz, array_order="zyx"), dtype=np.float32)
+    arr_zyx = np.asarray(
+        to_output_order(grid.array_xyz, array_order="zyx"), dtype=np.float32
+    )
     img = sitk.GetImageFromArray(arr_zyx, isVector=False)
     img.SetSpacing(grid.spacing)
     img.SetOrigin(grid.origin)
     sitk.WriteImage(img, str(out))
+    return out
+
+
+def largest_connected_component(array, *, background: int | float = 0):
+    values = np.asarray(array)
+    mask = values != background
+    if mask.ndim != 3:
+        raise ValueError(f"array must be 3D, got shape {mask.shape}")
+    visited = np.zeros(mask.shape, dtype=bool)
+    best: list[tuple[int, int, int]] = []
+    dims = tuple(int(v) for v in mask.shape)
+    for start_array in np.argwhere(mask):
+        start = tuple(int(v) for v in start_array)
+        if visited[start]:
+            continue
+        component = _component(mask, visited, start, dims)
+        if len(component) > len(best):
+            best = component
+    out = np.zeros(values.shape, dtype=values.dtype)
+    if best:
+        coords = tuple(np.asarray(best, dtype=np.int64).T)
+        out[coords] = values[coords]
+    return out
+
+
+def _component(
+    mask: np.ndarray,
+    visited: np.ndarray,
+    start: tuple[int, int, int],
+    dims: tuple[int, int, int],
+) -> list[tuple[int, int, int]]:
+    queue: deque[tuple[int, int, int]] = deque([start])
+    visited[start] = True
+    out: list[tuple[int, int, int]] = []
+    while queue:
+        coord = queue.popleft()
+        out.append(coord)
+        for axis in range(3):
+            for offset in (-1, 1):
+                neighbor = list(coord)
+                neighbor[axis] += offset
+                if neighbor[axis] < 0 or neighbor[axis] >= dims[axis]:
+                    continue
+                token = tuple(neighbor)
+                if not visited[token] and mask[token]:
+                    visited[token] = True
+                    queue.append(token)
     return out

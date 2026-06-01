@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -10,6 +11,13 @@ import numpy as np
 class LinearIsotropicMaterials:
     youngs_modulus_mpa: dict[int, float]
     poisson_ratio: dict[int, float]
+
+
+@dataclass(frozen=True)
+class MaterialMap:
+    youngs_modulus_mpa: np.ndarray
+    poisson_ratio: float
+    metadata: dict[str, Any]
 
 
 def material_to_stiffness_gpa(material, *, material_unit: str = "MPa") -> np.ndarray:
@@ -30,6 +38,145 @@ def material_to_stiffness_gpa(material, *, material_unit: str = "MPa") -> np.nda
     return np.ascontiguousarray(out.astype(np.float32, copy=False))
 
 
+def labels_to_material_map(
+    labels,
+    table: LinearIsotropicMaterials,
+    *,
+    poisson_ratio: float | None = None,
+) -> MaterialMap:
+    label_array = np.asarray(labels)
+    youngs = np.zeros(label_array.shape, dtype=np.float64)
+    for label, value in table.youngs_modulus_mpa.items():
+        youngs[label_array == label] = float(value)
+    nu = _global_poisson_ratio(table.poisson_ratio.values(), override=poisson_ratio)
+    return MaterialMap(
+        youngs_modulus_mpa=youngs,
+        poisson_ratio=nu,
+        metadata={
+            "source": "labels",
+            "labels": sorted(int(v) for v in table.youngs_modulus_mpa),
+        },
+    )
+
+
+def density_to_material_map(
+    density,
+    *,
+    equation: str = "power",
+    poisson_ratio: float | dict[str, Any] = 0.3,
+    mask_threshold: float = 0.0,
+    minimum_e_mpa: float = 0.0,
+    maximum_e_mpa: float | None = None,
+    **parameters: Any,
+) -> MaterialMap:
+    density_array = np.asarray(density, dtype=np.float64)
+    if density_array.ndim != 3:
+        raise ValueError(f"density must be 3D, got shape {density_array.shape}")
+    if not np.all(np.isfinite(density_array)):
+        raise ValueError("density values must be finite")
+
+    equation_name = equation.strip().lower()
+    if equation_name in {"power", "homminga"}:
+        coefficient = float(
+            parameters.get("coefficient", parameters.get("e_max", 10000.0))
+        )
+        exponent = float(parameters.get("exponent", 1.7))
+        reference = float(
+            parameters.get("reference_density", parameters.get("rho_max", 1.0))
+        )
+        if np.isclose(reference, 0.0):
+            raise ValueError("reference_density must be non-zero")
+        youngs = coefficient * np.power(
+            np.maximum(density_array, 0.0) / reference, exponent
+        )
+    elif equation_name == "linear":
+        slope = float(parameters.get("slope", parameters.get("a", 1.0)))
+        intercept = float(parameters.get("intercept", parameters.get("b", 0.0)))
+        youngs = slope * density_array + intercept
+    elif equation_name == "polynomial":
+        coefficients = parameters.get("coefficients")
+        if coefficients is None:
+            raise ValueError("polynomial density mapping requires coefficients")
+        youngs = np.zeros(density_array.shape, dtype=np.float64)
+        for power, coefficient in enumerate(coefficients):
+            youngs += float(coefficient) * np.power(density_array, power)
+    else:
+        raise ValueError(
+            "density equation must be one of: power, homminga, linear, polynomial"
+        )
+
+    youngs = np.where(density_array > float(mask_threshold), youngs, 0.0)
+    youngs = np.maximum(youngs, float(minimum_e_mpa))
+    if maximum_e_mpa is not None:
+        youngs = np.minimum(youngs, float(maximum_e_mpa))
+    youngs = np.where(density_array > float(mask_threshold), youngs, 0.0)
+
+    nu = poisson_ratio_from_spec(poisson_ratio, density_array, active_mask=youngs > 0.0)
+    return MaterialMap(
+        youngs_modulus_mpa=youngs,
+        poisson_ratio=nu,
+        metadata={
+            "source": "density",
+            "equation": equation_name,
+            "mask_threshold": float(mask_threshold),
+        },
+    )
+
+
+def poisson_ratio_from_spec(
+    spec: float | dict[str, Any],
+    values,
+    *,
+    active_mask=None,
+) -> float:
+    if not isinstance(spec, dict):
+        return float(spec)
+    value_array = np.asarray(values, dtype=np.float64)
+    mask = (
+        np.asarray(active_mask) if active_mask is not None else np.isfinite(value_array)
+    )
+    if mask.shape != value_array.shape:
+        raise ValueError("active_mask must match values shape")
+    equation = str(spec.get("equation", spec.get("type", "constant"))).strip().lower()
+    if equation == "constant":
+        field = np.full(
+            value_array.shape, float(spec.get("value", spec.get("nu", 0.3)))
+        )
+    elif equation == "linear":
+        field = float(spec.get("slope", 0.0)) * value_array + float(
+            spec.get("intercept", spec.get("value", 0.3))
+        )
+    elif equation == "power":
+        coefficient = float(spec.get("coefficient", 0.3))
+        exponent = float(spec.get("exponent", 0.0))
+        reference = float(spec.get("reference", spec.get("reference_density", 1.0)))
+        if np.isclose(reference, 0.0):
+            raise ValueError("poisson reference density must be non-zero")
+        field = coefficient * np.power(
+            np.maximum(value_array, 0.0) / reference, exponent
+        )
+    else:
+        raise ValueError("poisson_ratio equation must be constant, linear, or power")
+
+    active = field[mask & np.isfinite(field)]
+    if active.size == 0:
+        return float(spec.get("fallback", 0.3))
+    reducer = str(spec.get("reduce", "mean")).strip().lower()
+    if reducer in {"mean", "volume_weighted_mean"}:
+        out = float(np.mean(active))
+    elif reducer == "median":
+        out = float(np.median(active))
+    elif reducer == "min":
+        out = float(np.min(active))
+    elif reducer == "max":
+        out = float(np.max(active))
+    else:
+        raise ValueError("poisson_ratio.reduce must be mean, median, min, or max")
+    if not 0.0 <= out < 0.5:
+        raise ValueError(f"reduced poisson_ratio must be in [0, 0.5), got {out}")
+    return out
+
+
 def parse_linear_isotropic_materials(text: str) -> LinearIsotropicMaterials:
     blocks = re.finditer(
         r"(?P<name>[A-Za-z0-9_]+):\s*\n\s*Type:\s*LinearIsotropic\s*\n\s*E:\s*(?P<E>[-+0-9.eE]+)\s*\n\s*nu:\s*(?P<nu>[-+0-9.eE]+)",
@@ -37,7 +184,10 @@ def parse_linear_isotropic_materials(text: str) -> LinearIsotropicMaterials:
     )
     definitions: dict[str, tuple[float, float]] = {}
     for match in blocks:
-        definitions[match.group("name")] = (float(match.group("E")), float(match.group("nu")))
+        definitions[match.group("name")] = (
+            float(match.group("E")),
+            float(match.group("nu")),
+        )
     if not definitions:
         raise ValueError("No LinearIsotropic material definitions found")
 
@@ -65,3 +215,15 @@ def parse_linear_isotropic_materials(text: str) -> LinearIsotropicMaterials:
     if not youngs:
         raise ValueError("MaterialTable contains no numeric labels")
     return LinearIsotropicMaterials(youngs_modulus_mpa=youngs, poisson_ratio=poisson)
+
+
+def _global_poisson_ratio(values, *, override: float | None) -> float:
+    if override is not None:
+        return float(override)
+    unique = sorted({round(float(value), 12) for value in values})
+    if len(unique) > 1:
+        raise ValueError(
+            "native ParOSol currently supports one global Poisson's ratio; "
+            f"material table contains multiple values: {unique}"
+        )
+    return float(unique[0])

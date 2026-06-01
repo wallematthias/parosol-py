@@ -104,7 +104,9 @@ def _all_corner_nodes(mask: np.ndarray) -> set[Node]:
     nodes: set[Node] = set()
     for voxel in np.argwhere(mask):
         for offset in itertools.product((0, 1), repeat=3):
-            nodes.add(tuple(int(v) + int(o) for v, o in zip(voxel, offset, strict=True)))
+            nodes.add(
+                tuple(int(v) + int(o) for v, o in zip(voxel, offset, strict=True))
+            )
     return nodes
 
 
@@ -117,7 +119,9 @@ def _surface_nodes(mask: np.ndarray, *, neighbor_mask: np.ndarray) -> set[Node]:
             for side in (-1, 1):
                 neighbor = list(voxel)
                 neighbor[axis] += side
-                outside = any(neighbor[idx] < 0 or neighbor[idx] >= dims[idx] for idx in range(3))
+                outside = any(
+                    neighbor[idx] < 0 or neighbor[idx] >= dims[idx] for idx in range(3)
+                )
                 exposed = outside or not bool(neighbor_mask[tuple(neighbor)])
                 if exposed:
                     node_axis_value = voxel[axis] + (1 if side > 0 else 0)
@@ -140,7 +144,9 @@ def _interface_nodes(mask: np.ndarray, *, material_mask: np.ndarray) -> set[Node
             for side in (-1, 1):
                 neighbor = list(voxel)
                 neighbor[axis] += side
-                outside = any(neighbor[idx] < 0 or neighbor[idx] >= dims[idx] for idx in range(3))
+                outside = any(
+                    neighbor[idx] < 0 or neighbor[idx] >= dims[idx] for idx in range(3)
+                )
                 if outside:
                     continue
                 neighbor_tuple = tuple(neighbor)

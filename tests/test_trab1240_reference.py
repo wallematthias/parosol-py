@@ -20,7 +20,9 @@ def test_trab1240_fixture_is_connected_component_filtered():
 
     assert labels.shape == (126, 108, 108)
     assert labels.dtype == np.uint8
-    assert int(np.count_nonzero(labels)) == reference["source"]["filtered_active_voxels"]
+    assert (
+        int(np.count_nonzero(labels)) == reference["source"]["filtered_active_voxels"]
+    )
     assert spacing == pytest.approx(tuple(reference["source"]["spacing_xyz"]))
     assert reference["source"]["raw_active_voxels"] > int(np.count_nonzero(labels))
 
@@ -65,7 +67,11 @@ def test_trab1240_axial_z_matches_reference(tmp_path: Path):
                     "spacing": [z_spacing, z_spacing, z_spacing],
                 },
                 "materials": {"file": str(FIXTURE_ROOT / "material_table.yaml")},
-                "load_case": {"type": "constrained_axial", "axis": "z", "strain": -0.01},
+                "load_case": {
+                    "type": "constrained_axial",
+                    "axis": "z",
+                    "strain": -0.01,
+                },
                 "solver": {
                     "outputs": ["sed"],
                     "convergence_tolerance": 1e-6,

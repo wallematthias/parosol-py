@@ -38,9 +38,13 @@ def write_parosol_input(
     if np.any(stiffness < 0):
         raise ValueError("stiffness_gpa_xyz must contain only non-negative values")
     if not np.all(np.isfinite(coords)):
-        raise ValueError("fixed_displacement_coordinates must contain only finite values")
+        raise ValueError(
+            "fixed_displacement_coordinates must contain only finite values"
+        )
     if np.any(coords < 0):
-        raise ValueError("fixed_displacement_coordinates must contain only non-negative values")
+        raise ValueError(
+            "fixed_displacement_coordinates must contain only non-negative values"
+        )
     if not np.all(coords == np.floor(coords)):
         raise ValueError("fixed_displacement_coordinates must contain integer values")
     if np.any(coords[:, :3] > MAX_NATIVE_COORDINATE):
@@ -48,13 +52,17 @@ def write_parosol_input(
             "fixed_displacement_coordinates exceed native int16 coordinate range"
         )
     if not np.all(np.isin(coords[:, 3], [0, 1, 2])):
-        raise ValueError("fixed_displacement_coordinates direction must be one of {0, 1, 2}")
+        raise ValueError(
+            "fixed_displacement_coordinates direction must be one of {0, 1, 2}"
+        )
     if loaded_values.shape != (loaded_coords.shape[0],):
         raise ValueError("loaded_node_values must have shape (n,)")
     if not np.all(np.isfinite(loaded_coords)):
         raise ValueError("loaded_node_coordinates must contain only finite values")
     if np.any(loaded_coords < 0):
-        raise ValueError("loaded_node_coordinates must contain only non-negative values")
+        raise ValueError(
+            "loaded_node_coordinates must contain only non-negative values"
+        )
     if not np.all(loaded_coords == np.floor(loaded_coords)):
         raise ValueError("loaded_node_coordinates must contain integer values")
     if np.any(loaded_coords[:, :3] > MAX_NATIVE_COORDINATE):

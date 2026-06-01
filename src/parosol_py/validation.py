@@ -39,7 +39,9 @@ def compare_field(
         mean_abs_error = float(np.mean(abs_error))
 
     return FieldComparison(
-        passed=bool(np.allclose(reference_array, candidate_array, rtol=rtol, atol=atol)),
+        passed=bool(
+            np.allclose(reference_array, candidate_array, rtol=rtol, atol=atol)
+        ),
         max_abs_error=max_abs_error,
         mean_abs_error=mean_abs_error,
         rtol=rtol,

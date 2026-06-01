@@ -136,21 +136,37 @@ def test_confined_compression_fixes_top_and_bottom_lateral_motion():
     assert np.allclose(bottom_values, 0.0)
 
 
+def test_constrained_axial_can_use_visible_uneven_surfaces():
+    material = np.zeros((2, 2, 4), dtype=np.float32)
+    material[0, 0, 1:3] = 1.0
+    material[1, 0, 0:4] = 1.0
+    model = Model.from_array(material, spacing=(1, 1, 1), array_order="xyz")
+
+    bc = ConstrainedAxialCompression(
+        axis="z",
+        displacement=-0.2,
+        surface={"mode": "visible"},
+    ).generate(model)
+
+    assert (0, 0, 3) in bc.node_sets["top"]
+    assert (1, 0, 4) in bc.node_sets["top"]
+    assert np.any(
+        (bc.fixed_coordinates[:, 0] == 0)
+        & (bc.fixed_coordinates[:, 2] == 3)
+        & (bc.fixed_coordinates[:, 3] == 2)
+        & np.isclose(bc.fixed_values, -0.2)
+    )
+
+
 def test_torsion_rotates_top_surface_around_center():
     model = Model.from_array(np.ones((3, 3, 3)), spacing=(1, 1, 1))
 
     bc = Torsion(axis="z", twist_angle_degrees=1.0).generate(model)
 
     node = (0, 0, 3)
-    x_value = bc.fixed_values[
-        np.all(bc.fixed_coordinates == (*node, 0), axis=1)
-    ][0]
-    y_value = bc.fixed_values[
-        np.all(bc.fixed_coordinates == (*node, 1), axis=1)
-    ][0]
-    z_value = bc.fixed_values[
-        np.all(bc.fixed_coordinates == (*node, 2), axis=1)
-    ][0]
+    x_value = bc.fixed_values[np.all(bc.fixed_coordinates == (*node, 0), axis=1)][0]
+    y_value = bc.fixed_values[np.all(bc.fixed_coordinates == (*node, 1), axis=1)][0]
+    z_value = bc.fixed_values[np.all(bc.fixed_coordinates == (*node, 2), axis=1)][0]
     assert x_value == pytest.approx(0.0264070667)
     assert y_value == pytest.approx(-0.0259501524)
     assert z_value == pytest.approx(0.0)
@@ -165,11 +181,9 @@ def test_bending_tilts_top_and_bottom_surfaces_in_opposing_directions():
         neutral_axis_angle_degrees=90.0,
     ).generate(model)
 
-    top_left = bc.fixed_values[
-        np.all(bc.fixed_coordinates == (0, 0, 3, 2), axis=1)
-    ][0]
-    bottom_left = bc.fixed_values[
-        np.all(bc.fixed_coordinates == (0, 0, 0, 2), axis=1)
-    ][0]
+    top_left = bc.fixed_values[np.all(bc.fixed_coordinates == (0, 0, 3, 2), axis=1)][0]
+    bottom_left = bc.fixed_values[np.all(bc.fixed_coordinates == (0, 0, 0, 2), axis=1)][
+        0
+    ]
     assert top_left == pytest.approx(-0.0130903013)
     assert bottom_left == pytest.approx(0.0130903013)

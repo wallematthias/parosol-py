@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 import SimpleITK as sitk
 
 from parosol_py.cli import main
@@ -24,7 +25,11 @@ def test_run_case_config_dry_run_writes_summary_json(tmp_path: Path):
                     "image_type": "material_mpa",
                     "spacing": [1.0, 1.0, 1.0],
                 },
-                "load_case": {"type": "constrained_axial", "axis": "z", "strain": -0.01},
+                "load_case": {
+                    "type": "constrained_axial",
+                    "axis": "z",
+                    "strain": -0.01,
+                },
                 "solver": {"outputs": ["sed"], "tolerance": 1e-6, "level": 2},
                 "output": {"summary": "run/cube_summary.json", "dry_run": True},
             }
@@ -290,6 +295,8 @@ def test_run_case_config_builds_shear_load_case(monkeypatch, tmp_path: Path):
     run_case_config(config_path)
 
     bc = captured["boundary_conditions"]
+    assert captured["load_case_type"] == "shear"
+    assert captured["load_direction"] == "x"
     assert np.any(
         (bc.fixed_coordinates[:, 2] == 2)
         & (bc.fixed_coordinates[:, 3] == 0)
@@ -343,6 +350,145 @@ def test_run_case_config_builds_shear_vector_load_case(monkeypatch, tmp_path: Pa
         & (bc.fixed_coordinates[:, 3] == 1)
         & np.isclose(bc.fixed_values, 0.06)
     )
+
+
+def test_run_case_config_maps_density_input_with_poisson_equation(
+    monkeypatch, tmp_path: Path
+):
+    density = np.array([[[0.0, 500.0, 1000.0]]])
+    np.save(tmp_path / "density.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.npy",
+                    "image_type": "density",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "density": {
+                        "equation": "power",
+                        "coefficient": 10000,
+                        "exponent": 2,
+                        "reference_density": 1000,
+                    },
+                    "poisson_ratio": {
+                        "equation": "linear",
+                        "slope": 0.0001,
+                        "intercept": 0.2,
+                    },
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((3, 1, 1), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    assert captured["material"].tolist() == [[[0.0, 2500.0, 10000.0]]]
+    assert captured["poisson_ratio"] == pytest.approx(0.275)
+
+
+def test_run_case_config_uses_smart_visible_surfaces(monkeypatch, tmp_path: Path):
+    material = np.zeros((4, 2, 2), dtype=np.float64)
+    material[1:3, 0, 0] = 1000.0
+    material[0:4, 0, 1] = 1000.0
+    np.save(tmp_path / "material.npy", material)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "load_case": {
+                    "type": "constrained_axial",
+                    "axis": "z",
+                    "displacement": -0.2,
+                    "surface": {"mode": "smart", "depth": "auto"},
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((2, 2, 4), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    bc = captured["boundary_conditions"]
+    assert (0, 0, 3) in bc.node_sets["top"]
+    assert (1, 0, 4) in bc.node_sets["top"]
+
+
+def test_run_case_config_can_export_boundary_conditions(monkeypatch, tmp_path: Path):
+    material = np.ones((2, 2, 2), dtype=np.float64) * 1000.0
+    np.save(tmp_path / "material.npy", material)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "load_case": {
+                    "type": "uniaxial",
+                    "axis": "z",
+                    "strain": -0.01,
+                },
+                "output": {
+                    "summary": "summary.json",
+                    "dry_run": True,
+                    "export_boundary_conditions": True,
+                    "boundary_conditions": "bc.json",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_solve(**kwargs):
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((2, 2, 2), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    exported = json.loads((tmp_path / "bc.json").read_text(encoding="utf-8"))
+    assert exported["fixed_coordinates"]
+    assert "top" in exported["node_sets"]
 
 
 def test_run_case_config_builds_absolute_displacement_load_case(

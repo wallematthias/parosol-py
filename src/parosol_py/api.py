@@ -59,6 +59,10 @@ def solve(
     test: str = "axial",
     test_axis: str = "z",
     strain: float = -0.01,
+    load_case_type: str = "constrained_axial",
+    load_direction: str | None = None,
+    rotation_degrees: float | None = None,
+    load_case_center: tuple[float, float] | None = None,
     outputs: tuple[str, ...] = ("sed",),
     tolerance: float = 1e-6,
     level: int = 6,
@@ -175,6 +179,10 @@ def solve(
         axis=test_axis,
         strain=strain,
         voxel_size_mm=float(grid.spacing[0]),
+        load_case_type=load_case_type,
+        load_direction=load_direction,
+        rotation_degrees=rotation_degrees,
+        load_case_center=load_case_center,
         failure_criterion=failure_criterion,
         critical_strain=critical_strain,
         critical_volume_percent=critical_volume_percent,
@@ -242,4 +250,3 @@ def _native_scalar_field(
     if array.ndim == 2 and array.shape[1] == 1 and array.shape[0] in expected_sizes:
         return array.reshape(-1)
     return None
-

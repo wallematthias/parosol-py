@@ -31,6 +31,8 @@ def test_parse_legacy_outputs_to_compact_json(tmp_path: Path):
     assert pistoia["factor"] == pytest.approx(0.62004)
     assert pistoia["failure_load"]["fz"] == pytest.approx(-4741.0)
 
-    out = write_summary_json(tmp_path / "summary.json", {"analysis": analysis, "pistoia": pistoia})
+    out = write_summary_json(
+        tmp_path / "summary.json", {"analysis": analysis, "pistoia": pistoia}
+    )
     loaded = json.loads(out.read_text(encoding="utf-8"))
     assert loaded["pistoia"]["axial_stiffness"]["z"] == pytest.approx(74985.0)

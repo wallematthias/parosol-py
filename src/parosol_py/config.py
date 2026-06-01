@@ -14,7 +14,7 @@ except ModuleNotFoundError:
 
 from .api import SolveResult, solve, solve_aim
 from .core import Model
-from .images import normalize_array
+from .images import largest_connected_component, normalize_array
 from .load_cases import (
     Bending,
     BodyWeightCompression,
@@ -24,7 +24,12 @@ from .load_cases import (
     Torsion,
     UniaxialCompression,
 )
-from .materials import parse_linear_isotropic_materials
+from .materials import (
+    density_to_material_map,
+    labels_to_material_map,
+    parse_linear_isotropic_materials,
+    poisson_ratio_from_spec,
+)
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .profiles import get_output_profile, get_solver_profile
 from .reports import solve_summary_dict, write_summary_json
@@ -64,6 +69,7 @@ def run_case_config(
     load_case_cfg = _section(config, "load_case")
     solver_cfg = _section(config, "solver")
     output_cfg = _section(config, "output")
+    preprocessing_cfg = _section(config, "preprocessing")
     failure_cfg = _section(config, "failure")
     solver_profile = get_solver_profile(config.get("solver_profile"))
     output_profile = get_output_profile(config.get("output_profile"))
@@ -94,9 +100,7 @@ def run_case_config(
     spacing = _spacing(input_cfg, image_path=image_path)
     origin = _origin(input_cfg, image_path=image_path)
     poisson_ratio = _poisson_ratio(
-        material_cfg,
-        image_type=image_type,
-        base_dir=base_dir,
+        material_cfg, image_type=image_type, base_dir=base_dir
     )
 
     common = {
@@ -109,6 +113,12 @@ def run_case_config(
         "strain": float(
             load_case_cfg.get("strain", load_case_cfg.get("normal_strain", -0.01))
         ),
+        "load_case_type": str(load_case_cfg.get("type", "constrained_axial"))
+        .strip()
+        .lower(),
+        "load_direction": load_case_cfg.get("direction"),
+        "rotation_degrees": _load_case_rotation_degrees(load_case_cfg),
+        "load_case_center": _load_case_center(load_case_cfg),
         "outputs": outputs,
         "tolerance": float(
             solver_cfg.get(
@@ -123,7 +133,9 @@ def run_case_config(
                 solver_cfg.get("processes", solver_profile.mpi_processes),
             )
         ),
-        "mpi_launcher": str(solver_cfg.get("mpi_launcher", solver_profile.mpi_launcher)),
+        "mpi_launcher": str(
+            solver_cfg.get("mpi_launcher", solver_profile.mpi_launcher)
+        ),
         "work_dir": run_dir,
         "export_dir": export_dir if export_fields and not dry else None,
         "failure_criterion": str(failure_cfg.get("criterion", "pistoia")),
@@ -146,12 +158,16 @@ def run_case_config(
             )
         result = solve_aim(image_path, **common)
     else:
-        material = _load_material_array(
+        material, mapped_poisson_ratio = _load_material_array(
             image_path,
             image_type=image_type,
             material_cfg=material_cfg,
             base_dir=base_dir,
+            fallback_poisson_ratio=poisson_ratio,
         )
+        if _connectivity_filter_enabled(preprocessing_cfg):
+            material = largest_connected_component(material)
+        common["poisson_ratio"] = mapped_poisson_ratio
         common["strain"] = _effective_strain_for_displacement(
             material,
             spacing=spacing,
@@ -171,9 +187,18 @@ def run_case_config(
         )
         if boundary_conditions is not None:
             common["boundary_conditions"] = boundary_conditions
+            if output_cfg.get("export_boundary_conditions", False):
+                bc_path = _resolve_path(
+                    output_cfg.get(
+                        "boundary_conditions",
+                        run_dir / f"{case_name}_boundary_conditions.json",
+                    ),
+                    base_dir=base_dir,
+                )
+                write_summary_json(bc_path, boundary_conditions.to_dict())
         result = solve(material=material, array_order="zyx", **common)
 
-    load_type = str(load_case_cfg.get("type", "axial")).strip().lower()
+    load_type = str(load_case_cfg.get("type", "constrained_axial")).strip().lower()
     extra: dict[str, Any] = {
         "case": {"name": case_name},
         "load_case": {
@@ -204,7 +229,8 @@ def _boundary_conditions_from_config(
     load_case_cfg: dict[str, Any],
     base_dir: Path,
 ):
-    load_type = str(load_case_cfg.get("type", "axial")).strip().lower()
+    load_type = str(load_case_cfg.get("type", "constrained_axial")).strip().lower()
+    surface = _load_case_surface(load_case_cfg)
     if load_type in {"axial", "compression", "constrained_axial", "plate_compression"}:
         if nodeset_cfg:
             raise ValueError(
@@ -227,6 +253,23 @@ def _boundary_conditions_from_config(
                     )
                 ),
                 displacement=displacement,
+                surface=surface,
+            ).generate(model)
+        if surface is not None:
+            model = Model.from_array(
+                material_zyx,
+                spacing=spacing,
+                origin=origin,
+                array_order=array_order,
+            )
+            return ConstrainedAxialCompression(
+                axis=str(load_case_cfg.get("axis", "z")),
+                strain=float(
+                    load_case_cfg.get(
+                        "strain", load_case_cfg.get("normal_strain", -0.01)
+                    )
+                ),
+                surface=surface,
             ).generate(model)
         return None
     if load_type in {"uniaxial", "uniaxial_compression"}:
@@ -247,6 +290,7 @@ def _boundary_conditions_from_config(
                 load_case_cfg.get("strain", load_case_cfg.get("normal_strain", -0.01))
             ),
             displacement=_load_case_displacement(load_case_cfg),
+            surface=surface,
         ).generate(model)
     if load_type in {"shear", "simple_shear", "directional_shear"}:
         if nodeset_cfg:
@@ -265,6 +309,7 @@ def _boundary_conditions_from_config(
             strain=float(load_case_cfg.get("strain", 0.01)),
             displacement=_load_case_displacement(load_case_cfg),
             vector=_load_case_vector(load_case_cfg),
+            surface=surface,
         ).generate(model)
     if load_type in {"body_weight", "force", "force_compression"}:
         if nodeset_cfg:
@@ -285,6 +330,7 @@ def _boundary_conditions_from_config(
         return BodyWeightCompression(
             axis=str(load_case_cfg.get("axis", "z")),
             force_n=float(force),
+            surface=surface,
         ).generate(model)
     if load_type in {"torsion", "twist"}:
         if nodeset_cfg:
@@ -354,6 +400,7 @@ def _boundary_conditions_from_config(
                 load_case_cfg.get("strain", load_case_cfg.get("normal_strain", -0.01))
             ),
             displacement=_load_case_displacement(load_case_cfg),
+            surface=surface,
         ).generate(model)
     if load_type not in {"nodeset", "custom"}:
         raise NotImplementedError(
@@ -414,6 +461,40 @@ def _load_case_center(load_case_cfg: dict[str, Any]) -> tuple[float, float] | No
     if len(value) != 2:
         raise ValueError("load_case.center must contain exactly two values")
     return tuple(float(v) for v in value)
+
+
+def _load_case_rotation_degrees(load_case_cfg: dict[str, Any]) -> float | None:
+    load_type = str(load_case_cfg.get("type", "")).strip().lower()
+    if load_type in {"torsion", "twist"}:
+        return float(
+            load_case_cfg.get(
+                "twist_angle_degrees",
+                load_case_cfg.get("twist_angle", load_case_cfg.get("angle", 1.0)),
+            )
+        )
+    if load_type in {"bending", "bend"}:
+        return float(
+            load_case_cfg.get(
+                "bending_angle_degrees",
+                load_case_cfg.get("bending_angle", load_case_cfg.get("angle", 1.0)),
+            )
+        )
+    return None
+
+
+def _load_case_surface(load_case_cfg: dict[str, Any]):
+    surface = load_case_cfg.get("surface", load_case_cfg.get("surfaces"))
+    if surface is None:
+        return None
+    if isinstance(surface, dict) and ("top" in surface or "bottom" in surface):
+        common = {
+            key: value for key, value in surface.items() if key not in {"top", "bottom"}
+        }
+        top = surface.get("top", {})
+        if isinstance(top, dict):
+            common.update(top)
+        return common
+    return surface
 
 
 def _effective_strain_for_displacement(
@@ -485,15 +566,48 @@ def _load_material_array(
     image_type: str,
     material_cfg: dict[str, Any],
     base_dir: Path,
-) -> np.ndarray:
+    fallback_poisson_ratio: float,
+) -> tuple[np.ndarray, float]:
     array_zyx = _read_image_array_zyx(image_path)
     if image_type in {"material_mpa", "mpa", "material"}:
-        return array_zyx.astype(np.float64, copy=False)
+        return array_zyx.astype(np.float64, copy=False), _continuous_poisson_ratio(
+            material_cfg,
+            array_zyx,
+            fallback=fallback_poisson_ratio,
+        )
     if image_type in {"material_gpa", "gpa"}:
-        return array_zyx.astype(np.float64, copy=False)
+        return array_zyx.astype(np.float64, copy=False), _continuous_poisson_ratio(
+            material_cfg,
+            array_zyx,
+            fallback=fallback_poisson_ratio,
+        )
+    if image_type in {"density", "density_mg_ha", "density_mgcm3", "rho"}:
+        density_cfg = _section(material_cfg, "density")
+        mapped = density_to_material_map(
+            array_zyx,
+            equation=str(density_cfg.get("equation", "power")),
+            poisson_ratio=material_cfg.get(
+                "poisson_ratio", material_cfg.get("nu", 0.3)
+            ),
+            mask_threshold=float(density_cfg.get("mask_threshold", 0.0)),
+            minimum_e_mpa=float(density_cfg.get("minimum_e_mpa", 0.0)),
+            maximum_e_mpa=_optional_float(density_cfg.get("maximum_e_mpa")),
+            **{
+                key: value
+                for key, value in density_cfg.items()
+                if key
+                not in {
+                    "equation",
+                    "mask_threshold",
+                    "minimum_e_mpa",
+                    "maximum_e_mpa",
+                }
+            },
+        )
+        return mapped.youngs_modulus_mpa, mapped.poisson_ratio
     if image_type not in {"material_labels", "labels", "segmentation"}:
         raise ValueError(
-            "input.image_type must be material_mpa, material_gpa, or material_labels"
+            "input.image_type must be material_mpa, material_gpa, material_labels, or density"
         )
 
     materials_file = material_cfg.get("file")
@@ -504,11 +618,31 @@ def _load_material_array(
     table = parse_linear_isotropic_materials(
         _resolve_path(materials_file, base_dir=base_dir).read_text(encoding="utf-8")
     )
-    labels = np.asarray(array_zyx)
-    out = np.zeros(labels.shape, dtype=np.float64)
-    for label, youngs_mpa in table.youngs_modulus_mpa.items():
-        out[labels == label] = float(youngs_mpa)
-    return out
+    mapped = labels_to_material_map(
+        array_zyx,
+        table,
+        poisson_ratio=material_cfg.get("poisson_ratio", material_cfg.get("nu")),
+    )
+    return mapped.youngs_modulus_mpa, mapped.poisson_ratio
+
+
+def _continuous_poisson_ratio(
+    material_cfg: dict[str, Any],
+    values: np.ndarray,
+    *,
+    fallback: float,
+) -> float:
+    spec = material_cfg.get("poisson_ratio", material_cfg.get("nu"))
+    if spec is None:
+        return fallback
+    return poisson_ratio_from_spec(spec, values, active_mask=np.asarray(values) > 0)
+
+
+def _connectivity_filter_enabled(preprocessing_cfg: dict[str, Any]) -> bool:
+    value = preprocessing_cfg.get("connectivity_filter", False)
+    if isinstance(value, str):
+        return value.strip().lower() in {"on", "true", "yes", "largest"}
+    return bool(value)
 
 
 def _poisson_ratio(
@@ -519,6 +653,12 @@ def _poisson_ratio(
 ) -> float:
     explicit = material_cfg.get("poisson_ratio", material_cfg.get("nu"))
     if explicit is not None:
+        if isinstance(explicit, dict):
+            return float(
+                explicit.get(
+                    "fallback", explicit.get("value", explicit.get("intercept", 0.3))
+                )
+            )
         return float(explicit)
     if image_type not in {"material_labels", "labels", "segmentation"}:
         return 0.3

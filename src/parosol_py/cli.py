@@ -24,8 +24,14 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run a ParOSol case config")
-    run_parser.add_argument("config", help="Path to a .yaml, .toml, or .json case config")
-    run_parser.add_argument("--dry-run", action="store_true", help="Write inputs/summary without launching ParOSol")
+    run_parser.add_argument(
+        "config", help="Path to a .yaml, .toml, or .json case config"
+    )
+    run_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Write inputs/summary without launching ParOSol",
+    )
     run_parser.add_argument("--work-dir", help="Override the configured work directory")
     run_parser.set_defaults(func=_run)
 
@@ -35,7 +41,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     summary_parser.add_argument("--analysis", help="Path to old *_analysis.txt")
     summary_parser.add_argument("--pistoia", help="Path to old *_pistoia.txt")
-    summary_parser.add_argument("-o", "--output", required=True, help="Output JSON path")
+    summary_parser.add_argument(
+        "-o", "--output", required=True, help="Output JSON path"
+    )
     summary_parser.set_defaults(func=_summarize_legacy)
 
     template_parser = subparsers.add_parser(
@@ -52,7 +60,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _run(args: argparse.Namespace) -> int:
-    result = run_case_config(args.config, dry_run=True if args.dry_run else None, work_dir=args.work_dir)
+    result = run_case_config(
+        args.config, dry_run=True if args.dry_run else None, work_dir=args.work_dir
+    )
     print(f"input: {result.input_file}")
     if result.exported:
         for name, path in sorted(result.exported.items()):
@@ -63,7 +73,9 @@ def _run(args: argparse.Namespace) -> int:
 def _summarize_legacy(args: argparse.Namespace) -> int:
     summary = {"reference": {}}
     if args.analysis:
-        summary["reference"]["analysis"] = parse_legacy_analysis_file(Path(args.analysis))
+        summary["reference"]["analysis"] = parse_legacy_analysis_file(
+            Path(args.analysis)
+        )
     if args.pistoia:
         summary["reference"]["pistoia"] = parse_pistoia_file(Path(args.pistoia))
     write_summary_json(args.output, summary)

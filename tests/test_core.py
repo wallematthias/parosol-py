@@ -18,7 +18,9 @@ def test_model_normalizes_material_to_xyz_and_tracks_spacing():
     assert model.spacing == (0.061, 0.061, 0.061)
     assert model.origin == (1.0, 2.0, 3.0)
     assert model.material_unit == "MPa"
-    np.testing.assert_array_equal(model.material_xyz, np.transpose(material_zyx, (2, 1, 0)))
+    np.testing.assert_array_equal(
+        model.material_xyz, np.transpose(material_zyx, (2, 1, 0))
+    )
 
 
 def test_boundary_condition_set_serializes_fixed_and_loaded_nodes():
