@@ -34,23 +34,26 @@ python -m pip install parosol-py --extra-index-url https://<private-index>
 ```
 
 For private distribution from the private GitHub repository, authenticate with
-the GitHub CLI, download all wheels from the release, and let `pip` choose the
-wheel matching the current Python version and operating system:
+the GitHub CLI and use the helper script:
 
 ```bash
 gh auth login
+git clone git@github.com:wallematthias/parosol-py.git
+cd parosol-py
+python scripts/install_prebuilt.py
+```
+
+The helper downloads all release wheels and lets `pip` choose the matching wheel
+for the active Python/platform. This is different from `python -m pip install -e
+.[dev]`, which is an editable source install and compiles the native solver
+locally.
+
+Manual equivalent:
+
+```bash
 tmpdir="$(mktemp -d)"
 gh release download --repo wallematthias/parosol-py --pattern "*.whl" --dir "$tmpdir"
 python -m pip install --no-index --find-links "$tmpdir" parosol-py
-```
-
-On Windows PowerShell:
-
-```powershell
-gh auth login
-$wheelDir = New-Item -ItemType Directory -Path ([System.IO.Path]::GetTempPath()) -Name "parosol-wheels-$([guid]::NewGuid())"
-gh release download --repo wallematthias/parosol-py --pattern "*.whl" --dir $wheelDir.FullName
-python -m pip install --no-index --find-links $wheelDir.FullName parosol-py
 ```
 
 The repository currently builds wheel artifacts for:
