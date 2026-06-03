@@ -35,7 +35,7 @@ from .modeling import build_model
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .paths import suffix_text
 from .profiles import get_output_profile, get_solver_profile
-from .reports import solve_summary_dict, write_summary_json
+from .reports import compact_summary_dict, solve_summary_dict, write_summary_json
 from .set_export import write_element_sets, write_node_sets
 from .visualization import dense_scalar_field, write_case_overview
 
@@ -92,8 +92,11 @@ def run_case_config(
     export_dir = _resolve_path(output_cfg.get("fields_dir", run_dir), base_dir=base_dir)
     output_fields = _output_fields(output_cfg, output_profile)
     export_fields = bool(output_cfg.get("export_fields", output_profile.export_fields))
-    summary_path = _resolve_path(
-        output_cfg.get("summary", run_dir / f"{case_name}_summary.json"),
+    result_path = _resolve_path(
+        output_cfg.get(
+            "result",
+            output_cfg.get("summary", run_dir / "result.json"),
+        ),
         base_dir=base_dir,
     )
 
@@ -337,8 +340,18 @@ def run_case_config(
     if built_model is not None:
         extra["model"] = _model_summary(built_model)
     extra["quality"] = _quality_config(solver_cfg)
+    summary_path = _resolve_path(
+        output_cfg.get("run_summary", result_path.with_name("summary.json")),
+        base_dir=base_dir,
+    )
     summary = solve_summary_dict(result, extra=extra)
+    exported = summary.setdefault("outputs", {}).setdefault("exported", {})
+    exported["result"] = str(result_path)
+    exported["summary"] = str(summary_path)
     write_summary_json(summary_path, summary)
+    write_summary_json(result_path, compact_summary_dict(summary))
+    result.exported["result"] = result_path
+    result.exported["summary"] = summary_path
     return result
 
 

@@ -53,7 +53,8 @@ The preferred workflow should stay small:
 3. Run `parosol image.AIM --profile XtremeCTII --output out`, or
    `parosol density.nii.gz --mask seg.nii.gz --profile vertebra --output out`
    for model-building profiles.
-4. Read `summary.json` and optional `.nii.gz` fields.
+4. Read `result.json` and optional `.nii.gz` fields; use `summary.json` for the
+   fuller run record and diagnostics.
 
 Advanced users should be able to build the same model through Python objects,
 inspect generated boundary conditions, and batch over profiles without changing

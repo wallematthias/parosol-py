@@ -52,7 +52,7 @@ environment = { PATH="/usr/lib64/openmpi/bin:/usr/lib/openmpi/bin:$PATH", LD_LIB
 
 [tool.cibuildwheel.macos]
 before-all = "brew install eigen hdf5 open-mpi"
-environment = { CMAKE_PREFIX_PATH="$(brew --prefix eigen):$(brew --prefix hdf5):$(brew --prefix open-mpi)", MACOSX_DEPLOYMENT_TARGET="15.0" }
+environment = { CMAKE_PREFIX_PATH="$(brew --prefix eigen):$(brew --prefix hdf5):$(brew --prefix open-mpi)", MACOSX_DEPLOYMENT_TARGET="13.0" }
 repair-wheel-command = "python -m pip install delocate && delocate-wheel --require-archs {delocate_archs} -w {dest_dir} {wheel}"
 
 [tool.cibuildwheel.windows]

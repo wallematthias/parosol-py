@@ -27,6 +27,22 @@ is an editable source install and compiles the native solver locally.
 If GitHub CLI is not authenticated yet, run `gh auth login` once before using
 the helper.
 
+Where the wheels live:
+
+- Tagged builds, for example `v0.1.0`, upload wheels as assets on the private
+  GitHub Release:
+  `https://github.com/wallematthias/parosol-py/releases`
+- Branch, pull-request, and manual workflow builds upload wheels only as
+  temporary GitHub Actions artifacts under:
+  `Actions` -> `Build Wheels` -> the workflow run -> `Artifacts`
+
+For Slicer running under Rosetta on this machine, download the release asset
+matching:
+
+```text
+parosol_py-*-cp312-cp312-macosx_13_0_x86_64.whl
+```
+
 Manual equivalent:
 
 ```bash
@@ -112,17 +128,15 @@ parosol distal-radius.AIM \
 ```
 
 This writes `parosol_batch.yaml`, solves the three or six load cases into
-separate case folders, and writes `batch_summary.json`. After the SED fields
-exist, run the optimizer step:
+separate case folders, writes the batch-level `result.json`, and runs the
+optimizer automatically. The combined load-history field and compact
+load-history result are written under `load_history_3/` or `load_history_6/`:
 
-```bash
-parosol load-history \
-  outputs/compression_z/fields/sed.nii.gz \
-  outputs/shear_zx/fields/sed.nii.gz \
-  outputs/shear_zy/fields/sed.nii.gz \
-  --bone-mask bone_mask.nii.gz \
-  --summary outputs/load_history_summary.json \
-  --output outputs/load_history.nii.gz
+```text
+outputs/distal-radius_load_history/
+  result.json
+  load_history_3/load_history_summary.json
+  load_history_3/load_history.nii.gz
 ```
 
 ### Proximal Femur Sideways Fall
@@ -208,9 +222,9 @@ parosol distal-radius.AIM --profile XtremeCTII --output outputs/distal-radius
 
 If `--output` is omitted, ParOSol-py writes to a sibling directory named
 `<input>_parosol`. Every run writes the generated `parosol_case.yaml`,
-`summary.json`, field images when enabled, and an overview PNG. The summary
-contains an `execution` section with the resolved input paths, profile, generated
-config path, output directory, dry-run flag, and exact shortcut command.
+`result.json`, a fuller `summary.json`, field images when enabled, and an
+overview PNG. The result file contains report-ready mechanics and failure
+values; the summary keeps the broader run record and diagnostics.
 
 Model profiles use the same command and accept a standard `--mask` argument:
 
@@ -279,7 +293,8 @@ postprocess:
     critical_strain: 0.007
 
 output:
-  summary: outputs/VITD_0003_RL_M06_HOM_LS/summary.json
+  result: outputs/VITD_0003_RL_M06_HOM_LS/result.json
+  run_summary: outputs/VITD_0003_RL_M06_HOM_LS/summary.json
   fields: [sed]
   export_fields: true
   visualize: true
@@ -309,7 +324,7 @@ parosol batch direct_mechanics.yaml
 
 A batch config uses the same top-level input/material/solver/output sections as
 a normal case, plus a `batch.cases` list. Each case override is expanded into an
-individual run directory and summarized in one `batch_summary.json`.
+individual run directory and summarized in one batch-level `result.json`.
 
 Run a whole folder with the same profile:
 

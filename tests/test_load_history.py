@@ -23,6 +23,24 @@ def test_estimate_load_history_returns_non_negative_scaling():
     assert result.loading_history.shape == (2, 2, 2)
 
 
+def test_estimate_load_history_normalizes_sed_to_unit_load():
+    load_cases = [
+        np.ones((2, 2, 2), dtype=np.float64) * 100.0,
+    ]
+
+    result = estimate_load_history(
+        load_cases,
+        np.ones((2, 2, 2), dtype=bool),
+        target_average=4.0,
+        input_load_amplitudes=[10.0],
+    )
+
+    assert result.scaling_factors[0] == np.float64(4.0)
+    assert result.load_amplitudes[0] == np.float64(2.0)
+    assert result.input_load_amplitudes[0] == np.float64(10.0)
+    assert np.allclose(result.loading_history, 4.0)
+
+
 def test_cli_load_history_writes_summary_and_output(tmp_path):
     sed_a = np.ones((2, 2, 2), dtype=np.float64) * 0.01
     sed_b = np.ones((2, 2, 2), dtype=np.float64) * 0.02
@@ -49,5 +67,6 @@ def test_cli_load_history_writes_summary_and_output(tmp_path):
     )
 
     summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
-    assert "scaling_factors" in summary["load_history"]
+    assert "load_amplitudes" in summary["load_history"]["results"]
+    assert "scaling_factors" in summary["load_history"]["details"]
     assert (tmp_path / "history.npy").exists()

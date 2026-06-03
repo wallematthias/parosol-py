@@ -103,7 +103,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       id-token: write
-      contents: read
+      contents: write
     environment:
       name: pypi
       url: https://pypi.org/p/parosol-py
@@ -141,6 +141,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip twine
           python -m twine check dist/*
+
+      - name: Upload wheels to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

@@ -3,14 +3,14 @@
 # load-history estimator.
 batch:
   name: load_history_3
-  summary: load_history_3/batch_summary.json
+  summary: load_history_3/result.json
   cases:
     - name_suffix: compression_z
       load_case: {type: constrained_axial, axis: z, strain: -0.01}
     - name_suffix: shear_zx
-      load_case: {type: shear, axis: z, direction: x, strain: 0.01}
+      load_case: {type: shear, axis: z, direction: x, strain: -0.01}
     - name_suffix: shear_zy
-      load_case: {type: shear, axis: z, direction: y, strain: 0.01}
+      load_case: {type: shear, axis: z, direction: y, strain: -0.01}
 
 solver:
   outputs: [sed]

@@ -82,6 +82,64 @@ def solve_summary_dict(
     return data
 
 
+def compact_summary_dict(summary: dict[str, Any]) -> dict[str, Any]:
+    """Return the user-facing subset of a full solve summary."""
+
+    mechanics = summary.get("mechanics", {})
+    failure = summary.get("failure", {})
+    outputs = summary.get("outputs", {})
+    compact: dict[str, Any] = {
+        "case": summary.get("case", {}),
+        "execution": summary.get("execution", {}),
+        "image": summary.get("image", {}),
+        "load_case": summary.get("load_case", {}),
+        "results": {
+            "generalized_load": mechanics.get("generalized_load"),
+            "generalized_stiffness": mechanics.get("generalized_stiffness"),
+            "reaction_force": mechanics.get("reaction_force"),
+            "stiffness": mechanics.get("stiffness"),
+            "failure_load": failure.get("failure_load"),
+            "failure_generalized_load": failure.get("failure_generalized_load"),
+            "pistoia_factor": failure.get("factor"),
+            "ees_at_critical_volume": failure.get("ees_at_critical_volume"),
+        },
+        "mechanics": {
+            "generalized_load": mechanics.get("generalized_load"),
+            "generalized_stiffness": mechanics.get("generalized_stiffness"),
+            "reaction_force": mechanics.get("reaction_force"),
+            "stiffness": mechanics.get("stiffness"),
+            "applied_displacement": mechanics.get("applied_displacement"),
+            "applied_rotation_degrees": mechanics.get("applied_rotation_degrees"),
+            "top_node_count": mechanics.get("top_node_count"),
+            "bottom_node_count": mechanics.get("bottom_node_count"),
+            "status": mechanics.get("status"),
+        },
+        "failure": {
+            "status": failure.get("status"),
+            "criterion": failure.get("criterion"),
+            "critical_strain": failure.get("critical_strain"),
+            "critical_volume_percent": failure.get("critical_volume_percent"),
+            "ees_at_critical_volume": failure.get("ees_at_critical_volume"),
+            "factor": failure.get("factor"),
+            "failure_load": failure.get("failure_load"),
+            "failure_generalized_load": failure.get("failure_generalized_load"),
+        },
+        "solver": summary.get("solver", {}),
+        "quality": summary.get("quality", {}),
+        "outputs": {
+            "input_file": outputs.get("input_file"),
+            "exported": outputs.get("exported", {}),
+        },
+    }
+    for key in ("linear_reaction_at_deformation", "crawford_stiffness_height"):
+        if key in failure:
+            compact["results"][key] = failure[key]
+            compact["failure"][key] = failure[key]
+    if "model" in summary:
+        compact["model"] = summary["model"]
+    return _jsonable(compact)
+
+
 def write_summary_json(path: str | Path, data: dict[str, Any]) -> Path:
     out = Path(path).expanduser().resolve()
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -71,14 +71,27 @@ def test_run_batch_config_expands_cases_and_writes_combined_summary(
                             "name": "force",
                             "value": len(seen),
                             "units": "N",
-                        }
+                        },
+                        "generalized_stiffness": {
+                            "name": "stiffness",
+                            "value": 100 * len(seen),
+                            "units": "N/mm",
+                        },
                     },
                     "failure": {
+                        "criterion": "pistoia",
+                        "factor": 0.5 * len(seen),
+                        "failure_load": {
+                            "x": None,
+                            "y": None,
+                            "z": -5 * len(seen),
+                        },
                         "failure_generalized_load": {
                             "name": "force",
                             "value": 10 * len(seen),
                             "units": "N",
-                        }
+                        },
+                        "status": "computed",
                     },
                 }
             ),
@@ -95,7 +108,10 @@ def test_run_batch_config_expands_cases_and_writes_combined_summary(
         "sample_shear_zx",
     ]
     assert seen[0]["case"]["work_dir"].endswith("sample_compression_z")
-    assert seen[0]["output"]["summary"].endswith("sample_compression_z/summary.json")
+    assert seen[0]["output"]["summary"].endswith("sample_compression_z/result.json")
+    assert seen[0]["output"]["run_summary"].endswith(
+        "sample_compression_z/summary.json"
+    )
     assert seen[0]["output"]["fields_dir"].endswith("sample_compression_z/fields")
     assert seen[0]["output"]["visualization"].endswith(
         "sample_compression_z/overview.png"
@@ -103,6 +119,9 @@ def test_run_batch_config_expands_cases_and_writes_combined_summary(
     assert summary["batch"]["case_count"] == 2
     assert summary["postprocess"]["load_history"]["method"] == "nnls"
     assert summary["cases"][1]["load_case"]["direction"] == "x"
+    assert summary["cases"][1]["generalized_stiffness"]["value"] == 200
+    assert summary["cases"][1]["failure_load"]["z"] == -10
+    assert summary["cases"][1]["failure"]["factor"] == 1.0
     assert summary["cases"][1]["failure_generalized_load"]["value"] == 20
     assert (tmp_path / "runs" / "batch_summary.json").exists()
 
@@ -124,6 +143,106 @@ def test_cli_batch_runs_manifest(monkeypatch, tmp_path: Path, capsys):
     assert main(["batch", str(batch_path), "--dry-run"]) == 0
 
     assert "summary.json" in capsys.readouterr().out
+
+
+def test_run_batch_config_computes_load_history_postprocess(
+    monkeypatch,
+    tmp_path: Path,
+):
+    np.save(tmp_path / "material.npy", np.ones((2, 2, 2), dtype=np.float32) * 1000)
+    sed_a = tmp_path / "compression_sed.npy"
+    sed_b = tmp_path / "shear_sed.npy"
+    np.save(sed_a, np.ones((2, 2, 2), dtype=np.float32))
+    np.save(sed_b, np.ones((2, 2, 2), dtype=np.float32) * 2.0)
+    batch_path = tmp_path / "batch.json"
+    batch_path.write_text(
+        json.dumps(
+            {
+                "case": {"name": "sample", "work_dir": "runs/sample"},
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "output": {"fields": ["sed"], "export_fields": True},
+                "postprocess": {
+                    "load_history": {
+                        "enabled": True,
+                        "method": "nnls",
+                        "fields": ["sed"],
+                        "cases": ["compression_z", "shear_zx"],
+                        "summary": "runs/load_history_summary.json",
+                        "output": "runs/load_history.npz",
+                    }
+                },
+                "batch": {
+                    "summary": "runs/batch_summary.json",
+                    "cases": [
+                        {
+                            "name_suffix": "compression_z",
+                            "load_case": {
+                                "type": "constrained_axial",
+                                "axis": "z",
+                                "strain": -0.01,
+                            },
+                        },
+                        {
+                            "name_suffix": "shear_zx",
+                            "load_case": {
+                                "type": "shear",
+                                "axis": "z",
+                                "direction": "x",
+                                "strain": 0.01,
+                            },
+                        },
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    sed_paths = [sed_a, sed_b]
+
+    def fake_run_case_config(path, *, dry_run=None, work_dir=None):
+        config = json.loads(Path(path).read_text(encoding="utf-8"))
+        index = 0 if config["case"]["name"].endswith("compression_z") else 1
+        summary_path = Path(config["output"]["summary"])
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(
+            json.dumps(
+                {
+                    "case": {"name": config["case"]["name"]},
+                    "load_case": config["load_case"],
+                    "outputs": {"exported": {"sed": str(sed_paths[index])}},
+                    "mechanics": {
+                        "generalized_load": {
+                            "name": "force",
+                            "component": "z",
+                            "value": 10.0 * (index + 1),
+                            "units": "N",
+                        }
+                    },
+                    "failure": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return object()
+
+    monkeypatch.setattr("parosol_py.batch.run_case_config", fake_run_case_config)
+
+    summary = run_batch_config(batch_path)
+
+    load_history = summary["postprocess"]["load_history"]
+    assert load_history["status"] == "computed"
+    assert Path(load_history["summary"]).exists()
+    assert Path(load_history["output"]).exists()
+    assert len(load_history["details"]["scaling_factors"]) == 2
+    assert load_history["details"]["input_load_amplitudes"] == [10.0, 20.0]
+    assert len(load_history["results"]["estimated_loads"]) == 2
+    assert (
+        load_history["results"]["estimated_loads"][0]["value"]
+        == load_history["details"]["load_amplitudes"][0]
+    )
+    assert load_history["results"]["estimated_loads"][0]["units"] == "N"
+    saved = np.load(load_history["output"])
+    assert saved["image"].shape == (2, 2, 2)
 
 
 def test_cli_shortcut_routes_load_history_profile_to_batch(
@@ -180,7 +299,7 @@ def test_cli_shortcut_routes_load_history_profile_to_batch(
     assert config.get("nodesets", {}) == {}
     assert config["case"]["name"] == "distal_radius"
     assert config["case"]["work_dir"] == str(output_dir / "distal_radius")
-    assert config["batch"]["summary"] == str(output_dir / "batch_summary.json")
+    assert config["batch"]["summary"] == str(output_dir / "result.json")
     assert [case["name_suffix"] for case in config["batch"]["cases"]] == [
         "compression_z",
         "shear_zx",
@@ -214,7 +333,7 @@ def test_cli_batch_runs_folder_with_profile(monkeypatch, tmp_path: Path, capsys)
     )
 
     stdout = capsys.readouterr().out
-    batch_summary = output_dir / "batch_summary.json"
+    batch_summary = output_dir / "result.json"
     assert str(batch_summary) in stdout
     summary = json.loads(batch_summary.read_text(encoding="utf-8"))
     assert summary["batch"]["mode"] == "folder"
@@ -225,7 +344,7 @@ def test_cli_batch_runs_folder_with_profile(monkeypatch, tmp_path: Path, capsys)
         "sample_b",
     ]
     assert (output_dir / "sample_a" / "parosol_case.yaml").exists()
-    assert (output_dir / "sample_b" / "summary.json").exists()
+    assert (output_dir / "sample_b" / "result.json").exists()
 
 
 def test_cli_batch_folder_uses_mask_pattern_for_model_profile(
@@ -261,7 +380,7 @@ def test_cli_batch_folder_uses_mask_pattern_for_model_profile(
     )
 
     case_summary = json.loads(
-        (output_dir / "case_01" / "summary.json").read_text(encoding="utf-8")
+        (output_dir / "case_01" / "result.json").read_text(encoding="utf-8")
     )
     assert case_summary["execution"]["mask"] == str(mask_dir / "case_01_SEG.npy")
     assert case_summary["execution"]["interface"] == "batch-folder"

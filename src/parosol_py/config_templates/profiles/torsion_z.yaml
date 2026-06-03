@@ -5,7 +5,7 @@ output_profile: quick_summary
 load_case:
   type: torsion
   axis: z
-  twist_angle_degrees: 1
+  twist_angle_degrees: -1
   center: center_of_mass
 
 solver:

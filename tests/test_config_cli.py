@@ -1,4 +1,5 @@
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -631,6 +632,339 @@ def test_run_case_config_builds_boundary_conditions_from_voxel_nodeset_labels(
     assert np.any((bc.fixed_coordinates[:, 2] == 0) & (bc.fixed_values == 0.0))
 
 
+def test_run_case_config_builds_nodeset_linear_bending_field(
+    monkeypatch, tmp_path: Path
+):
+    material = np.ones((3, 3, 3), dtype=np.float64) * 1000.0
+    nodesets = np.zeros((3, 3, 3), dtype=np.uint8)
+    nodesets[2, :, :] = 1
+    nodesets[0, :, :] = 2
+    np.save(tmp_path / "material.npy", material)
+    np.save(tmp_path / "nodesets.npy", nodesets)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "nodesets": {
+                    "top": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 1,
+                        "selection": "surface_nodes",
+                    },
+                    "bottom": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 2,
+                        "selection": "surface_nodes",
+                    },
+                },
+                "load_case": {
+                    "type": "nodeset",
+                    "fixed": [{"nodeset": "bottom", "dofs": ["x", "y", "z"], "value": 0}],
+                    "prescribed": [
+                        {
+                            "nodeset": "top",
+                            "kind": "bending",
+                            "mode": "linear",
+                            "dof": "z",
+                            "value": 1.0,
+                            "gradient_axis": "x",
+                            "center": "centroid",
+                        }
+                    ],
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((3, 3, 3), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    bc = captured["boundary_conditions"]
+    z_rows = bc.fixed_coordinates[:, 3] == 2
+    assert np.min(bc.fixed_values[z_rows]) < 0.0
+    assert np.max(bc.fixed_values[z_rows]) > 0.0
+
+
+def test_run_case_config_interprets_nodeset_bending_degrees(
+    monkeypatch, tmp_path: Path
+):
+    material = np.ones((3, 3, 3), dtype=np.float64) * 1000.0
+    nodesets = np.zeros((3, 3, 3), dtype=np.uint8)
+    nodesets[2, :, :] = 1
+    np.save(tmp_path / "material.npy", material)
+    np.save(tmp_path / "nodesets.npy", nodesets)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "nodesets": {
+                    "top": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 1,
+                        "selection": "surface_nodes",
+                    },
+                },
+                "load_case": {
+                    "type": "nodeset",
+                    "prescribed": [
+                        {
+                            "nodeset": "top",
+                            "kind": "bending",
+                            "mode": "linear",
+                            "dof": "z",
+                            "value": 1.0,
+                            "units": "deg",
+                            "gradient_axis": "x",
+                            "center": "centroid",
+                        }
+                    ],
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((3, 3, 3), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    bc = captured["boundary_conditions"]
+    z_rows = bc.fixed_coordinates[:, 3] == 2
+    expected_edge_displacement = math.tan(math.radians(1.0) / 2.0) * 1.5
+    assert np.max(bc.fixed_values[z_rows]) == pytest.approx(
+        expected_edge_displacement, rel=1e-5
+    )
+    assert np.min(bc.fixed_values[z_rows]) == pytest.approx(
+        -expected_edge_displacement, rel=1e-5
+    )
+
+
+def test_run_case_config_builds_nodeset_torsion_field(monkeypatch, tmp_path: Path):
+    material = np.ones((3, 3, 3), dtype=np.float64) * 1000.0
+    nodesets = np.zeros((3, 3, 3), dtype=np.uint8)
+    nodesets[2, :, :] = 1
+    nodesets[0, :, :] = 2
+    np.save(tmp_path / "material.npy", material)
+    np.save(tmp_path / "nodesets.npy", nodesets)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "nodesets": {
+                    "top": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 1,
+                        "selection": "surface_nodes",
+                    },
+                    "bottom": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 2,
+                        "selection": "surface_nodes",
+                    },
+                },
+                "load_case": {
+                    "type": "nodeset",
+                    "fixed": [{"nodeset": "bottom", "dofs": ["x", "y", "z"], "value": 0}],
+                    "prescribed": [
+                        {
+                            "nodeset": "top",
+                            "kind": "torsion",
+                            "axis": "z",
+                            "value": 1.0,
+                            "center": "centroid",
+                        }
+                    ],
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((3, 3, 3), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    bc = captured["boundary_conditions"]
+    assert np.any(bc.fixed_coordinates[:, 3] == 0)
+    assert np.any(bc.fixed_coordinates[:, 3] == 1)
+    assert np.any(np.abs(bc.fixed_values) > 0.0)
+
+
+def test_run_case_config_interprets_nodeset_torsion_degrees(
+    monkeypatch, tmp_path: Path
+):
+    material = np.ones((3, 3, 3), dtype=np.float64) * 1000.0
+    nodesets = np.zeros((3, 3, 3), dtype=np.uint8)
+    nodesets[2, :, :] = 1
+    np.save(tmp_path / "material.npy", material)
+    np.save(tmp_path / "nodesets.npy", nodesets)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "nodesets": {
+                    "top": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 1,
+                        "selection": "surface_nodes",
+                    },
+                },
+                "load_case": {
+                    "type": "nodeset",
+                    "prescribed": [
+                        {
+                            "nodeset": "top",
+                            "kind": "torsion",
+                            "axis": "z",
+                            "value": 1.0,
+                            "units": "deg",
+                            "center": "centroid",
+                        }
+                    ],
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((3, 3, 3), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    bc = captured["boundary_conditions"]
+    lateral_rows = bc.fixed_coordinates[:, 3] != 2
+    expected_max_component = 1.5 * math.radians(1.0)
+    assert np.max(np.abs(bc.fixed_values[lateral_rows])) == pytest.approx(
+        expected_max_component, rel=1e-5
+    )
+
+
+def test_run_case_config_builds_nodeset_symmetric_bending_field(
+    monkeypatch, tmp_path: Path
+):
+    material = np.ones((3, 3, 3), dtype=np.float64) * 1000.0
+    nodesets = np.zeros((3, 3, 3), dtype=np.uint8)
+    nodesets[2, :, :] = 1
+    nodesets[0, :, :] = 2
+    np.save(tmp_path / "material.npy", material)
+    np.save(tmp_path / "nodesets.npy", nodesets)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "nodesets": {
+                    "top": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 1,
+                        "selection": "surface_nodes",
+                    },
+                    "bottom": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 2,
+                        "selection": "surface_nodes",
+                    },
+                },
+                "load_case": {
+                    "type": "nodeset",
+                    "fixed": [{"nodeset": "bottom", "dofs": ["x", "y", "z"], "value": 0}],
+                    "prescribed": [
+                        {
+                            "nodeset": "top",
+                            "kind": "bending",
+                            "mode": "symmetric",
+                            "dof": "z",
+                            "value": 1.0,
+                            "gradient_axis": "x",
+                            "center": "centroid",
+                            "neutral_fraction": 0.5,
+                        }
+                    ],
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((3, 3, 3), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    bc = captured["boundary_conditions"]
+    z_rows = bc.fixed_coordinates[:, 3] == 2
+    assert np.min(bc.fixed_values[z_rows]) < 0.0
+    assert np.max(bc.fixed_values[z_rows]) > 0.0
+
+
 def test_run_case_config_builds_shear_load_case(monkeypatch, tmp_path: Path):
     material = np.ones((2, 2, 2), dtype=np.float64) * 1000.0
     np.save(tmp_path / "material.npy", material)
@@ -1111,6 +1445,61 @@ def test_run_case_config_builds_body_weight_load_case(monkeypatch, tmp_path: Pat
     bc = captured["boundary_conditions"]
     assert bc.loaded_coordinates.shape[0] == 9
     assert np.sum(bc.loaded_values) == np.float32(-90.0)
+
+
+def test_run_case_config_distributes_nodeset_force(monkeypatch, tmp_path: Path):
+    material = np.ones((3, 3, 3), dtype=np.float64) * 1000.0
+    nodesets = np.zeros((3, 3, 3), dtype=np.uint8)
+    nodesets[2, :, :] = 1
+    np.save(tmp_path / "material.npy", material)
+    np.save(tmp_path / "nodesets.npy", nodesets)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "nodesets": {
+                    "top": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 1,
+                        "selection": "surface_nodes",
+                    },
+                },
+                "load_case": {
+                    "type": "nodeset",
+                    "loaded": [
+                        {
+                            "nodeset": "top",
+                            "dof": "z",
+                            "value": -90.0,
+                            "distribute": True,
+                        }
+                    ],
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((3, 3, 3), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    bc = captured["boundary_conditions"]
+    assert np.sum(bc.loaded_values) == np.float32(-90.0)
+    assert np.unique(bc.loaded_values).size == 1
 
 
 def test_run_case_config_builds_torsion_load_case(monkeypatch, tmp_path: Path):

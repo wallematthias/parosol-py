@@ -257,10 +257,10 @@ def _batch_folder(args: argparse.Namespace, input_dir: Path) -> dict[str, Any]:
             dry_run=True if args.dry_run else None,
             work_dir=case_dir,
         )
-        summary_path = case_dir / "summary.json"
+        summary_path = case_dir / "result.json"
         case_summaries.append(_folder_case_summary(summary_path))
 
-    summary_path = output_root / "batch_summary.json"
+    summary_path = output_root / "result.json"
     summary = {
         "batch": {
             "name": input_dir.name,
@@ -367,9 +367,15 @@ def _shortcut_config(args: argparse.Namespace) -> dict[str, Any]:
     if is_batch_profile:
         batch_cfg = _dict_section(config, "batch")
         batch_cfg["work_dir"] = str(output_dir)
-        batch_cfg["summary"] = str(output_dir / "batch_summary.json")
+        batch_cfg["summary"] = str(output_dir / "result.json")
     output_cfg = _dict_section(config, "output")
-    output_cfg["summary"] = str(
+    output_cfg["result"] = str(
+        output_dir / case_name / "result.json"
+        if is_batch_profile
+        else output_dir / "result.json"
+    )
+    output_cfg["summary"] = output_cfg["result"]
+    output_cfg["run_summary"] = str(
         output_dir / case_name / "summary.json"
         if is_batch_profile
         else output_dir / "summary.json"

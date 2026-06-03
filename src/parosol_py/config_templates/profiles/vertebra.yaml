@@ -84,7 +84,8 @@ postprocess:
     restore_original_grid: false
 
 output:
-  summary: parosol_run/vertebra/summary.json
+  result: parosol_run/vertebra/result.json
+  run_summary: parosol_run/vertebra/summary.json
   fields: [sed, effective_strain]
   export_fields: true
   fields_dir: parosol_run/vertebra/fields

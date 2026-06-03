@@ -6,7 +6,7 @@ models. The usual workflow is:
 1. Start from a material label image or a density image plus segmentation mask.
 2. Select a built-in profile.
 3. Run `parosol`.
-4. Read `summary.json`, optional field images, and the overview/debug figure.
+4. Read `result.json`, optional field images, and the overview/debug figure.
 
 The profiles are YAML snippets stored in
 `src/parosol_py/config_templates/profiles`. They can be used through the
@@ -154,8 +154,10 @@ parosol batch /data/qct_images \
 A normal run writes:
 
 - `parosol_case.yaml`: the resolved config that was run.
-- `summary.json`: compact mechanics, failure, solver, field, quality, and
-  execution metadata.
+- `result.json`: compact report-ready outcomes such as stiffness, reaction
+  force, Pistoia failure load, and generalized load/stiffness.
+- `summary.json`: fuller run record with solver diagnostics, field statistics,
+  output paths, and execution metadata.
 - `overview.png`: axial, sagittal, and coronal mid-slice QC figure with
   boundary-condition markers.
 - `parosol_input.h5`: native solver input.
@@ -382,17 +384,19 @@ Shear with the top z-normal surface moving laterally:
 - `shear_zx`: top surface moves in `x`.
 - `shear_zy`: top surface moves in `y`.
 
-Both use `strain: 0.01` and export SED.
+Both use `strain: -0.01` and export SED, so the reported shear load follows
+the same signed convention as compression.
 
 ### bending_z
 
 Opposing top/bottom plate tilt around the z-oriented model using
-`bending_angle_degrees: 1`. The `neutral_axis_angle_degrees` setting controls
-the bending direction. The summary reports generalized moment/stiffness values.
+`bending_angle_degrees: -1`. The `neutral_axis_angle_degrees` setting controls
+the bending axis. The negative angle follows the same signed loading convention
+as compression and shear. The summary reports generalized moment/stiffness values.
 
 ### torsion_z
 
-Top plate twist about `z` using `twist_angle_degrees: 1`. The summary reports
+Top plate twist about `z` using `twist_angle_degrees: -1`. The summary reports
 generalized torque/stiffness values.
 
 ### density_power

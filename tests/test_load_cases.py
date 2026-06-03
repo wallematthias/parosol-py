@@ -36,6 +36,30 @@ def test_constrained_axial_compression_accepts_absolute_displacement():
     assert np.any(np.isclose(top_z_values, -0.25))
 
 
+@pytest.mark.parametrize(("axis", "dof"), [("x", 0), ("y", 1), ("z", 2)])
+def test_constrained_axial_compression_is_axis_symmetric_on_cube(axis, dof):
+    model = Model.from_array(np.ones((3, 3, 3)), spacing=(1, 1, 1))
+
+    bc = ConstrainedAxialCompression(axis=axis, displacement=-0.3).generate(model)
+
+    top_nodes = bc.node_sets["top"]
+    bottom_nodes = bc.node_sets["bottom"]
+    top_node_set = set(top_nodes)
+    top_values = np.asarray(
+        [
+            value
+            for coord, value in zip(
+                bc.fixed_coordinates, bc.fixed_values, strict=True
+            )
+            if tuple(int(v) for v in coord[:3]) in top_node_set and int(coord[3]) == dof
+        ],
+        dtype=np.float32,
+    )
+    assert len(top_nodes) == 16
+    assert len(bottom_nodes) == 16
+    assert np.any(np.isclose(top_values, -0.3))
+
+
 def test_body_weight_compression_distributes_total_force_over_top_nodes():
     model = Model.from_array(np.ones((2, 2, 2)), spacing=(1, 1, 1))
 
@@ -44,6 +68,18 @@ def test_body_weight_compression_distributes_total_force_over_top_nodes():
     assert bc.loaded_coordinates.shape[0] == 9
     assert np.all(bc.loaded_coordinates[:, 3] == 2)
     assert np.sum(bc.loaded_values) == np.float32(-90.0)
+
+
+@pytest.mark.parametrize(("axis", "dof"), [("x", 0), ("y", 1), ("z", 2)])
+def test_body_weight_compression_is_axis_symmetric_on_cube(axis, dof):
+    model = Model.from_array(np.ones((3, 3, 3)), spacing=(1, 1, 1))
+
+    bc = BodyWeightCompression(axis=axis, force_n=-90.0).generate(model)
+
+    assert bc.loaded_coordinates.shape[0] == 16
+    assert np.all(bc.loaded_coordinates[:, 3] == dof)
+    assert np.sum(bc.loaded_values) == np.float32(-90.0)
+    assert np.unique(bc.loaded_values).size == 1
 
 
 def test_uniaxial_compression_leaves_top_and_bottom_laterally_free():

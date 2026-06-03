@@ -108,10 +108,10 @@ load_case:
   # type: shear
   # axis: z
   # direction: x
-  # strain: 0.01
+  # strain: -0.01
   # Use direction: y for the paired z-normal shear case.
   # Use shear_vector for two-component z-normal directional shear.
-  # shear_vector: [0.01, 0.0]
+  # shear_vector: [-0.01, 0.0]
   #
   # type: body_weight
   # axis: z
@@ -119,12 +119,12 @@ load_case:
   #
   # type: torsion
   # axis: z
-  # twist_angle_degrees: 1
+  # twist_angle_degrees: -1
   # center: center_of_mass
   #
   # type: bending
   # axis: z
-  # bending_angle_degrees: 1
+  # bending_angle_degrees: -1
   # neutral_axis_angle_degrees: 90
   # center: center_of_mass
 
@@ -199,7 +199,10 @@ postprocess:
     restore_original_grid: true
 
 output:
-  summary: parosol_run/example_case/summary.json
+  # result.json is the compact report-ready file most users should open first.
+  result: parosol_run/example_case/result.json
+  # summary.json keeps the fuller run record and diagnostics.
+  run_summary: parosol_run/example_case/summary.json
   # Fields to export as image volumes. These also become solver outputs unless
   # solver.outputs is set explicitly.
   fields: [sed]

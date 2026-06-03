@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import math
 
 import numpy as np
 
@@ -101,13 +102,12 @@ def boundary_conditions_from_nodesets(
             default_value=0.0,
         )
     for spec in prescribed:
-        _add_displacement_spec(
+        _add_prescribed_spec(
             fixed_constraints,
             node_sets,
             spec,
             dimensions_xyz=dimensions_xyz,
             spacing=spacing,
-            default_value=None,
         )
     for spec in loaded:
         _add_load_spec(loaded_constraints, node_sets, spec)
@@ -218,6 +218,150 @@ def _add_displacement_spec(
                 dimensions_xyz=dimensions_xyz,
                 spacing=spacing,
             )
+
+
+def _add_prescribed_spec(
+    constraints: dict[tuple[int, int, int, int], float],
+    node_sets: dict[str, list[Node]],
+    spec: dict,
+    *,
+    dimensions_xyz: tuple[int, int, int],
+    spacing: tuple[float, float, float],
+) -> None:
+    kind = str(spec.get("kind", "uniform")).strip().lower()
+    if kind in {"uniform", "constant"}:
+        _add_displacement_spec(
+            constraints,
+            node_sets,
+            spec,
+            dimensions_xyz=dimensions_xyz,
+            spacing=spacing,
+            default_value=None,
+        )
+        return
+    if kind in {"bending", "bend"}:
+        _add_bending_spec(constraints, node_sets, spec, spacing=spacing)
+        return
+    if kind in {"torsion", "twist"}:
+        _add_torsion_spec(constraints, node_sets, spec, spacing=spacing)
+        return
+    raise ValueError(f"Unknown prescribed nodeset kind: {kind!r}")
+
+
+def _add_bending_spec(
+    constraints: dict[tuple[int, int, int, int], float],
+    node_sets: dict[str, list[Node]],
+    spec: dict,
+    *,
+    spacing: tuple[float, float, float],
+) -> None:
+    nodes = _spec_nodes(node_sets, spec)
+    if not nodes:
+        return
+    dof = str(spec.get("dof", spec.get("axis", "z"))).strip().lower()
+    dof_index = AXIS_TO_INDEX[dof]
+    gradient_axis = str(spec.get("gradient_axis", "x")).strip().lower()
+    gradient_index = AXIS_TO_INDEX[gradient_axis]
+    positions = _node_positions(nodes, spacing)
+    center = _spec_center(spec, positions)
+    distances = positions[:, gradient_index] - center[gradient_index]
+    half_width = float(np.max(np.abs(distances))) if distances.size else 0.0
+    if half_width <= 0.0:
+        return
+    amplitude = _angle_or_length_amplitude(spec, reference_length=half_width)
+    mode = str(spec.get("mode", "linear")).strip().lower()
+    neutral_fraction = float(spec.get("neutral_fraction", 0.5))
+    for node, distance in zip(nodes, distances, strict=True):
+        relative = float(np.clip(distance / half_width, -1.0, 1.0))
+        if mode in {"symmetric", "quadratic"}:
+            value = amplitude * (relative * relative - neutral_fraction)
+        else:
+            value = amplitude * relative
+        constraints[(*node, dof_index)] = float(value)
+
+
+def _add_torsion_spec(
+    constraints: dict[tuple[int, int, int, int], float],
+    node_sets: dict[str, list[Node]],
+    spec: dict,
+    *,
+    spacing: tuple[float, float, float],
+) -> None:
+    nodes = _spec_nodes(node_sets, spec)
+    if not nodes:
+        return
+    axis = str(spec.get("axis", "z")).strip().lower()
+    axis_index = AXIS_TO_INDEX[axis]
+    lateral = [index for index in range(3) if index != axis_index]
+    positions = _node_positions(nodes, spacing)
+    center = _spec_center(spec, positions)
+    rel = positions - center
+    radial = np.sqrt(np.sum(rel[:, lateral] * rel[:, lateral], axis=1))
+    radius = float(np.max(radial)) if radial.size else 0.0
+    if radius <= 0.0:
+        return
+    amplitude = _angle_or_length_amplitude(spec, reference_length=radius, torsion=True)
+    for node, vector in zip(nodes, rel, strict=True):
+        tangent = np.zeros(3, dtype=np.float64)
+        tangent[lateral[0]] = -vector[lateral[1]]
+        tangent[lateral[1]] = vector[lateral[0]]
+        norm = float(np.linalg.norm(tangent))
+        if norm <= 0.0:
+            continue
+        scale = amplitude * min(float(np.linalg.norm(vector[lateral])) / radius, 1.0)
+        tangent = tangent / norm * scale
+        for dof_index, value in enumerate(tangent):
+            if dof_index == axis_index or abs(float(value)) <= 0.0:
+                continue
+            constraints[(*node, dof_index)] = float(value)
+
+
+def _node_positions(nodes: list[Node], spacing: tuple[float, float, float]) -> np.ndarray:
+    coordinates = np.asarray(nodes, dtype=np.float64)
+    return coordinates * np.asarray(spacing, dtype=np.float64)
+
+
+def _spec_center(spec: dict, positions: np.ndarray) -> np.ndarray:
+    center = spec.get("center", "centroid")
+    if isinstance(center, str):
+        if center.strip().lower() in {"centroid", "center", "centre"}:
+            return np.mean(positions, axis=0)
+        raise ValueError(f"Unknown center value: {center!r}")
+    values = np.asarray(center, dtype=np.float64)
+    if values.shape != (3,):
+        raise ValueError("center must be 'centroid' or a 3-value coordinate")
+    return values
+
+
+def _angle_or_length_amplitude(
+    spec: dict,
+    *,
+    reference_length: float,
+    torsion: bool = False,
+) -> float:
+    value, units = _spec_value_and_units(spec)
+    if units in {"deg", "degree", "degrees"}:
+        radians = math.radians(value)
+        if torsion:
+            return float(reference_length) * radians
+        return float(reference_length) * math.tan(radians / 2.0)
+    if units in {"rad", "radian", "radians"}:
+        if torsion:
+            return float(reference_length) * value
+        return float(reference_length) * math.tan(value / 2.0)
+    return float(value)
+
+
+def _spec_value_and_units(spec: dict) -> tuple[float, str]:
+    raw = spec["value"]
+    units = str(spec.get("units", "")).strip().lower()
+    if isinstance(raw, str):
+        text = raw.strip().lower()
+        for suffix in ("degrees", "degree", "deg", "radians", "radian", "rad", "mm"):
+            if text.endswith(suffix):
+                return float(text[: -len(suffix)].strip()), suffix
+        return float(text), units
+    return float(raw), units
 
 
 def _add_load_spec(

@@ -1,7 +1,7 @@
 # Batch manifest for direct-mechanics runs.
 batch:
   name: direct_mechanics
-  summary: direct_mechanics/batch_summary.json
+  summary: direct_mechanics/result.json
   cases:
     - name_suffix: compression_x
       load_case: {type: constrained_axial, axis: x, strain: -0.01}
@@ -10,6 +10,6 @@ batch:
     - name_suffix: compression_z
       load_case: {type: constrained_axial, axis: z, strain: -0.01}
     - name_suffix: shear_zx
-      load_case: {type: shear, axis: z, direction: x, strain: 0.01}
+      load_case: {type: shear, axis: z, direction: x, strain: -0.01}
     - name_suffix: shear_zy
-      load_case: {type: shear, axis: z, direction: y, strain: 0.01}
+      load_case: {type: shear, axis: z, direction: y, strain: -0.01}

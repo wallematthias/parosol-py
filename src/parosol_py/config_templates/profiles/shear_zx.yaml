@@ -6,7 +6,7 @@ load_case:
   type: shear
   axis: z
   direction: x
-  strain: 0.01
+  strain: -0.01
 
 solver:
   outputs: [sed]
