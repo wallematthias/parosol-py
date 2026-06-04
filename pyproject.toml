@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 license = { text = "GPL-2.0-or-later" }
 authors = [{ name = "Matthias Walle" }]
 dependencies = [
-  "numpy>=1.24",
+  "numpy>=1.24,<2.0",
   "h5py>=3.10",
   "SimpleITK>=2.3",
   "aimio-py>=0.1.1",

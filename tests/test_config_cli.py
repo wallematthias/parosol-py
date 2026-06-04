@@ -267,6 +267,56 @@ def test_model_overview_uses_postprocess_mask_for_fields(monkeypatch, tmp_path: 
     assert np.all(np.isnan(seen["field"][~seen["field_mask"]]))
 
 
+def test_generic_config_uses_input_mask_as_postprocess_mask(monkeypatch, tmp_path: Path):
+    material = np.zeros((4, 4, 4), dtype=np.float32)
+    material[1:3, 1:3, 1:3] = 1000.0
+    material[0, 1:3, 1:3] = 3000.0
+    mask = np.zeros_like(material, dtype=np.uint8)
+    mask[1:3, 1:3, 1:3] = 1
+    np.save(tmp_path / "material.npy", material)
+    np.save(tmp_path / "mask.npy", mask)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "material.npy",
+                    "mask": "mask.npy",
+                    "image_type": "material_mpa",
+                    "spacing": [1, 1, 1],
+                },
+                "postprocess": {"fields": {"mask_to_segmentation": True}},
+                "output": {
+                    "summary": "summary.json",
+                    "fields": ["sed"],
+                    "export_fields": True,
+                    "fields_dir": "fields",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((4, 4, 4), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    assert captured["postprocess_mask"] is not None
+    assert int(np.count_nonzero(captured["postprocess_mask"])) == 8
+    assert captured["postprocess_mask"].shape == (4, 4, 4)
+    assert not captured["postprocess_mask"][0, 1, 1]
+
+
 def test_model_section_uses_model_load_axis_for_sideways_fall(
     monkeypatch, tmp_path: Path
 ):
@@ -630,6 +680,103 @@ def test_run_case_config_builds_boundary_conditions_from_voxel_nodeset_labels(
     assert bc.node_sets["bottom_plate"]
     assert np.any((bc.fixed_coordinates[:, 2] == 2) & (bc.fixed_values == -0.02))
     assert np.any((bc.fixed_coordinates[:, 2] == 0) & (bc.fixed_values == 0.0))
+
+
+def test_run_case_config_infers_nodeset_load_direction_from_prescribed_dof(
+    monkeypatch, tmp_path: Path
+):
+    material = np.ones((2, 2, 2), dtype=np.float64) * 1000.0
+    nodesets = np.zeros((2, 2, 2), dtype=np.uint8)
+    nodesets[:, 1, :] = 1
+    nodesets[:, 0, :] = 2
+    np.save(tmp_path / "material.npy", material)
+    np.save(tmp_path / "nodesets.npy", nodesets)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "nodesets": {
+                    "top_plate": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 1,
+                        "selection": "surface_nodes",
+                    },
+                    "bottom_plate": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 2,
+                        "selection": "surface_nodes",
+                    },
+                },
+                "load_case": {
+                    "type": "nodeset",
+                    "prescribed": [{"nodeset": "top_plate", "dof": "y", "value": 1.0}],
+                    "fixed": [
+                        {"nodeset": "bottom_plate", "dofs": ["x", "y", "z"], "value": 0}
+                    ],
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((2, 2, 2), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    assert captured["test_axis"] == "y"
+    assert captured["load_direction"] == "y"
+
+
+def test_run_case_config_rejects_nodesets_without_active_material(tmp_path: Path):
+    material = np.zeros((4, 4, 4), dtype=np.float64)
+    material[3, 3, 3] = 1000.0
+    nodesets = np.zeros((4, 4, 4), dtype=np.uint8)
+    nodesets[1, 1, 1] = 1
+    np.save(tmp_path / "material.npy", material)
+    np.save(tmp_path / "nodesets.npy", nodesets)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "nodesets": {
+                    "bad_contact": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 1,
+                        "selection": "surface_nodes",
+                    },
+                },
+                "load_case": {
+                    "type": "nodeset",
+                    "fixed": [
+                        {"nodeset": "bad_contact", "dofs": ["x", "y", "z"], "value": 0}
+                    ],
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="no adjacent active material"):
+        run_case_config(config_path)
 
 
 def test_run_case_config_builds_nodeset_linear_bending_field(
@@ -1803,3 +1950,81 @@ def test_cli_shortcut_runs_model_profile_with_standard_mask_argument(tmp_path: P
     assert summary["execution"]["mask"] == str(mask_path.resolve())
     assert summary["model"]["type"] == "spine_compression"
     assert (output_dir / "model" / "material.nii.gz").exists()
+
+
+def test_cli_shortcut_applies_interactive_workflow_template(tmp_path: Path):
+    template_dir = tmp_path / "template"
+    template_dir.mkdir()
+    reference = np.ones((3, 3, 3), dtype=np.uint8) * 100
+    nodesets = np.zeros((3, 3, 3), dtype=np.uint8)
+    nodesets[0, :, :] = 1
+    nodesets[-1, :, :] = 2
+    np.save(template_dir / "reference.npy", reference)
+    np.save(template_dir / "nodesets.npy", nodesets)
+    (template_dir / "workflow.yaml").write_text(
+        """
+case:
+  name: reference
+  work_dir: old
+input:
+  image: reference.npy
+  image_type: material_labels
+  spacing: [1.0, 1.0, 1.0]
+materials:
+  units: MPa
+  labels:
+    100: {name: bone, E: 1000.0, nu: 0.3}
+nodesets:
+  fixed:
+    type: label_image
+    image: nodesets.npy
+    label: 1
+    selection: surface_nodes
+  loaded:
+    type: label_image
+    image: nodesets.npy
+    label: 2
+    selection: surface_nodes
+load_case:
+  type: nodeset
+  fixed:
+    - {nodeset: fixed, dofs: [x, y, z], value: 0.0}
+  prescribed:
+    - {nodeset: loaded, dof: z, value: -0.01}
+output:
+  export_fields: false
+solver:
+  mpi_processes: 1
+""",
+        encoding="utf-8",
+    )
+    image_path = tmp_path / "new_scan.npy"
+    output_dir = tmp_path / "out"
+    np.save(image_path, reference)
+
+    assert (
+        main(
+            [
+                str(image_path),
+                "--profile",
+                "interactive_custom",
+                "--template",
+                str(template_dir),
+                "--output",
+                str(output_dir),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    generated = output_dir / "parosol_case.yaml"
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    generated_text = generated.read_text(encoding="utf-8")
+    assert generated.exists()
+    assert f"image: {image_path.resolve()}" in generated_text
+    assert f"image: {template_dir / 'nodesets.npy'}" in generated_text
+    assert summary["execution"]["interface"] == "shortcut-template"
+    assert summary["execution"]["profile"] == "interactive_custom"
+    assert summary["execution"]["template"] == str(template_dir.resolve())
+    assert summary["execution"]["image"] == str(image_path.resolve())

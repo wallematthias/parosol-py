@@ -12,6 +12,7 @@ from .config_templates import available_config_profiles, read_config_template
 from .load_history import estimate_load_history_from_files
 from .paths import image_stem, suffix_text
 from .reports import parse_legacy_analysis_file, parse_pistoia_file, write_summary_json
+from .workflow_template import apply_workflow_template, load_workflow_template
 
 _COMMANDS = {"run", "batch", "load-history", "summarize-legacy", "config-template"}
 
@@ -60,8 +61,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     batch_parser.add_argument(
         "--profile",
-        choices=available_config_profiles(),
+        choices=(*available_config_profiles(), "interactive_custom"),
         help="Built-in profile to apply when TARGET is a folder",
+    )
+    batch_parser.add_argument(
+        "--template",
+        help=(
+            "Reusable workflow template folder/file to apply when TARGET is a folder. "
+            "Use with --profile interactive_custom for Slicer-authored workflows."
+        ),
     )
     batch_parser.add_argument(
         "-o",
@@ -146,7 +154,7 @@ def _build_shortcut_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--profile",
         required=True,
-        choices=available_config_profiles(),
+        choices=(*available_config_profiles(), "interactive_custom"),
         help="Built-in profile to apply",
     )
     parser.add_argument(
@@ -173,6 +181,13 @@ def _build_shortcut_parser() -> argparse.ArgumentParser:
         "--reference-points",
         help="Reference point cloud for lightweight ICP registration.",
     )
+    parser.add_argument(
+        "--template",
+        help=(
+            "Reusable workflow template folder/file. Template folders are typically "
+            "exported by SlicerParOSol and contain workflow.yaml plus reference files."
+        ),
+    )
     parser.set_defaults(func=_shortcut)
     return parser
 
@@ -193,8 +208,10 @@ def _batch(args: argparse.Namespace) -> int:
     if target.is_dir():
         summary = _batch_folder(args, target.resolve())
     else:
-        if args.profile:
-            raise ValueError("--profile is only used when batch TARGET is a folder")
+        if args.profile or args.template:
+            raise ValueError(
+                "--profile/--template are only used when batch TARGET is a folder"
+            )
         summary = run_batch_config(
             target,
             dry_run=True if args.dry_run else None,
@@ -205,8 +222,8 @@ def _batch(args: argparse.Namespace) -> int:
 
 
 def _batch_folder(args: argparse.Namespace, input_dir: Path) -> dict[str, Any]:
-    if not args.profile:
-        raise ValueError("folder batch mode requires --profile")
+    if not args.profile and not args.template:
+        raise ValueError("folder batch mode requires --profile or --template")
     output_root = (
         Path(args.output).expanduser().resolve()
         if args.output
@@ -228,7 +245,8 @@ def _batch_folder(args: argparse.Namespace, input_dir: Path) -> dict[str, Any]:
         mask_path = _batch_mask_path(args, image_path) if args.mask_dir else None
         case_args = argparse.Namespace(
             image=str(image_path),
-            profile=args.profile,
+            profile=args.profile or "interactive_custom",
+            template=args.template,
             mask=None if mask_path is None else str(mask_path),
             output=str(case_dir),
             name=case_name,
@@ -239,7 +257,8 @@ def _batch_folder(args: argparse.Namespace, input_dir: Path) -> dict[str, Any]:
                 "batch",
                 str(input_dir),
                 "--profile",
-                args.profile,
+                args.profile or "interactive_custom",
+                *(["--template", str(args.template)] if args.template else []),
                 "--output",
                 str(output_root),
             ],
@@ -265,7 +284,12 @@ def _batch_folder(args: argparse.Namespace, input_dir: Path) -> dict[str, Any]:
         "batch": {
             "name": input_dir.name,
             "mode": "folder",
-            "profile": args.profile,
+            "profile": args.profile or "interactive_custom",
+            "template": (
+                None
+                if not args.template
+                else str(Path(args.template).expanduser().resolve())
+            ),
             "case_count": len(case_summaries),
             "input_dir": str(input_dir),
             "output_dir": str(output_root),
@@ -348,7 +372,6 @@ def _shortcut(args: argparse.Namespace) -> int:
 
 
 def _shortcut_config(args: argparse.Namespace) -> dict[str, Any]:
-    config = _load_shortcut_profile(args.profile)
     image_path = Path(args.image).expanduser().resolve()
     mask_path = Path(args.mask).expanduser().resolve() if args.mask else None
     output_dir = (
@@ -357,6 +380,23 @@ def _shortcut_config(args: argparse.Namespace) -> dict[str, Any]:
         else image_path.parent / f"{_case_stem(image_path)}_parosol"
     )
     case_name = args.name or _case_stem(image_path)
+    if getattr(args, "template", None):
+        template, workflow_path = load_workflow_template(args.template)
+        return apply_workflow_template(
+            template,
+            image_path=image_path,
+            mask_path=mask_path,
+            output_dir=output_dir,
+            case_name=case_name,
+            profile=args.profile,
+            command=" ".join(["parosol", *getattr(args, "_argv", [])]),
+            template_path=workflow_path.parent,
+            dry_run=bool(args.dry_run),
+        )
+    if args.profile == "interactive_custom":
+        raise ValueError("--profile interactive_custom requires --template")
+
+    config = _load_shortcut_profile(args.profile)
     is_batch_profile = "batch" in config
 
     case_cfg = _dict_section(config, "case")

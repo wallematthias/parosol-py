@@ -122,10 +122,10 @@ def _mechanics_from_node_fields(
             name: int(analysis_dimensions[index])
             for index, name in enumerate(AXIS_NAMES)
         },
-        "applied_displacement": _xyz(axis_index, applied),
+        "applied_displacement": _xyz(direction_index, applied),
         "applied_rotation_degrees": rotation_degrees,
-        "reaction_force": _xyz(axis_index, None),
-        "stiffness": _xyz(axis_index, None),
+        "reaction_force": _xyz(direction_index, None),
+        "stiffness": _xyz(direction_index, None),
         "generalized_load": {"name": "force", "value": None, "units": "N"},
         "generalized_stiffness": {"name": "stiffness", "value": None, "units": "N/mm"},
         "top_node_count": 0,

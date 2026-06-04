@@ -64,6 +64,97 @@ class NativeFieldMapper:
         dense[coords_array[:, 0], coords_array[:, 1], coords_array[:, 2]] = array
         return dense
 
+    @property
+    def active_node_coordinates(self) -> list[tuple[int, int, int]]:
+        elements = np.argwhere(np.asarray(self.stiffness_gpa_xyz) > 0)
+        if elements.size == 0:
+            return []
+        offsets = np.asarray(
+            [
+                (dx, dy, dz)
+                for dx in (0, 1)
+                for dy in (0, 1)
+                for dz in (0, 1)
+            ],
+            dtype=np.int64,
+        )
+        nodes = (elements[:, None, :] + offsets[None, :, :]).reshape(-1, 3)
+        nodes = np.unique(nodes, axis=0)
+        return _coords_to_tuples(_morton_sorted(nodes))
+
+    def nodal_vector_to_dense_element(self, values) -> np.ndarray:
+        array = np.asarray(values)
+        if array.ndim != 2 or array.shape[1] != 3:
+            raise ValueError("nodal vector field must have shape (n, 3)")
+        node_coords = self.active_node_coordinates
+        if array.shape[0] != len(node_coords):
+            raise ValueError(
+                f"nodal vector field has {array.shape[0]} nodes, expected {len(node_coords)}"
+            )
+        node_values = {
+            coord: array[index]
+            for index, coord in enumerate(node_coords)
+        }
+        stiffness = np.asarray(self.stiffness_gpa_xyz)
+        dense = np.zeros((*stiffness.shape, 3), dtype=array.dtype)
+        offsets = [
+            (dx, dy, dz)
+            for dx in (0, 1)
+            for dy in (0, 1)
+            for dz in (0, 1)
+        ]
+        for element in np.argwhere(stiffness > 0):
+            coord = tuple(int(value) for value in element)
+            corners = [
+                node_values[(coord[0] + dx, coord[1] + dy, coord[2] + dz)]
+                for dx, dy, dz in offsets
+            ]
+            dense[coord] = np.mean(corners, axis=0)
+        return dense
+
+    def mesh_vector_to_dense_element(self, coordinates, elements, values) -> np.ndarray:
+        array = np.asarray(values)
+        node_coords = np.asarray(coordinates)
+        element_nodes = np.asarray(elements)
+        if array.ndim != 2 or array.shape[1] != 3:
+            raise ValueError("mesh vector field must have shape (n_nodes, 3)")
+        if node_coords.ndim != 2 or node_coords.shape[1] != 3:
+            raise ValueError("mesh coordinates must have shape (n_nodes, 3)")
+        if element_nodes.ndim != 2 or element_nodes.shape[1] != 8:
+            raise ValueError("mesh elements must have shape (n_elements, 8)")
+        if array.shape[0] != node_coords.shape[0]:
+            raise ValueError(
+                f"mesh vector field has {array.shape[0]} nodes, expected {node_coords.shape[0]}"
+            )
+        if element_nodes.size and (element_nodes.min() < 0 or element_nodes.max() >= node_coords.shape[0]):
+            raise ValueError("mesh elements reference node indices outside coordinates")
+
+        stiffness = np.asarray(self.stiffness_gpa_xyz)
+        dense = np.zeros((*stiffness.shape, 3), dtype=array.dtype)
+        if element_nodes.size == 0:
+            return dense
+
+        corner_coords = node_coords[element_nodes]
+        element_coords = np.floor(corner_coords.min(axis=1)).astype(np.int64)
+        in_bounds = (
+            (element_coords[:, 0] >= 0)
+            & (element_coords[:, 0] < stiffness.shape[0])
+            & (element_coords[:, 1] >= 0)
+            & (element_coords[:, 1] < stiffness.shape[1])
+            & (element_coords[:, 2] >= 0)
+            & (element_coords[:, 2] < stiffness.shape[2])
+        )
+        if not np.all(in_bounds):
+            raise ValueError("mesh element coordinates fall outside dense image bounds")
+
+        element_values = np.mean(array[element_nodes], axis=1)
+        dense[
+            element_coords[:, 0],
+            element_coords[:, 1],
+            element_coords[:, 2],
+        ] = element_values
+        return dense
+
 
 def morton_key(x: int, y: int, z: int) -> int:
     key = 0

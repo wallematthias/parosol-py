@@ -4,6 +4,7 @@ import pytest
 import parosol_py
 from parosol_py import solve
 from parosol_py.api import solve_aim
+from parosol_py.field_export import NativeFieldMapper
 from parosol_py.reports import solve_summary_dict
 from parosol_py.runner import RunResult, RunSummary
 
@@ -201,6 +202,56 @@ def test_solve_exports_sparse_native_scalar_field_to_dense_xyz(monkeypatch, tmp_
     assert result.exported["sed"].exists()
     np.testing.assert_array_equal(captured["grid"].array_xyz, expected_dense)
     assert result.fields == {"sed": native_values}
+
+
+def test_solve_exports_nodal_displacement_components(monkeypatch, tmp_path):
+    material_zyx = np.ones((1, 1, 1), dtype=np.float32) * 1000.0
+    material_xyz = np.transpose(material_zyx, (2, 1, 0))
+    node_coords = NativeFieldMapper(material_xyz).active_node_coordinates
+    displacements = np.asarray(node_coords, dtype=np.float32)
+    captured = {}
+
+    def fake_run_parosol(command, *, cwd=None, stream=False):
+        return RunResult(
+            command=command,
+            stdout="",
+            stderr="",
+            returncode=0,
+            summary=RunSummary(),
+        )
+
+    def fake_export_scalar_image(grid, output_path):
+        captured[output_path.name] = np.asarray(grid.array_xyz).copy()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text("exported", encoding="utf-8")
+        return output_path
+
+    monkeypatch.setattr("parosol_py.api.run_parosol", fake_run_parosol)
+    monkeypatch.setattr(
+        "parosol_py.api.read_solution_fields",
+        lambda input_file, *, outputs: {
+            "displacements": displacements,
+            "forces": np.zeros_like(displacements),
+        },
+    )
+    monkeypatch.setattr("parosol_py.api.export_scalar_image", fake_export_scalar_image)
+
+    result = solve(
+        material=material_zyx,
+        spacing=(1, 1, 1),
+        outputs=("displacements",),
+        work_dir=tmp_path,
+        export_dir=tmp_path / "exports",
+    )
+
+    assert set(result.exported) >= {
+        "displacement_x",
+        "displacement_y",
+        "displacement_z",
+    }
+    assert captured["displacement_x.nii.gz"][0, 0, 0] == pytest.approx(0.5)
+    assert captured["displacement_y.nii.gz"][0, 0, 0] == pytest.approx(0.5)
+    assert captured["displacement_z.nii.gz"][0, 0, 0] == pytest.approx(0.5)
 
 
 def test_solve_derives_summary_diagnostics_from_fea_fields(monkeypatch, tmp_path):

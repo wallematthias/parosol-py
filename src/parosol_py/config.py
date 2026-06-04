@@ -122,20 +122,24 @@ def run_case_config(
         material_cfg, image_type=image_type, base_dir=base_dir
     )
 
+    inferred_load_direction = load_case_cfg.get("direction") or _nodeset_load_direction(
+        load_case_cfg
+    )
+    test_axis = str(load_case_cfg.get("axis", inferred_load_direction or "z"))
     common = {
         "spacing": spacing,
         "origin": origin,
         "material_unit": str(material_cfg.get("units", "MPa")),
         "poisson_ratio": poisson_ratio,
         "test": "axial",
-        "test_axis": str(load_case_cfg.get("axis", "z")),
+        "test_axis": test_axis,
         "strain": float(
             load_case_cfg.get("strain", load_case_cfg.get("normal_strain", -0.01))
         ),
         "load_case_type": str(load_case_cfg.get("type", "constrained_axial"))
         .strip()
         .lower(),
-        "load_direction": load_case_cfg.get("direction"),
+        "load_direction": inferred_load_direction,
         "rotation_degrees": _load_case_rotation_degrees(load_case_cfg),
         "load_case_center": _load_case_center(load_case_cfg),
         "outputs": outputs,
@@ -251,6 +255,15 @@ def run_case_config(
             spacing=spacing,
             preprocessing_cfg=preprocessing_cfg,
         )
+        postprocess_mask = None
+        if _mask_fields_to_segmentation(postprocess_cfg):
+            postprocess_mask = _input_postprocess_mask(
+                input_cfg,
+                material_shape=material.shape,
+                base_dir=base_dir,
+            )
+            if postprocess_mask is not None:
+                common["postprocess_mask"] = postprocess_mask
         common["spacing"] = spacing
         common["poisson_ratio"] = mapped_poisson_ratio
         common["strain"] = _effective_strain_for_displacement(
@@ -312,6 +325,7 @@ def run_case_config(
                 case_name=case_name,
                 result=result,
                 boundary_conditions=debug_boundary_conditions,
+                field_mask_zyx=postprocess_mask,
             )
         )
 
@@ -400,6 +414,23 @@ def _mask_fields_to_segmentation(postprocess_cfg: dict[str, Any]) -> bool:
     if isinstance(fields, dict):
         return bool(fields.get("mask_to_segmentation", False))
     return bool(postprocess_cfg.get("mask_to_segmentation", False))
+
+
+def _input_postprocess_mask(
+    input_cfg: dict[str, Any],
+    *,
+    material_shape: tuple[int, ...],
+    base_dir: Path,
+) -> np.ndarray | None:
+    mask_path = input_cfg.get("mask", input_cfg.get("segmentation"))
+    if not mask_path:
+        return None
+    mask = np.asarray(_read_image_array_zyx(_resolve_path(mask_path, base_dir=base_dir))) != 0
+    if mask.shape != tuple(material_shape):
+        raise ValueError(
+            f"input.mask shape {mask.shape} does not match material shape {tuple(material_shape)}"
+        )
+    return mask
 
 
 def _coarsen_material(
@@ -819,6 +850,31 @@ def _load_case_displacement(load_case_cfg: dict[str, Any]) -> float | None:
     return float(value)
 
 
+def _nodeset_load_direction(load_case_cfg: dict[str, Any]) -> str | None:
+    load_type = str(load_case_cfg.get("type", "")).strip().lower()
+    if load_type not in {"nodeset", "custom"}:
+        return None
+    for section in ("prescribed", "loaded"):
+        entries = load_case_cfg.get(section, ())
+        if not isinstance(entries, (list, tuple)):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            dof = entry.get("dof")
+            if dof is not None:
+                token = str(dof).strip().lower()
+                if token in {"x", "y", "z"}:
+                    return token
+            dofs = entry.get("dofs")
+            if isinstance(dofs, (list, tuple)):
+                for item in dofs:
+                    token = str(item).strip().lower()
+                    if token in {"x", "y", "z"}:
+                        return token
+    return None
+
+
 def _load_case_vector(load_case_cfg: dict[str, Any]) -> tuple[float, float] | None:
     value = load_case_cfg.get("shear_vector", load_case_cfg.get("vector"))
     if value is None:
@@ -932,13 +988,52 @@ def _load_node_sets(
                 f"nodeset image '{labels_path}' shape {label_grid.array_xyz.shape} "
                 f"does not match material image shape {material_xyz.shape}"
             )
-        out[str(name)] = nodes_from_labeled_voxels(
+        nodes = nodes_from_labeled_voxels(
             label_grid.array_xyz,
             label=int(spec["label"]),
             selection=str(spec.get("selection", "surface_nodes")),
             material=material_xyz,
         )
+        invalid_count = _count_nodes_without_active_material(nodes, material_xyz)
+        if invalid_count:
+            raise ValueError(
+                f"nodeset '{name}' contains {invalid_count} node(s) with no adjacent "
+                "active material element. This can crash the native ParOSol solver. "
+                "For direct bone-surface contact, use selection='interface_nodes' or "
+                "make sure the nodeset labels lie on active material."
+            )
+        out[str(name)] = nodes
     return out
+
+
+def _count_nodes_without_active_material(
+    nodes: list[tuple[int, int, int]],
+    material_xyz: np.ndarray,
+) -> int:
+    material_mask = np.asarray(material_xyz) > 0
+    shape = material_mask.shape
+    invalid = 0
+    for x, y, z in nodes:
+        attached = False
+        for dx in (-1, 0):
+            for dy in (-1, 0):
+                for dz in (-1, 0):
+                    ex, ey, ez = int(x) + dx, int(y) + dy, int(z) + dz
+                    if (
+                        0 <= ex < shape[0]
+                        and 0 <= ey < shape[1]
+                        and 0 <= ez < shape[2]
+                        and bool(material_mask[ex, ey, ez])
+                    ):
+                        attached = True
+                        break
+                if attached:
+                    break
+            if attached:
+                break
+        if not attached:
+            invalid += 1
+    return invalid
 
 
 def _load_material_array(

@@ -111,6 +111,29 @@ def test_projected_boundary_conditions_drive_reaction_summary():
     assert mechanics["generalized_stiffness"]["value"] == pytest.approx(60.0)
 
 
+def test_nodeset_diagnostics_report_applied_displacement_on_load_direction():
+    stiffness = np.ones((1, 2, 1), dtype=np.float32)
+    boundary_conditions = BoundaryConditionSet(
+        fixed_coordinates=np.asarray([[0, 2, 0, 1]], dtype=np.uint16),
+        fixed_values=np.asarray([1.0], dtype=np.float32),
+    )
+
+    diagnostics = build_fea_diagnostics(
+        fields={},
+        stiffness_gpa_xyz=stiffness,
+        axis="y",
+        strain=0.0,
+        load_case_type="nodeset",
+        load_direction="y",
+        boundary_conditions=boundary_conditions,
+    )
+
+    mechanics = diagnostics["mechanics"]
+    assert mechanics["applied_displacement"]["x"] is None
+    assert mechanics["applied_displacement"]["y"] == pytest.approx(1.0)
+    assert mechanics["applied_displacement"]["z"] is None
+
+
 def test_analysis_dimensions_exclude_caps_from_applied_strain_length():
     stiffness = np.ones((1, 1, 4), dtype=np.float32)
     node_coords = sorted(

@@ -171,7 +171,10 @@ def solve(
         export_root = Path(export_dir).expanduser().resolve()
         active_size = int(np.count_nonzero(stiffness_gpa_xyz > 0))
         mapper = NativeFieldMapper(stiffness_gpa_xyz)
+        requested_exports = {str(output).strip().lower() for output in outputs}
         for name, field_values in fields.items():
+            if name not in requested_exports:
+                continue
             field_array = _native_scalar_field(
                 field_values,
                 expected_sizes=(stiffness_gpa_xyz.size, active_size),
@@ -187,6 +190,21 @@ def solve(
                     ),
                     export_root / f"{name}.nii.gz",
                 )
+                continue
+            vector_array = _native_vector_field(field_values)
+            if vector_array is not None and name == "displacements":
+                dense_vector = mapper.nodal_vector_to_dense_element(vector_array)
+                for component, axis in enumerate(("x", "y", "z")):
+                    exported[f"displacement_{axis}"] = export_scalar_image(
+                        ImageGrid(
+                            array_xyz=_apply_postprocess_mask(
+                                dense_vector[..., component], mask_xyz
+                            ),
+                            spacing=grid.spacing,
+                            origin=grid.origin,
+                        ),
+                        export_root / f"displacement_{axis}.nii.gz",
+                    )
 
     diagnostics = build_fea_diagnostics(
         fields=fields,
@@ -286,6 +304,13 @@ def _native_scalar_field(
         return array.reshape(-1)
     if array.ndim == 2 and array.shape[1] == 1 and array.shape[0] in expected_sizes:
         return array.reshape(-1)
+    return None
+
+
+def _native_vector_field(values) -> np.ndarray | None:
+    array = np.asarray(values)
+    if array.ndim == 2 and array.shape[1] == 3:
+        return array
     return None
 
 

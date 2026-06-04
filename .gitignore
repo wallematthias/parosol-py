@@ -6,4 +6,6 @@ __pycache__/
 framework-main/
 build/
 dist/
+dist-local-*/
+wheelhouse-*/
 *.egg-info/

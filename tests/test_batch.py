@@ -386,6 +386,74 @@ def test_cli_batch_folder_uses_mask_pattern_for_model_profile(
     assert case_summary["execution"]["interface"] == "batch-folder"
 
 
+def test_cli_batch_folder_applies_workflow_template(
+    monkeypatch,
+    tmp_path: Path,
+):
+    input_dir = tmp_path / "images"
+    output_dir = tmp_path / "runs"
+    template_dir = tmp_path / "template"
+    input_dir.mkdir()
+    template_dir.mkdir()
+    np.save(input_dir / "case_a.npy", np.ones((2, 2, 2), dtype=np.uint8) * 100)
+    np.save(template_dir / "reference.npy", np.ones((2, 2, 2), dtype=np.uint8) * 100)
+    np.save(template_dir / "nodesets.npy", np.ones((2, 2, 2), dtype=np.uint8))
+    (template_dir / "workflow.yaml").write_text(
+        json.dumps(
+            {
+                "case": {"name": "reference", "work_dir": "old"},
+                "input": {
+                    "image": "reference.npy",
+                    "image_type": "material_labels",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "units": "MPa",
+                    "labels": {100: {"name": "bone", "E": 1000, "nu": 0.3}},
+                },
+                "nodesets": {
+                    "fixed": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 1,
+                    }
+                },
+                "load_case": {"type": "nodeset", "fixed": []},
+                "output": {"export_fields": False},
+                "solver": {"mpi_processes": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+    _stub_cli_case_runner(monkeypatch)
+
+    assert (
+        main(
+            [
+                "batch",
+                str(input_dir),
+                "--profile",
+                "interactive_custom",
+                "--template",
+                str(template_dir),
+                "--output",
+                str(output_dir),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    generated = (output_dir / "case_a" / "parosol_case.yaml").read_text(
+        encoding="utf-8"
+    )
+    batch_summary = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
+    assert "interface: batch-folder" in generated
+    assert f"template: {template_dir.resolve()}" in generated
+    assert batch_summary["batch"]["profile"] == "interactive_custom"
+    assert batch_summary["batch"]["template"] == str(template_dir.resolve())
+
+
 def _stub_cli_case_runner(monkeypatch):
     def fake_run_case_config(path, *, dry_run=None, work_dir=None):
         import yaml
