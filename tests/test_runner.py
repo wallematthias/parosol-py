@@ -112,6 +112,7 @@ def test_mpi_runtime_environment_sets_packaged_openmpi_prefix(monkeypatch, tmp_p
     launcher.parent.mkdir(parents=True)
     launcher.write_text("fake launcher", encoding="utf-8")
     monkeypatch.setattr("parosol_py.runner._package_bin_dir", lambda: package_bin)
+    monkeypatch.setattr("parosol_py.runner.os.geteuid", lambda: 1000)
 
     env = mpi_runtime_environment([str(launcher), "-np", "2"], base_env={"KEEP": "1"})
 
@@ -131,6 +132,7 @@ def test_mpi_runtime_environment_sets_packaged_openmpi_prefix(monkeypatch, tmp_p
     assert env["PRTE_MCA_mca_base_component_path"] == str(
         package_bin / "openmpi" / "lib" / "prte"
     )
+    assert "OMPI_ALLOW_RUN_AS_ROOT" not in env
 
 
 def test_mpi_runtime_environment_prepends_packaged_openmpi_lib(monkeypatch, tmp_path):
@@ -150,6 +152,21 @@ def test_mpi_runtime_environment_prepends_packaged_openmpi_lib(monkeypatch, tmp_
     assert env["LD_LIBRARY_PATH"] == (
         f"{package_bin / 'openmpi' / 'lib'}:/cluster/lib"
     )
+
+
+def test_mpi_runtime_environment_allows_packaged_openmpi_as_root(monkeypatch, tmp_path):
+    package_bin = tmp_path / "bin"
+    launcher = package_bin / "openmpi" / "bin" / "mpirun"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("fake launcher", encoding="utf-8")
+    monkeypatch.setattr("parosol_py.runner._package_bin_dir", lambda: package_bin)
+    monkeypatch.setattr("parosol_py.runner.os.geteuid", lambda: 0)
+
+    env = mpi_runtime_environment([str(launcher), "-np", "2"], base_env={})
+
+    assert env is not None
+    assert env["OMPI_ALLOW_RUN_AS_ROOT"] == "1"
+    assert env["OMPI_ALLOW_RUN_AS_ROOT_CONFIRM"] == "1"
 
 
 def test_mpi_runtime_environment_prepends_packaged_msmpi_path(monkeypatch, tmp_path):
