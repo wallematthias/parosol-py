@@ -87,6 +87,8 @@ def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_pat
     (prefix / "bin").mkdir(parents=True)
     (prefix / "lib").mkdir()
     (prefix / "share" / "openmpi").mkdir(parents=True)
+    (prefix / "share" / "pmix").mkdir(parents=True)
+    (prefix / "share" / "prte").mkdir(parents=True)
     (prefix / "share" / "doc" / "openmpi").mkdir(parents=True)
     for filename in ("mpirun", "mpiexec", "prterun"):
         path = prefix / "bin" / filename
@@ -95,6 +97,8 @@ def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_pat
     (prefix / "lib" / "libmpi.so").write_text("mpi", encoding="utf-8")
     (prefix / "lib" / "libpmix.so").write_text("pmix", encoding="utf-8")
     (prefix / "share" / "openmpi" / "help.txt").write_text("help", encoding="utf-8")
+    (prefix / "share" / "pmix" / "help-pmix.txt").write_text("pmix", encoding="utf-8")
+    (prefix / "share" / "prte" / "help-prte.txt").write_text("prte", encoding="utf-8")
     (prefix / "share" / "doc" / "openmpi" / "LICENSE").write_text(
         "OpenMPI license", encoding="utf-8"
     )
@@ -109,6 +113,8 @@ def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_pat
     assert (dest / "bin" / "mpirun").is_file()
     assert (dest / "lib" / "libmpi.so").is_file()
     assert (dest / "share" / "openmpi" / "help.txt").is_file()
+    assert (dest / "share" / "pmix" / "help-pmix.txt").is_file()
+    assert (dest / "share" / "prte" / "help-prte.txt").is_file()
     assert any((dest / "licenses").iterdir())
     notice = (dest / "NOTICE.txt").read_text(encoding="utf-8")
     assert "OpenMPI remains licensed under its own BSD-style" in notice

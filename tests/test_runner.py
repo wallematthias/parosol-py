@@ -6,6 +6,7 @@ import pytest
 from parosol_py.runner import (
     _platform_executable_names,
     build_parosol_command,
+    mpi_runtime_environment,
     packaged_executable,
     packaged_mpi_launcher,
     parse_run_summary,
@@ -102,6 +103,28 @@ def test_resolve_mpi_launcher_can_use_packaged_alias(monkeypatch):
     monkeypatch.setattr("parosol_py.runner.packaged_mpi_launcher", lambda: launcher)
 
     assert resolve_mpi_launcher("packaged") == str(launcher)
+
+
+def test_mpi_runtime_environment_sets_packaged_openmpi_prefix(monkeypatch, tmp_path):
+    package_bin = tmp_path / "bin"
+    launcher = package_bin / "openmpi" / "bin" / "mpirun"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("fake launcher", encoding="utf-8")
+    monkeypatch.setattr("parosol_py.runner._package_bin_dir", lambda: package_bin)
+
+    env = mpi_runtime_environment([str(launcher), "-np", "2"], base_env={"KEEP": "1"})
+
+    assert env is not None
+    assert env["KEEP"] == "1"
+    assert env["OPAL_PREFIX"] == str(package_bin / "openmpi")
+    assert env["PRTE_PREFIX"] == str(package_bin / "openmpi")
+    assert env["PMIX_PREFIX"] == str(package_bin / "openmpi")
+
+
+def test_mpi_runtime_environment_leaves_explicit_system_mpi_alone(monkeypatch, tmp_path):
+    monkeypatch.setattr("parosol_py.runner._package_bin_dir", lambda: tmp_path / "bin")
+
+    assert mpi_runtime_environment(["/cluster/mpiexec", "-np", "2"]) is None
 
 
 def test_packaged_mpi_launcher_returns_none_when_not_bundled(monkeypatch, tmp_path):

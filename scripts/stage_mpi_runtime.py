@@ -162,7 +162,7 @@ def _stage_openmpi() -> None:
     _copy_openmpi_libraries(prefix, dest / "lib")
     _copy_openmpi_runtime_dependencies(prefix, dest)
     _copy_openmpi_config(prefix / "etc", dest / "etc")
-    _copy_optional_tree(prefix / "share" / "openmpi", dest / "share" / "openmpi")
+    _copy_openmpi_share(prefix / "share", dest / "share")
     _copy_openmpi_licenses(prefix, dest)
     _write_openmpi_notice(dest / "NOTICE.txt")
 
@@ -317,6 +317,11 @@ def _copy_openmpi_config(source: Path, dest: Path) -> None:
         for path in source.glob(pattern):
             if path.is_file() or path.is_symlink():
                 shutil.copy2(path, dest / path.name, follow_symlinks=False)
+
+
+def _copy_openmpi_share(source: Path, dest: Path) -> None:
+    for child in ("openmpi", "pmix", "prte"):
+        _copy_optional_tree(source / child, dest / child)
 
 
 def _copy_openmpi_licenses(prefix: Path, dest: Path) -> None:

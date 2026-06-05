@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import os
 import shutil
 import subprocess
 import sys
@@ -101,6 +102,39 @@ def resolve_mpi_launcher(mpi_launcher: str | Path = "mpirun") -> str:
     return str(Path(mpi_launcher))
 
 
+def mpi_runtime_environment(
+    command: list[str], base_env: dict[str, str] | None = None
+) -> dict[str, str] | None:
+    """Return subprocess environment for bundled MPI launchers.
+
+    OpenMPI embeds its installation prefix in help/config lookup paths. The
+    bundled runtime is relocated into site-packages, so launcher subprocesses
+    need an explicit prefix when using the packaged OpenMPI tree.
+    """
+
+    if not command:
+        return base_env
+    launcher = Path(command[0])
+    openmpi_prefix = _packaged_openmpi_prefix_for_launcher(launcher)
+    if openmpi_prefix is None:
+        return base_env
+    env = dict(os.environ if base_env is None else base_env)
+    prefix_text = str(openmpi_prefix)
+    env.setdefault("OPAL_PREFIX", prefix_text)
+    env.setdefault("PRTE_PREFIX", prefix_text)
+    env.setdefault("PMIX_PREFIX", prefix_text)
+    return env
+
+
+def _packaged_openmpi_prefix_for_launcher(launcher: Path) -> Path | None:
+    prefix = _package_bin_dir() / "openmpi"
+    try:
+        launcher.resolve().relative_to(prefix.resolve())
+    except (OSError, ValueError):
+        return None
+    return prefix
+
+
 def _package_bin_dir() -> Path:
     return Path(resources.files("parosol_py").joinpath("bin"))
 
@@ -163,10 +197,12 @@ def parse_run_summary(stdout: str) -> RunSummary:
 def run_parosol(
     command: list[str], *, cwd: str | Path | None = None, stream: bool = False
 ) -> RunResult:
+    env = mpi_runtime_environment(command)
     if stream:
         proc = subprocess.Popen(
             command,
             cwd=cwd,
+            env=env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -193,7 +229,7 @@ def run_parosol(
         stderr = "".join(stderr_chunks)
     else:
         proc = subprocess.run(
-            command, cwd=cwd, text=True, capture_output=True, check=False
+            command, cwd=cwd, env=env, text=True, capture_output=True, check=False
         )
         returncode = proc.returncode
         stdout = proc.stdout
