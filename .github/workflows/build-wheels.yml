@@ -5,10 +5,25 @@ name: Build Wheels
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Platform wheels to build"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - linux
+          - windows
+          - macos
 
 jobs:
   build_wheels:
     runs-on: ${{ matrix.os }}
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.target == 'all' ||
+      github.event.inputs.target == matrix.target
     permissions:
       contents: read
     strategy:
@@ -18,15 +33,19 @@ jobs:
           - os: ubuntu-latest
             artifact: manylinux-x86_64
             cibw_arch: x86_64
+            target: linux
           - os: windows-latest
             artifact: windows-amd64
             cibw_arch: AMD64
+            target: windows
           - os: macos-latest
             artifact: macos-arm64
             cibw_arch: arm64
+            target: macos
           - os: macos-15-intel
             artifact: macos-x86_64
             cibw_arch: x86_64
+            target: macos
 
     steps:
       - name: Checkout code

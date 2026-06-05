@@ -35,6 +35,10 @@ def test_pyproject_declares_native_wheel_build_settings():
     linux_cfg = pyproject["tool"]["cibuildwheel"]["linux"]
     assert linux_cfg["before-all"] == "bash scripts/install_linux_wheel_deps.sh"
     assert linux_cfg["environment"]["PAROSOL_OPENMPI_PREFIX"] == "/opt/parosol-conda"
+    assert linux_cfg["environment"]["CMAKE_ARGS"] == (
+        "-DMPI_CXX_COMPILER=/opt/parosol-conda/bin/mpicxx"
+    )
+    assert "PATH" not in linux_cfg["environment"]
     assert "--exclude libmpi.so.40" in linux_cfg["repair-wheel-command"]
     assert (
         pyproject["tool"]["cibuildwheel"]["macos"]["environment"][
