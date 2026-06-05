@@ -23,6 +23,12 @@ def test_pyproject_declares_native_wheel_build_settings():
         for dependency in pyproject["project"]["dependencies"]
     )
     assert "cibuildwheel" in pyproject["tool"]
+    assert (
+        pyproject["tool"]["cibuildwheel"]["macos"]["environment"][
+            "MACOSX_DEPLOYMENT_TARGET"
+        ]
+        == "15.0"
+    )
     assert pyproject["tool"]["scikit-build"]["wheel"]["packages"] == [
         "src/parosol_py",
         "src/parosol_torch",
