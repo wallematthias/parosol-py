@@ -120,9 +120,28 @@ def mpi_runtime_environment(
         return base_env
     env = dict(os.environ if base_env is None else base_env)
     prefix_text = str(openmpi_prefix)
+    bin_path = str(openmpi_prefix / "bin")
+    lib_path = str(openmpi_prefix / "lib")
+    old_path = env.get("PATH")
+    env["PATH"] = bin_path if not old_path else f"{bin_path}{os.pathsep}{old_path}"
+    old_library_path = env.get("LD_LIBRARY_PATH")
+    env["LD_LIBRARY_PATH"] = (
+        lib_path
+        if not old_library_path
+        else f"{lib_path}{os.pathsep}{old_library_path}"
+    )
     env.setdefault("OPAL_PREFIX", prefix_text)
     env.setdefault("PRTE_PREFIX", prefix_text)
     env.setdefault("PMIX_PREFIX", prefix_text)
+    env.setdefault(
+        "OPAL_MCA_mca_base_component_path", str(openmpi_prefix / "lib" / "openmpi")
+    )
+    env.setdefault(
+        "PMIX_MCA_mca_base_component_path", str(openmpi_prefix / "lib" / "pmix")
+    )
+    env.setdefault(
+        "PRTE_MCA_mca_base_component_path", str(openmpi_prefix / "lib" / "prte")
+    )
     return env
 
 

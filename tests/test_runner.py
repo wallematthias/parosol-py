@@ -116,9 +116,39 @@ def test_mpi_runtime_environment_sets_packaged_openmpi_prefix(monkeypatch, tmp_p
 
     assert env is not None
     assert env["KEEP"] == "1"
+    assert env["PATH"] == str(package_bin / "openmpi" / "bin")
+    assert env["LD_LIBRARY_PATH"] == str(package_bin / "openmpi" / "lib")
     assert env["OPAL_PREFIX"] == str(package_bin / "openmpi")
     assert env["PRTE_PREFIX"] == str(package_bin / "openmpi")
     assert env["PMIX_PREFIX"] == str(package_bin / "openmpi")
+    assert env["OPAL_MCA_mca_base_component_path"] == str(
+        package_bin / "openmpi" / "lib" / "openmpi"
+    )
+    assert env["PMIX_MCA_mca_base_component_path"] == str(
+        package_bin / "openmpi" / "lib" / "pmix"
+    )
+    assert env["PRTE_MCA_mca_base_component_path"] == str(
+        package_bin / "openmpi" / "lib" / "prte"
+    )
+
+
+def test_mpi_runtime_environment_prepends_packaged_openmpi_lib(monkeypatch, tmp_path):
+    package_bin = tmp_path / "bin"
+    launcher = package_bin / "openmpi" / "bin" / "mpirun"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("fake launcher", encoding="utf-8")
+    monkeypatch.setattr("parosol_py.runner._package_bin_dir", lambda: package_bin)
+
+    env = mpi_runtime_environment(
+        [str(launcher), "-np", "2"],
+        base_env={"PATH": "/cluster/bin", "LD_LIBRARY_PATH": "/cluster/lib"},
+    )
+
+    assert env is not None
+    assert env["PATH"] == f"{package_bin / 'openmpi' / 'bin'}:/cluster/bin"
+    assert env["LD_LIBRARY_PATH"] == (
+        f"{package_bin / 'openmpi' / 'lib'}:/cluster/lib"
+    )
 
 
 def test_mpi_runtime_environment_leaves_explicit_system_mpi_alone(monkeypatch, tmp_path):

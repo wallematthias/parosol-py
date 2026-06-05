@@ -28,7 +28,14 @@ def test_pyproject_declares_native_wheel_build_settings():
         pyproject["tool"]["cibuildwheel"]["before-build"]
         == "python scripts/stage_mpi_runtime.py"
     )
-    assert "packaged_mpi_launcher" in pyproject["tool"]["cibuildwheel"]["test-command"]
+    assert (
+        pyproject["tool"]["cibuildwheel"]["test-command"]
+        == "python -m parosol_py._wheel_smoke"
+    )
+    linux_cfg = pyproject["tool"]["cibuildwheel"]["linux"]
+    assert linux_cfg["before-all"] == "bash scripts/install_linux_wheel_deps.sh"
+    assert linux_cfg["environment"]["PAROSOL_OPENMPI_PREFIX"] == "/opt/parosol-conda"
+    assert "--exclude libmpi.so.40" in linux_cfg["repair-wheel-command"]
     assert (
         pyproject["tool"]["cibuildwheel"]["macos"]["environment"][
             "MACOSX_DEPLOYMENT_TARGET"

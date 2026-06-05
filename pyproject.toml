@@ -48,13 +48,14 @@ wheel.packages = ["src/parosol_py", "src/parosol_torch"]
 build = "cp311-* cp312-* cp313-*"
 skip = "*-musllinux_* *-manylinux_i686 *-win32"
 before-build = "python scripts/stage_mpi_runtime.py"
-test-command = "python -c \"from parosol_py.runner import packaged_executable, packaged_mpi_launcher; p=packaged_executable(); m=packaged_mpi_launcher(); print(p); print(m); assert p.exists(); assert m is not None and m.exists()\""
+test-command = "python -m parosol_py._wheel_smoke"
 build-verbosity = 1
 
 [tool.cibuildwheel.linux]
 archs = ["x86_64"]
-before-all = "if command -v yum >/dev/null 2>&1; then yum install -y eigen3-devel hdf5-devel openmpi-devel; elif command -v dnf >/dev/null 2>&1; then dnf install -y eigen3-devel hdf5-devel openmpi-devel; elif command -v apt-get >/dev/null 2>&1; then apt-get update && apt-get install -y libeigen3-dev libhdf5-dev libopenmpi-dev openmpi-bin; else echo 'No supported package manager found for native dependencies' && exit 1; fi"
-environment = { PATH="/usr/lib64/openmpi/bin:/usr/lib/openmpi/bin:$PATH", LD_LIBRARY_PATH="/usr/lib64/openmpi/lib:/usr/lib/openmpi/lib:$LD_LIBRARY_PATH" }
+before-all = "bash scripts/install_linux_wheel_deps.sh"
+environment = { PAROSOL_LINUX_CONDA_ROOT="/opt/parosol-conda", PAROSOL_OPENMPI_PREFIX="/opt/parosol-conda", CMAKE_PREFIX_PATH="/opt/parosol-conda", PATH="/opt/parosol-conda/bin:$PATH", LD_LIBRARY_PATH="/opt/parosol-conda/lib:$LD_LIBRARY_PATH" }
+repair-wheel-command = "auditwheel repair --exclude libmpi.so.40 --exclude libmpi_cxx.so.40 --exclude libopen-rte.so.40 --exclude libopen-pal.so.40 --exclude libpmix.so.2 --exclude libevent_core-2.1.so.7 --exclude libevent_pthreads-2.1.so.7 --exclude libevent-2.1.so.7 --exclude libhwloc.so.15 -w {dest_dir} {wheel}"
 
 [tool.cibuildwheel.macos]
 before-all = "brew install eigen hdf5 open-mpi"
