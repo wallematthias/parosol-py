@@ -10,7 +10,7 @@ from parosol_py.runner import RunResult, RunSummary
 
 
 def test_package_imports():
-    assert parosol_py.__version__ == "0.1.0"
+    assert parosol_py.__version__ == "0.1.1"
 
 
 def test_solve_dry_run_writes_input_and_reports_summary(tmp_path):
