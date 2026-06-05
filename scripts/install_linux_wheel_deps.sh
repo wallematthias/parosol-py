@@ -34,8 +34,7 @@ fi
   cmake \
   ninja \
   eigen \
-  hdf5 \
-  openmpi=4.1.6 \
-  compilers
+  'hdf5=1.14.*' \
+  openmpi=4.1.6
 
 "${CONDA_ROOT}/bin/mpirun" --version

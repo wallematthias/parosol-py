@@ -54,8 +54,8 @@ build-verbosity = 1
 [tool.cibuildwheel.linux]
 archs = ["x86_64"]
 before-all = "bash scripts/install_linux_wheel_deps.sh"
-environment = { PAROSOL_LINUX_CONDA_ROOT="/opt/parosol-conda", PAROSOL_OPENMPI_PREFIX="/opt/parosol-conda", CMAKE_PREFIX_PATH="/opt/parosol-conda", CC="/opt/parosol-conda/bin/x86_64-conda-linux-gnu-cc", CXX="/opt/parosol-conda/bin/x86_64-conda-linux-gnu-c++", CMAKE_ARGS="-DMPI_CXX_COMPILER=/opt/parosol-conda/bin/mpicxx", LD_LIBRARY_PATH="/opt/parosol-conda/lib:$LD_LIBRARY_PATH" }
-repair-wheel-command = "auditwheel repair --plat manylinux_2_34_x86_64 --exclude libmpi.so.40 --exclude libmpi_cxx.so.40 --exclude libopen-rte.so.40 --exclude libopen-pal.so.40 --exclude libpmix.so.2 --exclude libevent_core-2.1.so.7 --exclude libevent_pthreads-2.1.so.7 --exclude libevent-2.1.so.7 --exclude libhwloc.so.15 -w {dest_dir} {wheel}"
+environment = { PAROSOL_LINUX_CONDA_ROOT="/opt/parosol-conda", PAROSOL_OPENMPI_PREFIX="/opt/parosol-conda", CMAKE_PREFIX_PATH="/opt/parosol-conda", CMAKE_ARGS="-DMPI_CXX_COMPILER=/opt/parosol-conda/bin/mpicxx", LD_LIBRARY_PATH="/opt/parosol-conda/lib:$LD_LIBRARY_PATH" }
+repair-wheel-command = "auditwheel repair --plat manylinux_2_28_x86_64 --exclude libmpi.so.40 --exclude libmpi_cxx.so.40 --exclude libopen-rte.so.40 --exclude libopen-pal.so.40 --exclude libpmix.so.2 --exclude libevent_core-2.1.so.7 --exclude libevent_pthreads-2.1.so.7 --exclude libevent-2.1.so.7 --exclude libhwloc.so.15 -w {dest_dir} {wheel}"
 
 [tool.cibuildwheel.macos]
 before-all = "brew install eigen hdf5 open-mpi"
