@@ -11,7 +11,13 @@ therefore distributed as `GPL-2.0-or-later`.
 
 ## Install
 
-Prebuilt wheels include the native ParOSol executable. For local development:
+Prebuilt wheels include the native ParOSol executable:
+
+```bash
+python -m pip install parosol-py
+```
+
+For local development:
 
 ```bash
 python -m pip install -e .[dev]
