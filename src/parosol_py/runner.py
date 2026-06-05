@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -39,7 +40,7 @@ class RunResult:
 
 def packaged_executable() -> Path:
     for name in _platform_executable_names("parosol"):
-        executable = Path(resources.files("parosol_py").joinpath(f"bin/{name}"))
+        executable = _package_bin_dir() / name
         if executable.exists():
             return executable
     try:
@@ -51,6 +52,57 @@ def packaged_executable() -> Path:
         if installed.exists():
             return installed
     return Path(distribution.locate_file("parosol_py/bin/parosol"))
+
+
+def packaged_mpi_launcher() -> Path | None:
+    bin_dir = _package_bin_dir()
+    candidates = [
+        bin_dir / "msmpi" / "mpiexec.exe",
+        bin_dir / "openmpi" / "bin" / "mpirun",
+        bin_dir / "openmpi" / "bin" / "mpiexec",
+        bin_dir / "openmpi" / "mpirun",
+        bin_dir / "openmpi" / "mpiexec",
+        bin_dir / "mpirun",
+        bin_dir / "mpiexec",
+        bin_dir / "mpiexec.exe",
+    ]
+    for launcher in candidates:
+        if launcher.exists():
+            return launcher
+
+    try:
+        distribution = metadata.distribution("parosol-py")
+    except metadata.PackageNotFoundError:
+        return None
+    for relative in (
+        "parosol_py/bin/msmpi/mpiexec.exe",
+        "parosol_py/bin/openmpi/bin/mpirun",
+        "parosol_py/bin/openmpi/bin/mpiexec",
+        "parosol_py/bin/openmpi/mpirun",
+        "parosol_py/bin/openmpi/mpiexec",
+        "parosol_py/bin/mpirun",
+        "parosol_py/bin/mpiexec",
+        "parosol_py/bin/mpiexec.exe",
+    ):
+        launcher = Path(distribution.locate_file(relative))
+        if launcher.exists():
+            return launcher
+    return None
+
+
+def resolve_mpi_launcher(mpi_launcher: str | Path = "mpirun") -> str:
+    token = str(mpi_launcher).strip()
+    packaged = packaged_mpi_launcher()
+    if token.lower() in {"", "auto", "packaged", "mpirun", "mpiexec", "mpiexec.exe"}:
+        if packaged is not None:
+            return str(packaged)
+        found = shutil.which(token or "mpirun")
+        return found if found is not None else (token or "mpirun")
+    return str(Path(mpi_launcher))
+
+
+def _package_bin_dir() -> Path:
+    return Path(resources.files("parosol_py").joinpath("bin"))
 
 
 def _platform_executable_names(base: str) -> tuple[str, ...]:
@@ -90,7 +142,7 @@ def build_parosol_command(
         ]
     )
     if int(mpi_processes) > 1:
-        cmd = [str(mpi_launcher), "-np", str(int(mpi_processes)), *cmd]
+        cmd = [resolve_mpi_launcher(mpi_launcher), "-np", str(int(mpi_processes)), *cmd]
     return cmd
 
 

@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+import importlib.util
+import subprocess
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _load_stage_module():
+    spec = importlib.util.spec_from_file_location(
+        "stage_mpi_runtime", ROOT / "scripts" / "stage_mpi_runtime.py"
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_stage_msmpi_copies_runtime_and_notice(monkeypatch, tmp_path):
+    stage = _load_stage_module()
+    source_bin = tmp_path / "Microsoft MPI" / "Bin"
+    source_bin.mkdir(parents=True)
+    for filename in (
+        "mpiexec.exe",
+        "smpd.exe",
+        "msmpi.dll",
+        "msmpires.dll",
+        "msmpilaunchsvc.exe",
+    ):
+        (source_bin / filename).write_text(filename, encoding="utf-8")
+    for filename in (
+        "MicrosoftMPI_Redistributable_EULA.rtf",
+        "MPI_Redistributables_TPN.txt",
+    ):
+        (source_bin.parent / filename).write_text(filename, encoding="utf-8")
+
+    monkeypatch.setattr(stage, "PACKAGE_BIN", tmp_path / "package" / "bin")
+    monkeypatch.setenv("MSMPI_BIN", str(source_bin))
+
+    stage._stage_msmpi()
+
+    dest = tmp_path / "package" / "bin" / "msmpi"
+    assert (dest / "mpiexec.exe").is_file()
+    assert (dest / "msmpi.dll").is_file()
+    assert (dest / "MicrosoftMPI_Redistributable_EULA.rtf").is_file()
+    notice = (dest / "NOTICE.txt").read_text(encoding="utf-8")
+    assert "Microsoft MPI remains licensed under its own Microsoft/MIT terms" in notice
+    assert "not relicensed as GPL" in notice
+
+
+def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_path):
+    stage = _load_stage_module()
+    prefix = tmp_path / "openmpi"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "lib").mkdir()
+    (prefix / "share" / "openmpi").mkdir(parents=True)
+    (prefix / "share" / "doc" / "openmpi").mkdir(parents=True)
+    for filename in ("mpirun", "mpiexec", "prterun"):
+        path = prefix / "bin" / filename
+        path.write_text(filename, encoding="utf-8")
+        path.chmod(0o755)
+    (prefix / "lib" / "libmpi.so").write_text("mpi", encoding="utf-8")
+    (prefix / "lib" / "libpmix.so").write_text("pmix", encoding="utf-8")
+    (prefix / "share" / "openmpi" / "help.txt").write_text("help", encoding="utf-8")
+    (prefix / "share" / "doc" / "openmpi" / "LICENSE").write_text(
+        "OpenMPI license", encoding="utf-8"
+    )
+
+    monkeypatch.setattr(stage, "PACKAGE_BIN", tmp_path / "package" / "bin")
+    monkeypatch.setattr(stage, "_openmpi_prefix", lambda: prefix)
+    monkeypatch.setattr(stage.shutil, "which", lambda name: None)
+
+    stage._stage_openmpi()
+
+    dest = tmp_path / "package" / "bin" / "openmpi"
+    assert (dest / "bin" / "mpirun").is_file()
+    assert (dest / "lib" / "libmpi.so").is_file()
+    assert (dest / "share" / "openmpi" / "help.txt").is_file()
+    assert any((dest / "licenses").iterdir())
+    notice = (dest / "NOTICE.txt").read_text(encoding="utf-8")
+    assert "OpenMPI remains licensed under its own BSD-style" in notice
+    assert "not relicensed as GPL" in notice
+
+
+def test_stage_openmpi_copies_prefixed_runtime_dependencies(monkeypatch, tmp_path):
+    stage = _load_stage_module()
+    prefix = tmp_path / "openmpi"
+    dest = tmp_path / "package" / "bin" / "openmpi"
+    (prefix / "lib").mkdir(parents=True)
+    (dest / "bin").mkdir(parents=True)
+    (dest / "lib").mkdir(parents=True)
+    (prefix / "lib" / "libxml2.16.dylib").write_text("xml", encoding="utf-8")
+    (dest / "bin" / "mpirun").write_text("mpirun", encoding="utf-8")
+    (dest / "lib" / "libhwloc.15.dylib").write_text("hwloc", encoding="utf-8")
+
+    def fake_run(args, **kwargs):
+        assert args[0] == "otool"
+        stdout = "\n".join(
+            [
+                f"{args[-1]}:",
+                "\t@rpath/libxml2.16.dylib (compatibility version 17.0.0, current version 17.6.0)",
+                "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1292.0.0)",
+            ]
+        )
+        return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(stage.sys, "platform", "darwin")
+    monkeypatch.setattr(stage.subprocess, "run", fake_run)
+
+    stage._copy_openmpi_runtime_dependencies(prefix, dest)
+
+    assert (dest / "lib" / "libxml2.16.dylib").read_text(encoding="utf-8") == "xml"

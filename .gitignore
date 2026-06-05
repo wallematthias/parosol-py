@@ -10,3 +10,5 @@ dist/
 dist-local-*/
 wheelhouse-*/
 *.egg-info/
+src/parosol_py/bin/msmpi/
+src/parosol_py/bin/openmpi/

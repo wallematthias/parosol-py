@@ -11,7 +11,8 @@ therefore distributed as `GPL-2.0-or-later`.
 
 ## Install
 
-Prebuilt wheels include the native ParOSol executable:
+Prebuilt wheels include the native ParOSol executable and the platform MPI
+runtime needed to launch multi-process solves:
 
 ```bash
 python -m pip install parosol-py
@@ -25,8 +26,12 @@ python -m pip install -e .[dev]
 
 Source installs require CMake, an MPI C++ compiler/runtime, HDF5 C++ libraries,
 and Eigen headers. Release wheels are built for Python 3.11, 3.12, and 3.13.
-macOS wheels currently target macOS 15 or newer because the bundled native
-solver depends on Homebrew HDF5/OpenMPI libraries built for that target.
+macOS wheels currently target macOS 15 or newer.
+
+Bundled MPI runtimes remain under their own upstream licenses and notices.
+Windows wheels bundle Microsoft MPI runtime files under Microsoft/MIT terms.
+macOS and Linux wheels bundle OpenMPI runtime files under OpenMPI's BSD-style
+terms. These MPI runtime files are not relicensed as GPL by `parosol-py`.
 
 ## Local Check
 
