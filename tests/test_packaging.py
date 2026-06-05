@@ -17,6 +17,11 @@ def test_pyproject_declares_native_wheel_build_settings():
 
     assert pyproject["build-system"]["build-backend"] == "scikit_build_core.build"
     assert pyproject["project"]["requires-python"] == ">=3.11,<3.14"
+    assert "numpy>=1.24" in pyproject["project"]["dependencies"]
+    assert not any(
+        dependency.startswith("numpy") and "<2" in dependency
+        for dependency in pyproject["project"]["dependencies"]
+    )
     assert "cibuildwheel" in pyproject["tool"]
     assert pyproject["tool"]["scikit-build"]["wheel"]["packages"] == [
         "src/parosol_py",
