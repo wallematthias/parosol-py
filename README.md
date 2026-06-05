@@ -19,6 +19,8 @@ python -m pip install -e .[dev]
 
 Source installs require CMake, an MPI C++ compiler/runtime, HDF5 C++ libraries,
 and Eigen headers. Release wheels are built for Python 3.11, 3.12, and 3.13.
+macOS wheels currently target macOS 14 or newer because the bundled native
+solver depends on Homebrew HDF5/OpenMPI libraries built for that target.
 
 ## Local Check
 
