@@ -21,6 +21,7 @@ def main() -> int:
         shutil.rmtree(PACKAGE_BIN / name, ignore_errors=True)
     if sys.platform.startswith("win"):
         _stage_msmpi()
+        _stage_windows_native_dlls()
     elif sys.platform in {"darwin", "linux"}:
         _stage_openmpi()
     else:
@@ -143,6 +144,32 @@ def _write_msmpi_notice(path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
+
+
+def _stage_windows_native_dlls() -> None:
+    """Copy vcpkg runtime DLLs beside parosol.exe for Windows wheels."""
+
+    source = _vcpkg_runtime_bin()
+    if source is None:
+        return
+    PACKAGE_BIN.mkdir(parents=True, exist_ok=True)
+    for dll in source.glob("*.dll"):
+        shutil.copy2(dll, PACKAGE_BIN / dll.name)
+
+
+def _vcpkg_runtime_bin() -> Path | None:
+    triplet = os.environ.get("VCPKG_TARGET_TRIPLET", "x64-windows")
+    roots: list[Path] = []
+    if os.environ.get("VCPKG_INSTALLED_DIR"):
+        roots.append(Path(os.environ["VCPKG_INSTALLED_DIR"]))
+    if os.environ.get("VCPKG_ROOT"):
+        roots.append(Path(os.environ["VCPKG_ROOT"]) / "installed")
+    roots.append(Path("C:/vcpkg/installed"))
+    for root in roots:
+        candidate = root / triplet / "bin"
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _stage_openmpi() -> None:

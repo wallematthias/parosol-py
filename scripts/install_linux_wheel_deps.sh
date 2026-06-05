@@ -1,40 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONDA_ROOT="${PAROSOL_LINUX_CONDA_ROOT:-/opt/parosol-conda}"
-CONDA_BIN="${CONDA_ROOT}/bin/conda"
-MAMBA_BIN="${CONDA_ROOT}/bin/mamba"
-
-if [[ ! -x "${CONDA_BIN}" ]]; then
-  installer="/tmp/parosol-miniforge.sh"
-  url="https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh"
-  if command -v curl >/dev/null 2>&1; then
-    curl -L -o "${installer}" "${url}"
-  else
-    python - "${url}" "${installer}" <<'PY'
-import sys
-import urllib.request
-
-urllib.request.urlretrieve(sys.argv[1], sys.argv[2])
-PY
-  fi
-  bash "${installer}" -b -p "${CONDA_ROOT}"
+if command -v dnf >/dev/null 2>&1; then
+  dnf config-manager --set-enabled crb >/dev/null 2>&1 || true
+  dnf install -y \
+    eigen3-devel \
+    hdf5-devel \
+    openmpi-devel
+elif command -v yum >/dev/null 2>&1; then
+  yum config-manager --enable crb >/dev/null 2>&1 || true
+  yum install -y \
+    eigen3-devel \
+    hdf5-devel \
+    openmpi-devel
+else
+  echo "Neither dnf nor yum is available; cannot install manylinux build dependencies." >&2
+  exit 1
 fi
 
-"${CONDA_BIN}" config --system --set always_yes yes
-"${CONDA_BIN}" config --system --set channel_priority strict
-"${CONDA_BIN}" config --system --add channels conda-forge
-
-PKG="${CONDA_BIN}"
-if [[ -x "${MAMBA_BIN}" ]]; then
-  PKG="${MAMBA_BIN}"
-fi
-
-"${PKG}" install -y -p "${CONDA_ROOT}" \
-  cmake \
-  ninja \
-  eigen \
-  'hdf5=1.14.*' \
-  openmpi=4.1.6
-
-"${CONDA_ROOT}/bin/mpirun" --version
+/usr/lib64/openmpi/bin/mpirun --version

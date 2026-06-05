@@ -81,6 +81,26 @@ def test_stage_msmpi_allows_dlls_in_windows_system_directory(monkeypatch, tmp_pa
     assert (dest / "msmpires.dll").read_text(encoding="utf-8") == "msmpires.dll"
 
 
+def test_stage_windows_native_dlls_copies_vcpkg_runtime(monkeypatch, tmp_path):
+    stage = _load_stage_module()
+    installed = tmp_path / "vcpkg" / "installed"
+    vcpkg_bin = installed / "x64-windows" / "bin"
+    vcpkg_bin.mkdir(parents=True)
+    (vcpkg_bin / "hdf5.dll").write_text("hdf5", encoding="utf-8")
+    (vcpkg_bin / "zlib1.dll").write_text("zlib", encoding="utf-8")
+    (vcpkg_bin / "ignore.txt").write_text("not a dll", encoding="utf-8")
+
+    monkeypatch.setattr(stage, "PACKAGE_BIN", tmp_path / "package" / "bin")
+    monkeypatch.setenv("VCPKG_INSTALLED_DIR", str(installed))
+    monkeypatch.setenv("VCPKG_TARGET_TRIPLET", "x64-windows")
+
+    stage._stage_windows_native_dlls()
+
+    assert (tmp_path / "package" / "bin" / "hdf5.dll").is_file()
+    assert (tmp_path / "package" / "bin" / "zlib1.dll").is_file()
+    assert not (tmp_path / "package" / "bin" / "ignore.txt").exists()
+
+
 def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_path):
     stage = _load_stage_module()
     prefix = tmp_path / "openmpi"

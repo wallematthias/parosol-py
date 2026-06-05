@@ -6,6 +6,13 @@ add_subdirectory(src/parosol_native)
 install(TARGETS parosol
         RUNTIME DESTINATION parosol_py/bin)
 
+file(GLOB PAROSOL_WINDOWS_RUNTIME_DLLS
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/parosol_py/bin/*.dll")
+if(PAROSOL_WINDOWS_RUNTIME_DLLS)
+    install(FILES ${PAROSOL_WINDOWS_RUNTIME_DLLS}
+            DESTINATION parosol_py/bin)
+endif()
+
 foreach(PAROSOL_MPI_RUNTIME openmpi msmpi)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/parosol_py/bin/${PAROSOL_MPI_RUNTIME}")
         install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/parosol_py/bin/${PAROSOL_MPI_RUNTIME}"

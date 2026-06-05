@@ -34,19 +34,25 @@ def test_pyproject_declares_native_wheel_build_settings():
     )
     linux_cfg = pyproject["tool"]["cibuildwheel"]["linux"]
     assert linux_cfg["before-all"] == "bash scripts/install_linux_wheel_deps.sh"
-    assert linux_cfg["environment"]["PAROSOL_OPENMPI_PREFIX"] == "/opt/parosol-conda"
+    assert linux_cfg["environment"]["PAROSOL_OPENMPI_PREFIX"] == "/usr/lib64/openmpi"
+    assert linux_cfg["environment"]["CMAKE_PREFIX_PATH"] == "/usr;/usr/lib64/openmpi"
     assert linux_cfg["environment"]["CMAKE_ARGS"] == (
-        "-DMPI_CXX_COMPILER=/opt/parosol-conda/bin/mpicxx"
+        "-DMPI_CXX_COMPILER=/usr/lib64/openmpi/bin/mpicxx"
     )
+    assert "PAROSOL_LINUX_CONDA_ROOT" not in linux_cfg["environment"]
     assert "CC" not in linux_cfg["environment"]
     assert "CXX" not in linux_cfg["environment"]
     assert "PATH" not in linux_cfg["environment"]
+    assert "LD_LIBRARY_PATH" not in linux_cfg["environment"]
     assert "--plat manylinux_2_28_x86_64" in linux_cfg["repair-wheel-command"]
     assert "--exclude libmpi.so.40" in linux_cfg["repair-wheel-command"]
     linux_deps = (ROOT / "scripts" / "install_linux_wheel_deps.sh").read_text(
         encoding="utf-8"
     )
-    assert "'hdf5=1.14.*'" in linux_deps
+    assert "hdf5-devel" in linux_deps
+    assert "openmpi-devel" in linux_deps
+    assert "eigen3-devel" in linux_deps
+    assert "conda" not in linux_deps
     assert "compilers" not in linux_deps
     assert (
         pyproject["tool"]["cibuildwheel"]["macos"]["environment"][
@@ -64,6 +70,7 @@ def test_pyproject_declares_native_wheel_build_settings():
     assert "PAROSOL_MPI_RUNTIME openmpi msmpi" in cmake
     assert "DESTINATION parosol_py/bin" in cmake
     assert "install(PROGRAMS ${PAROSOL_MPI_RUNTIME_PROGRAMS}" in cmake
+    assert "PAROSOL_WINDOWS_RUNTIME_DLLS" in cmake
 
 
 def test_github_workflows_build_test_and_wheels():
