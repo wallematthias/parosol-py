@@ -115,6 +115,16 @@ def mpi_runtime_environment(
     if not command:
         return base_env
     launcher = Path(command[0])
+    msmpi_dir = _packaged_msmpi_dir_for_launcher(launcher)
+    if msmpi_dir is not None:
+        env = dict(os.environ if base_env is None else base_env)
+        old_path = env.get("PATH")
+        env["PATH"] = (
+            str(msmpi_dir)
+            if not old_path
+            else f"{msmpi_dir}{os.pathsep}{old_path}"
+        )
+        return env
     openmpi_prefix = _packaged_openmpi_prefix_for_launcher(launcher)
     if openmpi_prefix is None:
         return base_env
@@ -152,6 +162,15 @@ def _packaged_openmpi_prefix_for_launcher(launcher: Path) -> Path | None:
     except (OSError, ValueError):
         return None
     return prefix
+
+
+def _packaged_msmpi_dir_for_launcher(launcher: Path) -> Path | None:
+    msmpi_dir = _package_bin_dir() / "msmpi"
+    try:
+        launcher.resolve().relative_to(msmpi_dir.resolve())
+    except (OSError, ValueError):
+        return None
+    return msmpi_dir
 
 
 def _package_bin_dir() -> Path:

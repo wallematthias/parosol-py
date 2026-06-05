@@ -45,6 +45,7 @@ def test_pyproject_declares_native_wheel_build_settings():
         "-DMPI_CXX_COMPILER=/opt/parosol-conda/bin/mpicxx"
     )
     assert "PATH" not in linux_cfg["environment"]
+    assert "--plat manylinux_2_34_x86_64" in linux_cfg["repair-wheel-command"]
     assert "--exclude libmpi.so.40" in linux_cfg["repair-wheel-command"]
     linux_deps = (ROOT / "scripts" / "install_linux_wheel_deps.sh").read_text(
         encoding="utf-8"

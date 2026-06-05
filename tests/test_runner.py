@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import sys
 
 import pytest
@@ -149,6 +150,22 @@ def test_mpi_runtime_environment_prepends_packaged_openmpi_lib(monkeypatch, tmp_
     assert env["LD_LIBRARY_PATH"] == (
         f"{package_bin / 'openmpi' / 'lib'}:/cluster/lib"
     )
+
+
+def test_mpi_runtime_environment_prepends_packaged_msmpi_path(monkeypatch, tmp_path):
+    package_bin = tmp_path / "bin"
+    launcher = package_bin / "msmpi" / "mpiexec.exe"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("fake launcher", encoding="utf-8")
+    monkeypatch.setattr("parosol_py.runner._package_bin_dir", lambda: package_bin)
+
+    env = mpi_runtime_environment(
+        [str(launcher), "-np", "2"],
+        base_env={"PATH": "C:\\System32"},
+    )
+
+    assert env is not None
+    assert env["PATH"] == f"{package_bin / 'msmpi'}{os.pathsep}C:\\System32"
 
 
 def test_mpi_runtime_environment_leaves_explicit_system_mpi_alone(monkeypatch, tmp_path):
