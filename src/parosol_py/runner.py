@@ -143,19 +143,26 @@ def mpi_runtime_environment(
     env.setdefault("OPAL_PREFIX", prefix_text)
     env.setdefault("PRTE_PREFIX", prefix_text)
     env.setdefault("PMIX_PREFIX", prefix_text)
-    env.setdefault(
-        "OPAL_MCA_mca_base_component_path", str(openmpi_prefix / "lib" / "openmpi")
+    _set_component_path_if_exists(
+        env, "OPAL_MCA_mca_base_component_path", openmpi_prefix / "lib" / "openmpi"
     )
-    env.setdefault(
-        "PMIX_MCA_mca_base_component_path", str(openmpi_prefix / "lib" / "pmix")
+    _set_component_path_if_exists(
+        env, "PMIX_MCA_mca_base_component_path", openmpi_prefix / "lib" / "pmix"
     )
-    env.setdefault(
-        "PRTE_MCA_mca_base_component_path", str(openmpi_prefix / "lib" / "prte")
+    _set_component_path_if_exists(
+        env, "PRTE_MCA_mca_base_component_path", openmpi_prefix / "lib" / "prte"
     )
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         env.setdefault("OMPI_ALLOW_RUN_AS_ROOT", "1")
         env.setdefault("OMPI_ALLOW_RUN_AS_ROOT_CONFIRM", "1")
     return env
+
+
+def _set_component_path_if_exists(
+    env: dict[str, str], key: str, path: Path
+) -> None:
+    if path.exists():
+        env.setdefault(key, str(path))
 
 
 def _packaged_openmpi_prefix_for_launcher(launcher: Path) -> Path | None:

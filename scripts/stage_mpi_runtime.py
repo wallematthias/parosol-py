@@ -242,10 +242,21 @@ def _copy_openmpi_libraries(prefix: Path, dest: Path) -> None:
             if source.is_file() or source.is_symlink():
                 shutil.copy2(source, dest / source.name, follow_symlinks=False)
                 copied += 1
-    for child in ("openmpi", "pmix", "prte"):
-        _copy_optional_tree(lib / child, dest / child)
+    _copy_optional_tree(lib / "openmpi", dest / "openmpi")
+    for child in ("pmix", "prte"):
+        _copy_first_existing_tree(
+            (lib / child, prefix.parent / child),
+            dest / child,
+        )
     if copied == 0:
         raise SystemExit(f"No OpenMPI libraries found in {lib}")
+
+
+def _copy_first_existing_tree(sources: tuple[Path, ...], dest: Path) -> None:
+    for source in sources:
+        if source.exists():
+            _copy_optional_tree(source, dest)
+            return
 
 
 def _copy_openmpi_runtime_dependencies(prefix: Path, dest: Path) -> None:

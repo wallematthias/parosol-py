@@ -106,6 +106,9 @@ def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_pat
     prefix = tmp_path / "openmpi"
     (prefix / "bin").mkdir(parents=True)
     (prefix / "lib").mkdir()
+    (prefix / "lib" / "openmpi").mkdir()
+    (prefix.parent / "pmix").mkdir()
+    (prefix.parent / "prte").mkdir()
     (prefix / "share" / "openmpi").mkdir(parents=True)
     (prefix / "share" / "pmix").mkdir(parents=True)
     (prefix / "share" / "prte").mkdir(parents=True)
@@ -116,6 +119,15 @@ def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_pat
         path.chmod(0o755)
     (prefix / "lib" / "libmpi.so").write_text("mpi", encoding="utf-8")
     (prefix / "lib" / "libpmix.so").write_text("pmix", encoding="utf-8")
+    (prefix / "lib" / "openmpi" / "mca_pml_ob1.so").write_text(
+        "openmpi plugin", encoding="utf-8"
+    )
+    (prefix.parent / "pmix" / "mca_bfrops_v12.so").write_text(
+        "pmix plugin", encoding="utf-8"
+    )
+    (prefix.parent / "prte" / "mca_odls_default.so").write_text(
+        "prte plugin", encoding="utf-8"
+    )
     (prefix / "share" / "openmpi" / "help.txt").write_text("help", encoding="utf-8")
     (prefix / "share" / "pmix" / "help-pmix.txt").write_text("pmix", encoding="utf-8")
     (prefix / "share" / "prte" / "help-prte.txt").write_text("prte", encoding="utf-8")
@@ -132,6 +144,9 @@ def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_pat
     dest = tmp_path / "package" / "bin" / "openmpi"
     assert (dest / "bin" / "mpirun").is_file()
     assert (dest / "lib" / "libmpi.so").is_file()
+    assert (dest / "lib" / "openmpi" / "mca_pml_ob1.so").is_file()
+    assert (dest / "lib" / "pmix" / "mca_bfrops_v12.so").is_file()
+    assert (dest / "lib" / "prte" / "mca_odls_default.so").is_file()
     assert (dest / "share" / "openmpi" / "help.txt").is_file()
     assert (dest / "share" / "pmix" / "help-pmix.txt").is_file()
     assert (dest / "share" / "prte" / "help-prte.txt").is_file()
