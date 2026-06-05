@@ -50,6 +50,8 @@ def test_github_workflows_build_test_and_wheels():
     ]
     assert coverage_setup_steps[0]["with"]["python-version"] == "3.12"
     assert "conda-incubator/setup-miniconda" in str(tests)
+    assert "pull_request" not in wheels["on"]
+    assert wheels["on"]["push"] == {"tags": ["v*"]}
     assert "cibuildwheel" in str(wheels)
     assert "actions/upload-artifact" in str(wheels)
     assert "windows-latest" in str(wheels)
