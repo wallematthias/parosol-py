@@ -7,7 +7,7 @@ name = "parosol-py"
 version = "0.1.0"
 description = "Python package and API wrapper for the ParOSol micro-FE solver"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.14"
 license = { text = "GPL-2.0-or-later" }
 authors = [{ name = "Matthias Walle" }]
 dependencies = [
@@ -17,7 +17,6 @@ dependencies = [
   "aimio-py>=0.1.1",
   "PyYAML>=6",
   "matplotlib>=3.8",
-  "tomli>=2; python_version<'3.11'",
 ]
 
 [project.scripts]
@@ -40,7 +39,7 @@ cmake.version = ">=3.18"
 wheel.packages = ["src/parosol_py", "src/parosol_torch"]
 
 [tool.cibuildwheel]
-build = "cp310-* cp311-* cp312-* cp313-*"
+build = "cp311-* cp312-* cp313-*"
 skip = "*-musllinux_* *-manylinux_i686 *-win32"
 test-command = "python -c \"from parosol_py.runner import packaged_executable; p=packaged_executable(); print(p); assert p.exists()\""
 build-verbosity = 1

@@ -116,7 +116,7 @@ def test_density_to_material_map_uses_power_equation_and_reduced_poisson_ratio()
     assert mapped.poisson_ratio == pytest.approx(0.275)
 
 
-def test_density_to_material_map_uses_framework_mulder2007_law_with_floor():
+def test_density_to_material_map_uses_mulder2007_law_with_floor():
     density = np.array([[[0.0, 500.0, 750.0]]])
     active = np.array([[[True, True, False]]])
 

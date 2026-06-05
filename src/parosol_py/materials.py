@@ -105,13 +105,7 @@ def density_to_material_map(
             np.maximum(density_array, 0.0) / reference, exponent
         )
         default_floor = 0.0
-    elif equation_name in {
-        "mulder",
-        "mulder2007",
-        "mulder_2007",
-        "framework_mulder",
-        "framework_mulder2007",
-    }:
+    elif equation_name in {"mulder", "mulder2007", "mulder_2007"}:
         equation_name = "mulder2007"
         slope = float(parameters.get("slope", parameters.get("a", 25.0)))
         intercept = float(parameters.get("intercept", parameters.get("b", -5830.0)))
