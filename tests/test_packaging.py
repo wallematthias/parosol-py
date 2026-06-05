@@ -59,6 +59,8 @@ def test_github_workflows_build_test_and_wheels():
 
 
 def test_existing_wheel_artifacts_include_config_templates_when_present():
+    assert (ROOT / "src" / "parosol_py" / "licenses" / "parosol_native_LICENSE.txt").is_file()
+
     wheels = sorted((ROOT / "dist").glob("*.whl")) + sorted(
         (ROOT / "dist-local-x86").glob("*.whl")
     )

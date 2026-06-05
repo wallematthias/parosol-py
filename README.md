@@ -7,6 +7,10 @@ images to material stiffness.
 
 This repository keeps the package documentation intentionally small.
 
+The bundled native ParOSol solver was written by Cyril Flaig and is distributed
+under the GNU General Public License, version 2 or later. The Python package is
+therefore distributed as `GPL-2.0-or-later`.
+
 ## Install
 
 Prebuilt wheels include the native ParOSol executable. For local development:
@@ -17,6 +21,18 @@ python -m pip install -e .[dev]
 
 Source installs require CMake, an MPI C++ compiler/runtime, HDF5 C++ libraries,
 and Eigen headers. Release wheels are built for Python 3.11, 3.12, and 3.13.
+
+## Local Check
+
+Before relying on GitHub Actions, run the local verification gate from an
+environment that has the native build tools:
+
+```bash
+python scripts/local_check.py
+```
+
+Add `--smoke-install` to install the built wheel into a temporary virtual
+environment and import it.
 
 ## Python API
 
