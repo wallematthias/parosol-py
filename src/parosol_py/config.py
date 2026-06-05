@@ -247,6 +247,9 @@ def run_case_config(
             material_cfg=material_cfg,
             base_dir=base_dir,
             fallback_poisson_ratio=poisson_ratio,
+            active_mask_zyx=_input_density_active_mask(
+                input_cfg, image_type=image_type, base_dir=base_dir
+            ),
         )
         if _connectivity_filter_enabled(preprocessing_cfg):
             material = largest_connected_component(material)
@@ -431,6 +434,27 @@ def _input_postprocess_mask(
             f"input.mask shape {mask.shape} does not match material shape {tuple(material_shape)}"
         )
     return mask
+
+
+def _input_density_active_mask(
+    input_cfg: dict[str, Any],
+    *,
+    image_type: str,
+    base_dir: Path,
+) -> np.ndarray | None:
+    if image_type not in {"density", "density_mg_ha", "density_mgcm3", "rho"}:
+        return None
+    mask_path = input_cfg.get(
+        "active_mask",
+        input_cfg.get(
+            "outer_contour", input_cfg.get("mask", input_cfg.get("segmentation"))
+        ),
+    )
+    if not mask_path:
+        return None
+    return np.asarray(
+        _read_image_array_zyx(_resolve_path(mask_path, base_dir=base_dir))
+    ) != 0
 
 
 def _coarsen_material(
@@ -1043,6 +1067,7 @@ def _load_material_array(
     material_cfg: dict[str, Any],
     base_dir: Path,
     fallback_poisson_ratio: float,
+    active_mask_zyx: np.ndarray | None = None,
 ) -> tuple[np.ndarray, float | np.ndarray]:
     array_zyx = _read_image_array_zyx(image_path)
     if image_type in {"material_mpa", "mpa", "material"}:
@@ -1058,6 +1083,8 @@ def _load_material_array(
             fallback=fallback_poisson_ratio,
         )
     if image_type in {"density", "density_mg_ha", "density_mgcm3", "rho"}:
+        if active_mask_zyx is not None and active_mask_zyx.shape != array_zyx.shape:
+            raise ValueError("input mask shape must match density image shape")
         density_cfg = _section(material_cfg, "density")
         e_cfg = density_cfg.get("E", density_cfg.get("youngs_modulus", density_cfg))
         if not isinstance(e_cfg, dict):
@@ -1078,9 +1105,8 @@ def _load_material_array(
                     "active_threshold", density_cfg.get("mask_threshold", 0.0)
                 )
             ),
-            minimum_e_mpa=float(
-                e_cfg.get("minimum_e_mpa", density_cfg.get("minimum_e_mpa", 0.0))
-            ),
+            active_mask=active_mask_zyx,
+            minimum_e_mpa=_density_floor_config_value(e_cfg, density_cfg),
             maximum_e_mpa=_optional_float(
                 e_cfg.get("maximum_e_mpa", density_cfg.get("maximum_e_mpa"))
             ),
@@ -1091,6 +1117,9 @@ def _load_material_array(
                 not in {
                     "equation",
                     "minimum_e_mpa",
+                    "floor_e_mpa",
+                    "floor_mpa",
+                    "floor",
                     "maximum_e_mpa",
                 }
             },
@@ -1267,6 +1296,17 @@ def _optional_float(value) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _density_floor_config_value(
+    e_cfg: dict[str, Any], density_cfg: dict[str, Any]
+) -> float | None:
+    for cfg in (e_cfg, density_cfg):
+        for key in ("minimum_e_mpa", "floor_e_mpa", "floor_mpa", "floor"):
+            value = cfg.get(key)
+            if value is not None:
+                return float(value)
+    return None
 
 
 def _image_metadata(

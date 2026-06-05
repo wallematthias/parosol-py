@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from parosol_py.reports import (
+    compact_summary_dict,
     field_statistics,
     parse_legacy_analysis_file,
     parse_pistoia_file,
@@ -61,3 +62,60 @@ def test_solve_summary_includes_solution_quality_checks(tmp_path: Path):
 
     assert summary["quality"]["status"] == "warning"
     assert summary["quality"]["issues"] == ["relative_residual"]
+
+
+def test_solve_summary_warns_when_sed_is_zero_for_nonzero_solution(tmp_path: Path):
+    result = SolveResult(
+        input_file=tmp_path / "input.h5",
+        command=["parosol"],
+        fields={
+            "sed": np.zeros((4,), dtype=float),
+            "displacements": np.array([[0.0, 0.0, -0.1]], dtype=float),
+        },
+        summary=SolveSummary(
+            dimensions_xyz=(1, 1, 1),
+            spacing=(1, 1, 1),
+            origin=(0, 0, 0),
+            run=RunSummary(iterations=4, relative_residual=1e-5),
+        ),
+    )
+
+    summary = solve_summary_dict(result)
+
+    assert summary["quality"]["status"] == "warning"
+    assert "zero_sed_with_nonzero_solution" in summary["quality"]["issues"]
+
+
+def test_compact_summary_uses_model_stiffness_as_primary_result():
+    summary = {
+        "mechanics": {
+            "generalized_load": {"name": "force", "value": -8.0, "units": "N"},
+            "generalized_stiffness": {
+                "name": "stiffness",
+                "value": 40.0,
+                "units": "N/mm",
+            },
+            "interface_stiffness": {
+                "name": "interface_stiffness",
+                "value": 80.0,
+                "units": "N/mm",
+            },
+            "reaction_force": {"x": None, "y": None, "z": -8.0},
+            "stiffness": {"x": None, "y": None, "z": 40.0},
+        },
+        "failure": {
+            "failure_load": {"x": None, "y": None, "z": -4.0},
+            "failure_generalized_load": {
+                "name": "force",
+                "value": -4.0,
+                "units": "N",
+            },
+        },
+    }
+
+    compact = compact_summary_dict(summary)
+
+    assert compact["results"]["stiffness"]["value"] == pytest.approx(40.0)
+    assert compact["results"]["generalized_stiffness"]["value"] == pytest.approx(40.0)
+    assert compact["results"]["interface_stiffness"]["value"] == pytest.approx(80.0)
+    assert compact["results"]["stiffness_by_axis"]["z"] == pytest.approx(40.0)

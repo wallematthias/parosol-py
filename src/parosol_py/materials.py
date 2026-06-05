@@ -65,7 +65,9 @@ def density_to_material_map(
     equation: str = "power",
     poisson_ratio: float | dict[str, Any] = 0.3,
     mask_threshold: float = 0.0,
-    minimum_e_mpa: float = 0.0,
+    active_threshold: float | None = None,
+    active_mask=None,
+    minimum_e_mpa: float | None = None,
     maximum_e_mpa: float | None = None,
     **parameters: Any,
 ) -> MaterialMap:
@@ -74,6 +76,19 @@ def density_to_material_map(
         raise ValueError(f"density must be 3D, got shape {density_array.shape}")
     if not np.all(np.isfinite(density_array)):
         raise ValueError("density values must be finite")
+
+    threshold = float(mask_threshold if active_threshold is None else active_threshold)
+    active = _density_active_mask(
+        density_array,
+        active_mask=active_mask,
+        threshold=threshold,
+        combine_with_threshold=bool(
+            parameters.get(
+                "combine_active_mask_with_threshold",
+                parameters.get("mask_and_threshold", False),
+            )
+        ),
+    )
 
     equation_name = equation.strip().lower()
     if equation_name in {"power", "homminga"}:
@@ -89,10 +104,24 @@ def density_to_material_map(
         youngs = coefficient * np.power(
             np.maximum(density_array, 0.0) / reference, exponent
         )
+        default_floor = 0.0
+    elif equation_name in {
+        "mulder",
+        "mulder2007",
+        "mulder_2007",
+        "framework_mulder",
+        "framework_mulder2007",
+    }:
+        equation_name = "mulder2007"
+        slope = float(parameters.get("slope", parameters.get("a", 25.0)))
+        intercept = float(parameters.get("intercept", parameters.get("b", -5830.0)))
+        youngs = slope * density_array + intercept
+        default_floor = 2.0
     elif equation_name == "linear":
         slope = float(parameters.get("slope", parameters.get("a", 1.0)))
         intercept = float(parameters.get("intercept", parameters.get("b", 0.0)))
         youngs = slope * density_array + intercept
+        default_floor = 0.0
     elif equation_name == "polynomial":
         coefficients = parameters.get("coefficients")
         if coefficients is None:
@@ -100,16 +129,19 @@ def density_to_material_map(
         youngs = np.zeros(density_array.shape, dtype=np.float64)
         for power, coefficient in enumerate(coefficients):
             youngs += float(coefficient) * np.power(density_array, power)
+        default_floor = 0.0
     else:
         raise ValueError(
-            "density equation must be one of: power, homminga, linear, polynomial"
+            "density equation must be one of: power, homminga, mulder2007, linear, polynomial"
         )
 
-    youngs = np.where(density_array > float(mask_threshold), youngs, 0.0)
-    youngs = np.maximum(youngs, float(minimum_e_mpa))
+    floor_e_mpa = _density_floor_e_mpa(
+        parameters, minimum_e_mpa=minimum_e_mpa, default=default_floor
+    )
+    youngs = np.where(active, youngs, 0.0)
+    youngs = np.where(active, np.maximum(youngs, floor_e_mpa), 0.0)
     if maximum_e_mpa is not None:
-        youngs = np.minimum(youngs, float(maximum_e_mpa))
-    youngs = np.where(density_array > float(mask_threshold), youngs, 0.0)
+        youngs = np.where(active, np.minimum(youngs, float(maximum_e_mpa)), 0.0)
 
     nu = poisson_ratio_from_spec(poisson_ratio, density_array, active_mask=youngs > 0.0)
     return MaterialMap(
@@ -118,9 +150,43 @@ def density_to_material_map(
         metadata={
             "source": "density",
             "equation": equation_name,
-            "mask_threshold": float(mask_threshold),
+            "mask_threshold": threshold,
+            "floor_e_mpa": floor_e_mpa,
+            "active_source": "mask" if active_mask is not None else "density_threshold",
         },
     )
+
+
+def _density_active_mask(
+    density_array: np.ndarray,
+    *,
+    active_mask,
+    threshold: float,
+    combine_with_threshold: bool,
+) -> np.ndarray:
+    threshold_mask = density_array > float(threshold)
+    if active_mask is None:
+        return threshold_mask
+    active = np.asarray(active_mask, dtype=bool)
+    if active.shape != density_array.shape:
+        raise ValueError("active_mask must match density shape")
+    if combine_with_threshold:
+        return active & threshold_mask
+    return active
+
+
+def _density_floor_e_mpa(
+    parameters: dict[str, Any],
+    *,
+    minimum_e_mpa: float | None,
+    default: float,
+) -> float:
+    if minimum_e_mpa is not None:
+        return float(minimum_e_mpa)
+    for key in ("floor_e_mpa", "floor_mpa", "floor", "minimum_e_mpa"):
+        if parameters.get(key) is not None:
+            return float(parameters[key])
+    return float(default)
 
 
 def poisson_ratio_from_spec(

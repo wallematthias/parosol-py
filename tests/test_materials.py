@@ -116,6 +116,35 @@ def test_density_to_material_map_uses_power_equation_and_reduced_poisson_ratio()
     assert mapped.poisson_ratio == pytest.approx(0.275)
 
 
+def test_density_to_material_map_uses_framework_mulder2007_law_with_floor():
+    density = np.array([[[0.0, 500.0, 750.0]]])
+    active = np.array([[[True, True, False]]])
+
+    mapped = density_to_material_map(
+        density,
+        equation="mulder2007",
+        active_mask=active,
+        floor_e_mpa=2.0,
+    )
+
+    assert mapped.youngs_modulus_mpa.tolist() == [[[2.0, 6670.0, 0.0]]]
+    assert mapped.metadata["equation"] == "mulder2007"
+    assert mapped.metadata["floor_e_mpa"] == pytest.approx(2.0)
+
+
+def test_density_to_material_map_keeps_zero_density_background_without_active_mask():
+    density = np.array([[[0.0, 500.0, 750.0]]])
+
+    mapped = density_to_material_map(
+        density,
+        equation="mulder2007",
+        floor_e_mpa=2.0,
+        mask_threshold=0.0,
+    )
+
+    assert mapped.youngs_modulus_mpa.tolist() == [[[0.0, 6670.0, 12920.0]]]
+
+
 def test_poisson_ratio_from_spec_can_reduce_continuous_field():
     values = np.array([[[0.0, 1.0, 2.0]]])
 

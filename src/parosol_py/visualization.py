@@ -550,7 +550,7 @@ def _render_bc_group(
         spacing=spacing,
         origin=origin,
         color=color,
-        alpha=max(alpha * 2.5, 0.45),
+        alpha=min(max(alpha * 2.5, 0.45), 1.0),
     )
     if values is not None:
         _draw_representative_symbols(

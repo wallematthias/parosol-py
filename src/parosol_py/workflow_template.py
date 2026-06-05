@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import copy
+import json
+import tempfile
+import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 WORKFLOW_FILENAMES = ("workflow.yaml", "workflow.yml", "parosol_slicer_case.yaml")
+WORKFLOW_BUNDLE_FORMAT = "parosol-py-workflow"
+WORKFLOW_BUNDLE_SUFFIX = ".parosol-workflow"
+WORKFLOW_MANIFEST = "manifest.json"
 
 
 def load_workflow_template(path: str | Path) -> tuple[dict[str, Any], Path]:
@@ -16,11 +23,46 @@ def load_workflow_template(path: str | Path) -> tuple[dict[str, Any], Path]:
         raise ImportError("PyYAML is required to read workflow templates") from exc
 
     template_path = Path(path).expanduser().resolve()
-    workflow_path = _workflow_path(template_path)
+    if _is_workflow_bundle(template_path):
+        source_path = template_path
+        workflow_root = _extract_workflow_bundle(template_path)
+        workflow_path = _workflow_path(workflow_root)
+    else:
+        source_path = template_path
+        workflow_path = _workflow_path(template_path)
     loaded = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
     if not isinstance(loaded, dict):
         raise ValueError(f"workflow template must be a mapping: {workflow_path}")
-    return _resolve_template_paths(copy.deepcopy(loaded), workflow_path.parent), workflow_path
+    return _resolve_template_paths(copy.deepcopy(loaded), workflow_path.parent), source_path
+
+
+def create_workflow_bundle(source: str | Path, output_path: str | Path) -> Path:
+    """Pack a workflow folder/file and its reference files into one archive."""
+    source_path = Path(source).expanduser().resolve()
+    workflow_path = _workflow_path(source_path)
+    base_dir = workflow_path.parent
+    out = Path(output_path).expanduser().resolve()
+    if not _is_workflow_bundle_name(out):
+        out = out.with_suffix(WORKFLOW_BUNDLE_SUFFIX)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    files = [
+        path
+        for path in sorted(base_dir.rglob("*"))
+        if path.is_file() and path.resolve() != out
+    ]
+    manifest = {
+        "format": WORKFLOW_BUNDLE_FORMAT,
+        "version": 1,
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "workflow": workflow_path.relative_to(base_dir).as_posix(),
+        "files": [path.relative_to(base_dir).as_posix() for path in files],
+    }
+    with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(WORKFLOW_MANIFEST, json.dumps(manifest, indent=2, sort_keys=True))
+        for path in files:
+            archive.write(path, path.relative_to(base_dir).as_posix())
+    return out
 
 
 def apply_workflow_template(
@@ -88,11 +130,38 @@ def _workflow_path(path: Path) -> Path:
     raise ValueError(f"workflow template folder must contain one of: {expected}")
 
 
+def _is_workflow_bundle(path: Path) -> bool:
+    return path.is_file() and _is_workflow_bundle_name(path)
+
+
+def _is_workflow_bundle_name(path: Path) -> bool:
+    return path.name.lower().endswith(WORKFLOW_BUNDLE_SUFFIX)
+
+
+def _extract_workflow_bundle(path: Path) -> Path:
+    stage = Path(tempfile.mkdtemp(prefix="parosol_workflow_"))
+    with zipfile.ZipFile(path) as archive:
+        names = set(archive.namelist())
+        if WORKFLOW_MANIFEST in names:
+            manifest = json.loads(archive.read(WORKFLOW_MANIFEST))
+            if manifest.get("format") != WORKFLOW_BUNDLE_FORMAT:
+                raise ValueError(f"unsupported workflow bundle format: {manifest.get('format')!r}")
+        for member in archive.infolist():
+            target = (stage / member.filename).resolve()
+            if not str(target).startswith(str(stage.resolve())):
+                raise ValueError(f"unsafe workflow bundle member: {member.filename}")
+            archive.extract(member, stage)
+    return stage
+
+
 def _resolve_template_paths(config: dict[str, Any], base_dir: Path) -> dict[str, Any]:
     for section_name in ("input", "nodesets"):
         section = config.get(section_name)
         if isinstance(section, dict):
             _resolve_paths_in_mapping(section, base_dir)
+    model = config.get("model")
+    if isinstance(model, dict):
+        _resolve_paths_in_mapping(model, base_dir)
     return config
 
 
@@ -100,7 +169,13 @@ def _resolve_paths_in_mapping(value: dict[str, Any], base_dir: Path) -> None:
     for key, item in list(value.items()):
         if isinstance(item, dict):
             _resolve_paths_in_mapping(item, base_dir)
-        elif key in {"image", "mask"} and isinstance(item, str) and item:
+        elif key in {
+            "image",
+            "mask",
+            "density_image",
+            "mask_image",
+            "reference_points",
+        } and isinstance(item, str) and item:
             path = Path(item).expanduser()
             if not path.is_absolute():
                 value[key] = str((base_dir / path).resolve())

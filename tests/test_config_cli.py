@@ -9,6 +9,7 @@ import SimpleITK as sitk
 from parosol_py.api import SolveResult, SolveSummary
 from parosol_py.cli import main
 from parosol_py.config import run_case_config
+from parosol_py.workflow_template import create_workflow_bundle, load_workflow_template
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "reference"
 
@@ -682,6 +683,87 @@ def test_run_case_config_builds_boundary_conditions_from_voxel_nodeset_labels(
     assert np.any((bc.fixed_coordinates[:, 2] == 0) & (bc.fixed_values == 0.0))
 
 
+def test_nodeset_percent_displacement_uses_full_model_height_when_disks_present(
+    monkeypatch, tmp_path: Path
+):
+    labels = np.zeros((5, 2, 2), dtype=np.uint16)
+    labels[0, :, :] = 202
+    labels[1:4, :, :] = 100
+    labels[4, :, :] = 201
+    nodesets = np.zeros_like(labels)
+    nodesets[0, :, :] = 102
+    nodesets[4, :, :] = 201
+    np.save(tmp_path / "labels.npy", labels)
+    np.save(tmp_path / "nodesets.npy", nodesets)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "labels.npy",
+                    "image_type": "material_labels",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "labels": {
+                        "100": {"name": "bone", "E": 8748, "nu": 0.3},
+                        "201": {"name": "Top_disk", "E": 3000, "nu": 0.3},
+                        "202": {"name": "Bottom_disk", "E": 3000, "nu": 0.3},
+                    }
+                },
+                "nodesets": {
+                    "top": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 201,
+                        "selection": "surface_nodes",
+                    },
+                    "bottom": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 102,
+                        "selection": "surface_nodes",
+                    },
+                },
+                "load_case": {
+                    "type": "nodeset",
+                    "fixed": [
+                        {"nodeset": "bottom", "dofs": ["x", "y", "z"], "value": 0}
+                    ],
+                    "prescribed": [{"nodeset": "top", "dof": "z", "value": "-1%"}],
+                },
+                "postprocess": {"fields": {"mask_to_segmentation": True}},
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        from parosol_py.api import SolveResult, SolveSummary
+
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((2, 2, 5), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    bc = captured["boundary_conditions"]
+    prescribed_z = bc.fixed_values[
+        (bc.fixed_coordinates[:, 3] == 2) & (~np.isclose(bc.fixed_values, 0.0))
+    ]
+    assert prescribed_z.size > 0
+    assert np.unique(prescribed_z).tolist() == pytest.approx([-0.05])
+    assert "postprocess_mask" not in captured
+
+
 def test_run_case_config_infers_nodeset_load_direction_from_prescribed_dof(
     monkeypatch, tmp_path: Path
 ):
@@ -1259,6 +1341,52 @@ def test_run_case_config_maps_density_input_with_poisson_equation(
 
     assert captured["material"].tolist() == [[[0.0, 2500.0, 10000.0]]]
     assert captured["poisson_ratio"] == pytest.approx(0.275)
+
+
+def test_run_case_config_uses_density_input_mask_as_active_contour(
+    monkeypatch, tmp_path: Path
+):
+    density = np.array([[[0.0, 500.0, 750.0]]])
+    contour = np.array([[[1, 1, 0]]], dtype=np.uint8)
+    np.save(tmp_path / "density.npy", density)
+    np.save(tmp_path / "contour.npy", contour)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.npy",
+                    "image_type": "density",
+                    "mask": "contour.npy",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "density": {
+                        "E": {"equation": "mulder2007", "floor_e_mpa": 2.0},
+                        "nu": 0.3,
+                    },
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((3, 1, 1), (1, 1, 1), (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    assert captured["material"].tolist() == [[[2.0, 6670.0, 0.0]]]
 
 
 def test_run_case_config_uses_smart_visible_surfaces(monkeypatch, tmp_path: Path):
@@ -2028,3 +2156,117 @@ solver:
     assert summary["execution"]["profile"] == "interactive_custom"
     assert summary["execution"]["template"] == str(template_dir.resolve())
     assert summary["execution"]["image"] == str(image_path.resolve())
+
+
+def test_cli_shortcut_applies_parosol_workflow_bundle(tmp_path: Path):
+    template_dir = tmp_path / "template"
+    template_dir.mkdir()
+    reference = np.ones((3, 3, 3), dtype=np.uint8) * 100
+    nodesets = np.zeros((3, 3, 3), dtype=np.uint8)
+    nodesets[0, :, :] = 1
+    nodesets[-1, :, :] = 2
+    np.save(template_dir / "reference.npy", reference)
+    np.save(template_dir / "nodesets.npy", nodesets)
+    (template_dir / "workflow.yaml").write_text(
+        """
+case:
+  name: reference
+  work_dir: old
+input:
+  image: reference.npy
+  image_type: material_labels
+  spacing: [1.0, 1.0, 1.0]
+materials:
+  units: MPa
+  labels:
+    100: {name: bone, E: 1000.0, nu: 0.3}
+nodesets:
+  fixed: {type: label_image, image: nodesets.npy, label: 1}
+  loaded: {type: label_image, image: nodesets.npy, label: 2}
+load_case:
+  type: nodeset
+  fixed:
+    - {nodeset: fixed, dofs: [x, y, z], value: 0.0}
+  prescribed:
+    - {nodeset: loaded, dof: z, value: -0.01}
+output:
+  export_fields: false
+solver:
+  mpi_processes: 1
+""",
+        encoding="utf-8",
+    )
+    workflow_bundle = create_workflow_bundle(
+        template_dir, tmp_path / "custom.parosol-workflow"
+    )
+    image_path = tmp_path / "new_scan.npy"
+    output_dir = tmp_path / "out_bundle"
+    np.save(image_path, reference)
+
+    assert (
+        main(
+            [
+                str(image_path),
+                "--profile",
+                "interactive_custom",
+                "--template",
+                str(workflow_bundle),
+                "--output",
+                str(output_dir),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    generated = (output_dir / "parosol_case.yaml").read_text(encoding="utf-8")
+    assert summary["execution"]["template"] == str(workflow_bundle.resolve())
+    assert "nodesets.npy" in generated
+    assert f"image: {image_path.resolve()}" in generated
+
+
+def test_workflow_bundle_resolves_model_reference_points(tmp_path: Path):
+    template_dir = tmp_path / "template"
+    template_dir.mkdir()
+    reference_dir = template_dir / "reference"
+    reference_dir.mkdir()
+    reference_points = reference_dir / "vertebra_ref.vtk"
+    reference_points.write_text(
+        "\n".join(
+            [
+                "# vtk DataFile Version 3.0",
+                "reference",
+                "ASCII",
+                "DATASET POLYDATA",
+                "POINTS 1 float",
+                "0 0 0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (template_dir / "workflow.yaml").write_text(
+        """
+model:
+  type: spine_compression
+  density_image: density.nii.gz
+  mask_image: segmentation.nii.gz
+  registration:
+    enabled: true
+    method: lightweight_icp
+    reference_points: reference/vertebra_ref.vtk
+materials: {}
+""",
+        encoding="utf-8",
+    )
+    workflow_bundle = create_workflow_bundle(
+        template_dir, tmp_path / "with_reference.parosol-workflow"
+    )
+
+    loaded, source = load_workflow_template(workflow_bundle)
+
+    assert source == workflow_bundle.resolve()
+    resolved_reference = Path(loaded["model"]["registration"]["reference_points"])
+    assert resolved_reference.is_absolute()
+    assert resolved_reference.is_file()
+    assert resolved_reference.name == "vertebra_ref.vtk"

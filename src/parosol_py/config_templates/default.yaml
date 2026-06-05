@@ -31,6 +31,13 @@ materials:
       name: cortical_bone
       E: 8748
       nu: 0.3
+    # Generated disks/caps/connectors are part of the solved model by default.
+    # Percent displacements, stiffness, and Pistoia analysis use the full active
+    # model unless an explicit input.mask is supplied for field visualization.
+    # 201:
+    #   name: Top_disk
+    #   E: 3000
+    #   nu: 0.3
   # Existing legacy-style MaterialDefinitions/MaterialTable files can still be
   # loaded when needed:
   # file: material_cort_trab.yaml
@@ -39,12 +46,16 @@ materials:
   # nu: 0.3
   #
   # Continuous density-to-E mapping. E is produced in MPa.
+  # Supported equations include power, linear, polynomial, and mulder2007.
+  # mulder2007 expects BMD in mg HA/cm^3 and uses E = 25*density - 5830 MPa.
+  # floor_e_mpa applies inside the active material region only.
   # density:
   #   E:
   #     equation: power
   #     coefficient: 10000
   #     exponent: 1.7
   #     reference_density: 1000
+  #     floor_e_mpa: 0
   #   nu: 0.3
   #   active_threshold: 0
 
@@ -95,6 +106,8 @@ load_case:
   # Use displacement instead of strain when you want an absolute top-plate
   # displacement in image length units.
   # displacement: -0.06
+  # Percent values in nodeset/custom load cases, for example value: -1%, use
+  # the full solved model dimensions, including generated disks/caps.
 
   # Other built-in load case examples:
   # type: uniaxial
@@ -192,7 +205,9 @@ postprocess:
   #   summary: parosol_run/example_case/load_history_summary.json
   #   output: parosol_run/example_case/load_history.nii.gz
   fields:
-    # Limit exported strain-like fields to the solved/material segmentation.
+    # If input.mask/input.segmentation is provided, limit exported strain-like
+    # fields to that mask for visualization. Without an explicit mask, fields
+    # are exported for the full solved model.
     mask_to_segmentation: true
     # For crop_to_bb preprocessing, paste image fields back into the original
     # image grid when the run did not also change orientation/registration.
@@ -200,6 +215,8 @@ postprocess:
 
 output:
   # result.json is the compact report-ready file most users should open first.
+  # For capped models it reports the stiffness of the solved model, including
+  # generated disks/caps.
   result: parosol_run/example_case/result.json
   # summary.json keeps the fuller run record and diagnostics.
   run_summary: parosol_run/example_case/summary.json

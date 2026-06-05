@@ -45,14 +45,17 @@ def test_write_case_overview_summarizes_large_boundary_condition_sets(
     sed = np.ones_like(material, dtype=np.float32)
     bottom = []
     top = []
+    mid_fixed = []
     for x in range(33):
         for y in range(33):
             bottom.append([x, y, 0, 2])
+            mid_fixed.append([x, y, 4, 0])
             top.append([x, y, 8, 2])
     boundary_conditions = BoundaryConditionSet(
-        fixed_coordinates=np.asarray([*bottom, *top], dtype=np.uint16),
+        fixed_coordinates=np.asarray([*bottom, *mid_fixed, *top], dtype=np.uint16),
         fixed_values=np.asarray(
-            [0.0] * len(bottom) + [-0.08] * len(top), dtype=np.float32
+            [0.0] * len(bottom) + [0.0] * len(mid_fixed) + [-0.08] * len(top),
+            dtype=np.float32,
         ),
     )
 

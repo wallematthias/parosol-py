@@ -197,6 +197,21 @@ mapped = density_to_material_map(
 )
 ```
 
+The old framework grayscale BMD law is available as `mulder2007`. It expects
+density in `mg HA/cm^3` and computes `E = 25*density - 5830 MPa`. Use
+`floor_e_mpa` to keep low-density voxels inside the active mask at the soft
+tissue floor:
+
+```python
+mapped = density_to_material_map(
+    density_image,
+    equation="mulder2007",
+    active_mask=outer_contour,
+    floor_e_mpa=2,
+    poisson_ratio=0.3,
+)
+```
+
 Label-image material tables can define different Poisson ratios per material.
 ParOSol-py writes those as an optional native per-element Poisson ratio image.
 For config files, prefer the project-native material syntax:
@@ -226,6 +241,14 @@ If `--output` is omitted, ParOSol-py writes to a sibling directory named
 overview PNG. The result file contains report-ready mechanics and failure
 values; the summary keeps the broader run record and diagnostics.
 
+Generated disks, caps, connectors, and other fixtures are part of the finite
+element model. They transfer load, contribute to the solved stiffness, and count
+toward percent-based load definitions such as `-1%` when they extend the model
+height. This keeps capped models internally consistent and close to the legacy
+FAIM-style workflow. If a user supplies an explicit `--mask`, exported fields can
+still be masked to that region for visualization, but the default mechanics in
+`result.json` describe the solved model as run.
+
 Model profiles use the same command and accept a standard `--mask` argument:
 
 ```bash
@@ -246,6 +269,54 @@ without launching the native solver:
 
 ```bash
 parosol distal-radius.AIM --profile XtremeCTII --output outputs/distal-radius --dry-run
+```
+
+### Portable `.parosol` Bundles
+
+For Slicer-authored or workstation-authored models that should be solved on a
+different machine, export a single portable bundle:
+
+```bash
+parosol bundle create outputs/distal-radius/parosol_case.yaml \
+  --output outputs/distal-radius.parosol
+```
+
+Copy that one `.parosol` file to the remote machine and run:
+
+```bash
+parosol run distal-radius.parosol --output distal-radius_results
+```
+
+The remote run writes the same full output folder as a local run, including
+`result.json`, `summary.json`, `parosol_input.h5`, solver logs, and
+`fields/sed.nii.gz` when SED export is enabled. SlicerParOSol's
+`Export Portable Bundle` button does the dry-run model export, creates this
+bundle, and removes its temporary staging files after a successful export.
+
+### Reusable `.parosol-workflow` Files
+
+Use `.parosol` when you want to solve one exact frozen model. Use
+`.parosol-workflow` when you want to reuse an editable modeling recipe on a new
+scan. A workflow archive is also a zip file, but it contains `workflow.yaml`,
+the Slicer editor state, and optional reference files for ICP/template transfer.
+
+SlicerParOSol's `Save Workflow` button writes a `.parosol-workflow` file.
+Apply it to a new scan from the CLI with:
+
+```bash
+parosol NEW_SCAN.nii.gz \
+  --profile interactive_custom \
+  --template custom.parosol-workflow \
+  --output outputs/NEW_SCAN_custom
+```
+
+Workflow presets that do not need a reference, such as load-history estimation,
+fit the same concept. The built-in load-history workflows are currently exposed
+as profiles:
+
+```bash
+parosol distal-radius.AIM --profile load_history_3 --output outputs/distal-radius_lh3
+parosol distal-radius.AIM --profile load_history_6 --output outputs/distal-radius_lh6
 ```
 
 Advanced users can still keep the generated YAML, edit any section, and run it

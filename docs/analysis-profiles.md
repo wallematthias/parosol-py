@@ -125,6 +125,42 @@ Run an explicit config:
 parosol run xtremectii_case.yaml
 ```
 
+Create a portable single-file bundle for cluster or workstation handoff:
+
+```bash
+parosol bundle create runs/10001_vertebra/parosol_case.yaml \
+  --output runs/10001_vertebra.parosol
+```
+
+Run that bundle on the target machine:
+
+```bash
+parosol run 10001_vertebra.parosol --output runs/10001_vertebra_remote
+```
+
+A `.parosol` bundle contains the resolved config, model images, nodesets,
+optional prebuilt native H5, and small helper scripts. Running the bundle
+recreates a normal output folder with `result.json`, `summary.json`, solver
+logs, `parosol_input.h5`, and enabled field exports such as `fields/sed.nii.gz`.
+SlicerParOSol uses the same format when its `Export Portable Bundle` button is
+pressed.
+
+Reusable workflows use a separate `.parosol-workflow` convention. These archives
+contain `workflow.yaml`, Slicer editor state, and optional reference files for
+ICP/template transfer. They are meant to be applied to a new scan, not solved as
+an already-frozen model:
+
+```bash
+parosol NEW_SCAN.nii.gz \
+  --profile interactive_custom \
+  --template spine_workflow.parosol-workflow \
+  --output runs/NEW_SCAN_spine
+```
+
+Some workflows do not need a reference image. Load-history estimation is the
+main example: `load_history_3` and `load_history_6` are reference-free workflow
+presets that expand into three or six solves plus post-processing.
+
 Run a batch config:
 
 ```bash
@@ -168,6 +204,21 @@ A normal run writes:
 The summary includes the exact command, generated config path, input paths,
 profile, dry-run flag, image spacing/origin, mechanics, Pistoia failure metrics,
 solver iterations/residual/runtime, and exported file paths.
+
+### Disks, Caps, and Stiffness
+
+Generated disks, caps, PMMA fixtures, connectors, and boundary plates are part of
+the finite-element model. They are not automatically removed from mechanics or
+Pistoia analysis. Percent displacements such as `-1%` use the full solved model
+dimensions, including any generated disks/caps that extend the model height.
+`result.json` reports the solved model reaction force and stiffness from the
+actual boundary conditions.
+
+If `input.mask`/`input.segmentation` is supplied and
+`postprocess.fields.mask_to_segmentation` is enabled, exported image fields can
+still be masked to that region for visualization. This mask is explicit user
+input; material names such as `Top_disk` or `PMMA_cap` are not interpreted as
+automatic analysis exclusions.
 
 ## Config Sections
 
@@ -294,8 +345,7 @@ Postprocessing:
 - Pistoia failure estimate.
 - Linear reaction at `0.2%` deformation.
 - Crawford-style stiffness-height strength estimate using coefficient `0.0068`.
-- Field masking to the segmentation so generated disks do not contaminate the
-  bone field statistics.
+- Optional field masking to the segmentation for visualization.
 
 Outputs:
 
@@ -553,6 +603,23 @@ materials:
     nu: 0.3
     active_threshold: 0
 ```
+
+For the old framework/Mulder grayscale conversion, use this material preset:
+
+```yaml
+materials:
+  units: MPa
+  density:
+    E:
+      equation: mulder2007
+      floor_e_mpa: 2
+    nu: 0.3
+```
+
+This expects density in `mg HA/cm^3` and computes `E = 25*density - 5830 MPa`.
+The floor is applied inside the active material region only. If that active mask
+is a bone segmentation, conversion is segmentation-limited; if it is an outer
+contour, the full contour is converted and low-density voxels are floored.
 
 `materials.density.nu` may be a scalar or an equation; equation-based values are
 currently reduced to one scalar before solve.

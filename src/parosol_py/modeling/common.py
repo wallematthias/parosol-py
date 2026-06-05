@@ -334,25 +334,41 @@ def material_from_density(
     material_config: dict[str, Any],
 ) -> tuple[np.ndarray, float]:
     density_cfg = dict(material_config.get("density", {}))
-    density_cfg.setdefault("equation", "linear")
-    masked_density = np.where(active_mask_zyx, density_zyx, 0.0)
-    mapped = density_to_material_map(
-        masked_density,
-        equation=str(density_cfg.get("equation", "linear")),
-        poisson_ratio=material_config.get(
-            "poisson_ratio", material_config.get("nu", 0.3)
+    e_cfg = density_cfg.get("E", density_cfg.get("youngs_modulus", density_cfg))
+    if not isinstance(e_cfg, dict):
+        raise ValueError("materials.density.E must be an object")
+    equation = str(e_cfg.get("equation", density_cfg.get("equation", "linear")))
+    poisson_spec = density_cfg.get(
+        "nu",
+        density_cfg.get(
+            "poisson_ratio",
+            material_config.get("poisson_ratio", material_config.get("nu", 0.3)),
         ),
-        mask_threshold=float(density_cfg.get("mask_threshold", 0.0)),
-        minimum_e_mpa=float(density_cfg.get("minimum_e_mpa", 0.0)),
-        maximum_e_mpa=_optional_float(density_cfg.get("maximum_e_mpa")),
+    )
+    mapped = density_to_material_map(
+        density_zyx,
+        equation=equation,
+        poisson_ratio=poisson_spec,
+        mask_threshold=float(
+            density_cfg.get("active_threshold", density_cfg.get("mask_threshold", 0.0))
+        ),
+        active_mask=active_mask_zyx,
+        minimum_e_mpa=_density_floor_config_value(e_cfg, density_cfg),
+        maximum_e_mpa=_optional_float(
+            e_cfg.get("maximum_e_mpa", density_cfg.get("maximum_e_mpa"))
+        ),
         **{
             key: value
-            for key, value in density_cfg.items()
+            for key, value in e_cfg.items()
             if key
             not in {
                 "equation",
+                "active_threshold",
                 "mask_threshold",
                 "minimum_e_mpa",
+                "floor_e_mpa",
+                "floor_mpa",
+                "floor",
                 "maximum_e_mpa",
             }
         },
@@ -725,3 +741,14 @@ def _triple(value, name: str) -> tuple[float, float, float]:
 
 def _optional_float(value) -> float | None:
     return None if value is None else float(value)
+
+
+def _density_floor_config_value(
+    e_cfg: dict[str, Any], density_cfg: dict[str, Any]
+) -> float | None:
+    for cfg in (e_cfg, density_cfg):
+        for key in ("minimum_e_mpa", "floor_e_mpa", "floor_mpa", "floor"):
+            value = cfg.get(key)
+            if value is not None:
+                return float(value)
+    return None

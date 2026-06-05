@@ -6,7 +6,7 @@ import pytest
 import SimpleITK as sitk
 
 from parosol_py.modeling import build_model
-from parosol_py.modeling.common import load_density_and_mask
+from parosol_py.modeling.common import load_density_and_mask, material_from_density
 from parosol_py.modeling.io import read_image_zyx
 from parosol_py.modeling.alignment import (
     estimate_rigid_icp,
@@ -118,6 +118,43 @@ def test_model_preprocessing_smooths_density_and_labels_together(tmp_path: Path)
     assert 0.0 < smoothed_density[4, 4, 3] < 100.0
     assert smoothed_density[4, 4, 4] < 100.0
     assert np.count_nonzero(smoothed_mask == 2) > 1
+
+
+def test_material_from_density_uses_nested_mulder_law_inside_active_contour():
+    density = np.array(
+        [
+            [[0.0, 500.0, 750.0]],
+            [[0.0, 500.0, 750.0]],
+        ],
+        dtype=np.float64,
+    )
+    active_contour = np.array(
+        [
+            [[True, True, True]],
+            [[False, False, False]],
+        ],
+        dtype=bool,
+    )
+
+    material, nu = material_from_density(
+        density,
+        active_contour,
+        material_config={
+            "density": {
+                "E": {
+                    "equation": "mulder2007",
+                    "floor_e_mpa": 2.0,
+                },
+                "nu": 0.29,
+            },
+        },
+    )
+
+    assert material.tolist() == [
+        [[2.0, 6670.0, 12920.0]],
+        [[0.0, 0.0, 0.0]],
+    ]
+    assert nu == pytest.approx(0.29)
 
 
 def test_spine_compression_model_generates_pmma_disks_and_bc_sets(tmp_path: Path):

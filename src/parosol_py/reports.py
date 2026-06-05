@@ -79,6 +79,7 @@ def solve_summary_dict(
                 )
             )
         data.update(extra_json)
+    _add_postprocess_quality_issues(data)
     return data
 
 
@@ -88,6 +89,7 @@ def compact_summary_dict(summary: dict[str, Any]) -> dict[str, Any]:
     mechanics = summary.get("mechanics", {})
     failure = summary.get("failure", {})
     outputs = summary.get("outputs", {})
+    primary_stiffness = mechanics.get("generalized_stiffness")
     compact: dict[str, Any] = {
         "case": summary.get("case", {}),
         "execution": summary.get("execution", {}),
@@ -95,9 +97,11 @@ def compact_summary_dict(summary: dict[str, Any]) -> dict[str, Any]:
         "load_case": summary.get("load_case", {}),
         "results": {
             "generalized_load": mechanics.get("generalized_load"),
-            "generalized_stiffness": mechanics.get("generalized_stiffness"),
+            "generalized_stiffness": primary_stiffness,
+            "interface_stiffness": mechanics.get("interface_stiffness"),
             "reaction_force": mechanics.get("reaction_force"),
-            "stiffness": mechanics.get("stiffness"),
+            "stiffness": primary_stiffness,
+            "stiffness_by_axis": mechanics.get("stiffness"),
             "failure_load": failure.get("failure_load"),
             "failure_generalized_load": failure.get("failure_generalized_load"),
             "pistoia_factor": failure.get("factor"),
@@ -106,6 +110,7 @@ def compact_summary_dict(summary: dict[str, Any]) -> dict[str, Any]:
         "mechanics": {
             "generalized_load": mechanics.get("generalized_load"),
             "generalized_stiffness": mechanics.get("generalized_stiffness"),
+            "interface_stiffness": mechanics.get("interface_stiffness"),
             "reaction_force": mechanics.get("reaction_force"),
             "stiffness": mechanics.get("stiffness"),
             "applied_displacement": mechanics.get("applied_displacement"),
@@ -270,6 +275,38 @@ def _solution_quality(
         "issues": issues,
         "checks": checks,
     }
+
+
+def _add_postprocess_quality_issues(summary: dict[str, Any]) -> None:
+    fields = summary.get("fields", {})
+    sed = fields.get("sed", {}) if isinstance(fields, dict) else {}
+    if not isinstance(sed, dict):
+        return
+    sed_max = sed.get("max")
+    if sed_max is None or not np.isclose(float(sed_max), 0.0):
+        return
+
+    mechanics = summary.get("mechanics", {})
+    load = mechanics.get("generalized_load", {}) if isinstance(mechanics, dict) else {}
+    load_value = load.get("value") if isinstance(load, dict) else None
+    displacement = fields.get("displacements", {}) if isinstance(fields, dict) else {}
+    displacement_min = displacement.get("min") if isinstance(displacement, dict) else None
+    displacement_max = displacement.get("max") if isinstance(displacement, dict) else None
+    has_nonzero_solution = any(
+        value is not None
+        and np.isfinite(float(value))
+        and not np.isclose(float(value), 0.0)
+        for value in (load_value, displacement_min, displacement_max)
+    )
+    if not has_nonzero_solution:
+        return
+
+    quality = summary.setdefault("quality", {})
+    issues = quality.setdefault("issues", [])
+    issue = "zero_sed_with_nonzero_solution"
+    if issue not in issues:
+        issues.append(issue)
+    quality["status"] = "warning"
 
 
 def _parse_key_value_table(text: str, title: str) -> dict[str, Any]:

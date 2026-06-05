@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import copy
+import json
 import sys
 from pathlib import Path
 from typing import Any
 
 from .batch import run_batch_config
+from .bundle import create_bundle, inspect_bundle, is_bundle_path, run_bundle
 from .config import run_case_config
 from .config_templates import available_config_profiles, read_config_template
 from .load_history import estimate_load_history_from_files
@@ -14,7 +16,14 @@ from .paths import image_stem, suffix_text
 from .reports import parse_legacy_analysis_file, parse_pistoia_file, write_summary_json
 from .workflow_template import apply_workflow_template, load_workflow_template
 
-_COMMANDS = {"run", "batch", "load-history", "summarize-legacy", "config-template"}
+_COMMANDS = {
+    "run",
+    "batch",
+    "bundle",
+    "load-history",
+    "summarize-legacy",
+    "config-template",
+}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -43,9 +52,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run_parser = subparsers.add_parser("run", help="Run a ParOSol case config")
+    run_parser = subparsers.add_parser(
+        "run", help="Run a ParOSol case config or portable .parosol bundle"
+    )
     run_parser.add_argument(
-        "config", help="Path to a .yaml, .toml, or .json case config"
+        "config", help="Path to a .yaml, .toml, .json case config, or .parosol bundle"
     )
     run_parser.add_argument(
         "--dry-run",
@@ -53,6 +64,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write inputs/summary without launching ParOSol",
     )
     run_parser.add_argument("--work-dir", help="Override the configured work directory")
+    run_parser.add_argument(
+        "-o",
+        "--output",
+        help="Output directory for .parosol bundle runs",
+    )
     run_parser.set_defaults(func=_run)
 
     batch_parser = subparsers.add_parser("batch", help="Run a ParOSol batch config")
@@ -67,7 +83,7 @@ def _build_parser() -> argparse.ArgumentParser:
     batch_parser.add_argument(
         "--template",
         help=(
-            "Reusable workflow template folder/file to apply when TARGET is a folder. "
+            "Reusable workflow template folder/file or .parosol-workflow to apply when TARGET is a folder. "
             "Use with --profile interactive_custom for Slicer-authored workflows."
         ),
     )
@@ -104,6 +120,27 @@ def _build_parser() -> argparse.ArgumentParser:
         "--work-dir", help="Override the configured batch directory"
     )
     batch_parser.set_defaults(func=_batch)
+
+    bundle_parser = subparsers.add_parser(
+        "bundle", help="Create and inspect portable .parosol bundles"
+    )
+    bundle_subparsers = bundle_parser.add_subparsers(
+        dest="bundle_command", required=True
+    )
+    bundle_create_parser = bundle_subparsers.add_parser(
+        "create", help="Create a portable .parosol bundle from a case config"
+    )
+    bundle_create_parser.add_argument("config", help="Path to a case config")
+    bundle_create_parser.add_argument(
+        "-o", "--output", required=True, help="Output .parosol bundle path"
+    )
+    bundle_create_parser.set_defaults(func=_bundle_create)
+
+    bundle_inspect_parser = bundle_subparsers.add_parser(
+        "inspect", help="Inspect a portable .parosol bundle"
+    )
+    bundle_inspect_parser.add_argument("bundle", help="Path to a .parosol bundle")
+    bundle_inspect_parser.set_defaults(func=_bundle_inspect)
 
     history_parser = subparsers.add_parser(
         "load-history",
@@ -184,8 +221,8 @@ def _build_shortcut_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--template",
         help=(
-            "Reusable workflow template folder/file. Template folders are typically "
-            "exported by SlicerParOSol and contain workflow.yaml plus reference files."
+            "Reusable workflow template folder/file or .parosol-workflow. "
+            "SlicerParOSol workflows contain workflow.yaml plus optional reference files."
         ),
     )
     parser.set_defaults(func=_shortcut)
@@ -193,13 +230,33 @@ def _build_shortcut_parser() -> argparse.ArgumentParser:
 
 
 def _run(args: argparse.Namespace) -> int:
-    result = run_case_config(
-        args.config, dry_run=True if args.dry_run else None, work_dir=args.work_dir
-    )
+    if is_bundle_path(args.config):
+        result = run_bundle(
+            args.config,
+            output_dir=args.output or args.work_dir,
+            dry_run=bool(args.dry_run),
+        )
+    else:
+        if args.output:
+            raise ValueError("--output is only supported when running a .parosol bundle")
+        result = run_case_config(
+            args.config, dry_run=True if args.dry_run else None, work_dir=args.work_dir
+        )
     print(f"input: {result.input_file}")
     if result.exported:
         for name, path in sorted(result.exported.items()):
             print(f"{name}: {path}")
+    return 0
+
+
+def _bundle_create(args: argparse.Namespace) -> int:
+    created = create_bundle(args.config, args.output)
+    print(created)
+    return 0
+
+
+def _bundle_inspect(args: argparse.Namespace) -> int:
+    print(json.dumps(inspect_bundle(args.bundle), indent=2, sort_keys=True))
     return 0
 
 
@@ -390,7 +447,7 @@ def _shortcut_config(args: argparse.Namespace) -> dict[str, Any]:
             case_name=case_name,
             profile=args.profile,
             command=" ".join(["parosol", *getattr(args, "_argv", [])]),
-            template_path=workflow_path.parent,
+            template_path=workflow_path,
             dry_run=bool(args.dry_run),
         )
     if args.profile == "interactive_custom":

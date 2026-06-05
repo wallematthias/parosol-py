@@ -48,6 +48,7 @@ def build_fea_diagnostics(
         rotation_degrees=rotation_degrees,
         load_case_center=load_case_center,
         boundary_conditions=boundary_conditions,
+        evaluation_mask_xyz=evaluation_mask_xyz,
         analysis_dimensions_xyz=analysis_dimensions_xyz,
     )
     failure = _pistoia_failure(
@@ -85,6 +86,7 @@ def _mechanics_from_node_fields(
     rotation_degrees: float | None,
     load_case_center: tuple[float, float] | None,
     boundary_conditions,
+    evaluation_mask_xyz,
     analysis_dimensions_xyz,
 ) -> dict[str, Any]:
     axis_index = AXIS_TO_INDEX[axis]
@@ -209,6 +211,18 @@ def _mechanics_from_node_fields(
             if top_indices
             else None,
         )
+        interface = _interface_stiffness(
+            displacements=displacements,
+            node_coords=node_coords,
+            reaction=reaction,
+            axis=axis,
+            direction=direction,
+            load_type=load_type,
+            evaluation_mask_xyz=evaluation_mask_xyz,
+            voxel_size_mm=voxel_size_mm,
+        )
+        if interface is not None:
+            result["interface_stiffness"] = interface
     return result
 
 
@@ -380,6 +394,7 @@ def _linear_failure_estimates(
     crawford_coefficient: float,
 ) -> dict[str, Any]:
     stiffness = mechanics.get("generalized_stiffness", {})
+    stiffness_source = "generalized_stiffness"
     k_fe = stiffness.get("value")
     units = stiffness.get("units")
     analysis_dimensions = mechanics.get("analysis_dimensions", {})
@@ -409,6 +424,7 @@ def _linear_failure_estimates(
             "deformation": threshold,
             "height_mm": height_mm,
             "stiffness_n_per_mm": k_abs,
+            "stiffness_source": stiffness_source,
             "displacement_mm": threshold_displacement_mm,
             "failure_load": _xyz(AXIS_TO_INDEX[axis], linear_load),
             "failure_generalized_load": {
@@ -427,6 +443,7 @@ def _linear_failure_estimates(
             ),
             "height_mm": height_mm,
             "stiffness_n_per_mm": k_abs,
+            "stiffness_source": stiffness_source,
             "failure_load": _xyz(AXIS_TO_INDEX[axis], crawford_load),
             "failure_generalized_load": {
                 "name": "force",
@@ -601,6 +618,87 @@ def _generalized_stiffness(
         return {"name": "rotational_stiffness", "value": stiffness, "units": "N*mm/rad"}
     stiffness = None if np.isclose(applied, 0.0) else float(value) / float(applied)
     return {"name": "stiffness", "value": stiffness, "units": "N/mm"}
+
+
+def _interface_stiffness(
+    *,
+    displacements: np.ndarray,
+    node_coords: list[tuple[int, int, int]],
+    reaction: float,
+    axis: str,
+    direction: str,
+    load_type: str,
+    evaluation_mask_xyz,
+    voxel_size_mm: float,
+) -> dict[str, Any] | None:
+    if evaluation_mask_xyz is None:
+        return None
+    if load_type in {"bending", "bend", "torsion", "twist"}:
+        return None
+    axis_index = AXIS_TO_INDEX[axis]
+    direction_index = AXIS_TO_INDEX[direction]
+    mask = np.asarray(evaluation_mask_xyz, dtype=bool)
+    if mask.ndim != 3 or not np.any(mask):
+        return None
+    active = np.argwhere(mask)
+    low = int(active[:, axis_index].min())
+    high = int(active[:, axis_index].max())
+    low_nodes = _mask_face_nodes(mask, axis_index=axis_index, element_index=low, side=-1)
+    high_nodes = _mask_face_nodes(mask, axis_index=axis_index, element_index=high, side=1)
+    coord_to_index = {coord: index for index, coord in enumerate(node_coords)}
+    low_indices = [coord_to_index[node] for node in low_nodes if node in coord_to_index]
+    high_indices = [coord_to_index[node] for node in high_nodes if node in coord_to_index]
+    if not low_indices or not high_indices:
+        return None
+    low_mean = float(np.mean(displacements[low_indices, direction_index]))
+    high_mean = float(np.mean(displacements[high_indices, direction_index]))
+    displacement = high_mean - low_mean
+    if np.isclose(displacement, 0.0):
+        stiffness = None
+    else:
+        stiffness = float(reaction) / float(displacement)
+    return {
+        "name": "interface_stiffness",
+        "value": stiffness,
+        "units": "N/mm",
+        "reference": "evaluation_mask_surface_displacement",
+        "displacement_difference": _xyz(direction_index, displacement),
+        "mean_top_displacement": _xyz(direction_index, high_mean),
+        "mean_bottom_displacement": _xyz(direction_index, low_mean),
+        "top_node_count": len(high_indices),
+        "bottom_node_count": len(low_indices),
+        "height_mm": float(high - low + 1) * float(voxel_size_mm),
+    }
+
+
+def _mask_face_nodes(
+    mask: np.ndarray,
+    *,
+    axis_index: int,
+    element_index: int,
+    side: int,
+) -> set[tuple[int, int, int]]:
+    nodes: set[tuple[int, int, int]] = set()
+    lateral_axes = [idx for idx in range(3) if idx != axis_index]
+    face_elements = np.argwhere(mask & (_axis_index_grid(mask.shape, axis_index) == element_index))
+    node_axis_value = int(element_index) + (1 if int(side) > 0 else 0)
+    for element in face_elements:
+        base = [int(v) for v in element]
+        for du in (0, 1):
+            for dv in (0, 1):
+                node = list(base)
+                node[axis_index] = node_axis_value
+                node[lateral_axes[0]] += du
+                node[lateral_axes[1]] += dv
+                nodes.add(tuple(node))
+    return nodes
+
+
+def _axis_index_grid(shape: tuple[int, int, int], axis_index: int) -> np.ndarray:
+    values = np.arange(shape[axis_index], dtype=np.int64)
+    view_shape = [1, 1, 1]
+    view_shape[axis_index] = shape[axis_index]
+    return np.broadcast_to(values.reshape(view_shape), shape)
 
 
 def _active_element_coordinates(
