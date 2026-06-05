@@ -29,7 +29,6 @@ def main() -> int:
 
 
 def _stage_msmpi() -> None:
-    source_bin = _find_msmpi_bin()
     dest = PACKAGE_BIN / "msmpi"
     dest.mkdir(parents=True, exist_ok=True)
     for filename in (
@@ -39,38 +38,60 @@ def _stage_msmpi() -> None:
         "msmpires.dll",
         "msmpilaunchsvc.exe",
     ):
-        _copy_required(source_bin / filename, dest / filename)
+        source = _find_msmpi_runtime_file(filename)
+        if source is None:
+            raise SystemExit(
+                f"Required MS-MPI runtime file was not found: {filename}. "
+                "Install Microsoft MPI before building Windows wheels."
+            )
+        shutil.copy2(source, dest / filename)
 
     _write_msmpi_notice(dest / "NOTICE.txt")
     _copy_msmpi_license_files(dest)
 
 
-def _find_msmpi_bin() -> Path:
-    candidates = []
+def _msmpi_search_roots() -> list[Path]:
+    roots = []
     if os.environ.get("MSMPI_BIN"):
-        candidates.append(Path(os.environ["MSMPI_BIN"]))
+        bin_root = Path(os.environ["MSMPI_BIN"])
+        roots.extend([bin_root, bin_root.parent, bin_root.parent / "License"])
     for root_name in ("ProgramFiles", "ProgramFiles(x86)"):
         root = os.environ.get(root_name)
         if root:
-            candidates.append(Path(root) / "Microsoft MPI" / "Bin")
-    for candidate in candidates:
-        if (candidate / "mpiexec.exe").exists() and (candidate / "msmpi.dll").exists():
+            install_root = Path(root) / "Microsoft MPI"
+            roots.extend([install_root / "Bin", install_root, install_root / "License"])
+    system_root = os.environ.get("SystemRoot") or os.environ.get("windir")
+    if system_root:
+        roots.extend([Path(system_root) / "System32", Path(system_root) / "SysWOW64"])
+    return _unique_existing_paths(roots)
+
+
+def _find_msmpi_runtime_file(filename: str) -> Path | None:
+    for root in _msmpi_search_roots():
+        candidate = root / filename
+        if candidate.exists():
             return candidate
-    found = shutil.which("mpiexec.exe") or shutil.which("mpiexec")
+    found = shutil.which(filename)
     if found:
-        candidate = Path(found).resolve().parent
-        if (candidate / "msmpi.dll").exists():
-            return candidate
-    raise SystemExit(
-        "MS-MPI runtime was not found. Install Microsoft MPI before building "
-        "Windows wheels."
-    )
+        return Path(found).resolve()
+    return None
+
+
+def _unique_existing_paths(paths: list[Path]) -> list[Path]:
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        resolved = path.expanduser().resolve()
+        if resolved in seen or not resolved.exists():
+            continue
+        unique.append(resolved)
+        seen.add(resolved)
+    return unique
 
 
 def _copy_msmpi_license_files(dest: Path) -> None:
     install_roots = [dest.parent]
-    source_bin = _find_msmpi_bin()
-    install_roots.extend([source_bin.parent, source_bin.parent / "License"])
+    install_roots.extend(_msmpi_search_roots())
     copied = False
     for root in install_roots:
         for filename in ("MicrosoftMPI_Redistributable_EULA.rtf", "MPI_Redistributables_TPN.txt"):

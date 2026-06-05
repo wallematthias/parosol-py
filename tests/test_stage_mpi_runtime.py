@@ -51,6 +51,36 @@ def test_stage_msmpi_copies_runtime_and_notice(monkeypatch, tmp_path):
     assert "not relicensed as GPL" in notice
 
 
+def test_stage_msmpi_allows_dlls_in_windows_system_directory(monkeypatch, tmp_path):
+    stage = _load_stage_module()
+    program_files = tmp_path / "Program Files"
+    source_bin = program_files / "Microsoft MPI" / "Bin"
+    system32 = tmp_path / "Windows" / "System32"
+    source_bin.mkdir(parents=True)
+    system32.mkdir(parents=True)
+    for filename in ("mpiexec.exe", "smpd.exe", "msmpilaunchsvc.exe"):
+        (source_bin / filename).write_text(filename, encoding="utf-8")
+    for filename in ("msmpi.dll", "msmpires.dll"):
+        (system32 / filename).write_text(filename, encoding="utf-8")
+    for filename in (
+        "MicrosoftMPI_Redistributable_EULA.rtf",
+        "MPI_Redistributables_TPN.txt",
+    ):
+        (source_bin.parent / filename).write_text(filename, encoding="utf-8")
+
+    monkeypatch.setattr(stage, "PACKAGE_BIN", tmp_path / "package" / "bin")
+    monkeypatch.setenv("ProgramFiles", str(program_files))
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+    monkeypatch.setenv("SystemRoot", str(tmp_path / "Windows"))
+
+    stage._stage_msmpi()
+
+    dest = tmp_path / "package" / "bin" / "msmpi"
+    assert (dest / "mpiexec.exe").read_text(encoding="utf-8") == "mpiexec.exe"
+    assert (dest / "msmpi.dll").read_text(encoding="utf-8") == "msmpi.dll"
+    assert (dest / "msmpires.dll").read_text(encoding="utf-8") == "msmpires.dll"
+
+
 def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_path):
     stage = _load_stage_module()
     prefix = tmp_path / "openmpi"
