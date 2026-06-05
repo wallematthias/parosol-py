@@ -16,6 +16,11 @@ name: Build Wheels
           - linux
           - windows
           - macos
+          - publish_existing
+      source_run_ids:
+        description: "For target=publish_existing: comma or whitespace separated run IDs containing wheel and sdist artifacts"
+        required: false
+        type: string
 
 jobs:
   build_wheels:
@@ -128,15 +133,20 @@ jobs:
   publish:
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.target == 'publish_existing')
     permissions:
       id-token: write
       contents: write
+      actions: read
     environment:
       name: pypi
       url: https://pypi.org/p/parosol-py
     steps:
       - name: Download wheel artifacts
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.target != 'publish_existing'
         uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
@@ -144,10 +154,41 @@ jobs:
           merge-multiple: true
 
       - name: Download sdist artifact
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.target != 'publish_existing'
         uses: actions/download-artifact@v4
         with:
           name: sdist
           path: dist
+
+      - name: Download artifacts from source runs
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'publish_existing'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_IDS: ${{ inputs.source_run_ids }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SOURCE_RUN_IDS//[[:space:],;]/}" ]]; then
+            echo "source_run_ids is required when target=publish_existing" >&2
+            exit 1
+          fi
+          mkdir -p dist artifact-zips
+          normalized_ids="$(printf '%s\n' "${SOURCE_RUN_IDS}" | tr ',;' '  ')"
+          for run_id in ${normalized_ids}; do
+            echo "Inspecting artifacts from run ${run_id}"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" --paginate \
+              --jq '.artifacts[] | select(.expired == false and (.name == "sdist" or (.name | startswith("wheels-")))) | [.id, .name] | @tsv' \
+              > "artifact-zips/${run_id}.tsv"
+            if [[ ! -s "artifact-zips/${run_id}.tsv" ]]; then
+              echo "No active wheel/sdist artifacts found for run ${run_id}" >&2
+              exit 1
+            fi
+            while IFS=$'\t' read -r artifact_id artifact_name; do
+              zip_path="artifact-zips/${run_id}-${artifact_name}.zip"
+              echo "Downloading ${artifact_name} (${artifact_id})"
+              gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "${zip_path}"
+              unzip -o "${zip_path}" -d dist
+            done < "artifact-zips/${run_id}.tsv"
+          done
 
       - name: Set up Python for debug tooling
         uses: actions/setup-python@v5
@@ -171,6 +212,7 @@ jobs:
           python -m twine check dist/*
 
       - name: Upload wheels to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |

@@ -98,10 +98,13 @@ def test_github_workflows_build_test_and_wheels():
     assert "conda-incubator/setup-miniconda" in str(tests)
     assert "pull_request" not in wheels["on"]
     assert wheels["on"]["push"] == {"tags": ["v*"]}
+    assert "publish_existing" in wheels["on"]["workflow_dispatch"]["inputs"]["target"]["options"]
+    assert "source_run_ids" in wheels["on"]["workflow_dispatch"]["inputs"]
     assert "cibuildwheel" in str(wheels)
     assert "actions/upload-artifact" in str(wheels)
     assert "windows-latest" in str(wheels)
     assert "macos-15-intel" in str(wheels)
+    assert "Download artifacts from source runs" in str(wheels)
     assert "pypa/gh-action-pypi-publish" in str(wheels)
     assert "source_run_ids" in publish["on"]["workflow_dispatch"]["inputs"]
     assert "Download artifacts from each source run" in str(publish)
