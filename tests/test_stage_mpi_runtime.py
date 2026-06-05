@@ -119,6 +119,8 @@ def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_pat
         path.chmod(0o755)
     (prefix / "lib" / "libmpi.so").write_text("mpi", encoding="utf-8")
     (prefix / "lib" / "libpmix.so").write_text("pmix", encoding="utf-8")
+    (prefix.parent / "libpmix.so.2").write_text("rpm pmix", encoding="utf-8")
+    (prefix.parent / "libprrte.so.3").write_text("rpm prrte", encoding="utf-8")
     (prefix / "lib" / "openmpi" / "mca_pml_ob1.so").write_text(
         "openmpi plugin", encoding="utf-8"
     )
@@ -144,6 +146,8 @@ def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_pat
     dest = tmp_path / "package" / "bin" / "openmpi"
     assert (dest / "bin" / "mpirun").is_file()
     assert (dest / "lib" / "libmpi.so").is_file()
+    assert (dest / "lib" / "libpmix.so.2").is_file()
+    assert (dest / "lib" / "libprrte.so.3").is_file()
     assert (dest / "lib" / "openmpi" / "mca_pml_ob1.so").is_file()
     assert (dest / "lib" / "pmix" / "mca_bfrops_v12.so").is_file()
     assert (dest / "lib" / "prte" / "mca_odls_default.so").is_file()

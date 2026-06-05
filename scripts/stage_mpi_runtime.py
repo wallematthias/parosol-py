@@ -236,12 +236,15 @@ def _copy_openmpi_libraries(prefix: Path, dest: Path) -> None:
         "libevent*",
         "libhwloc*",
     )
-    copied = 0
-    for pattern in patterns:
-        for source in lib.glob(pattern):
-            if source.is_file() or source.is_symlink():
-                shutil.copy2(source, dest / source.name, follow_symlinks=False)
-                copied += 1
+    copied = _copy_matching_libraries(lib, dest, patterns)
+    copied += _copy_matching_libraries(
+        prefix.parent,
+        dest,
+        (
+            "libpmix*",
+            "libprrte*",
+        ),
+    )
     _copy_optional_tree(lib / "openmpi", dest / "openmpi")
     for child in ("pmix", "prte"):
         _copy_first_existing_tree(
@@ -250,6 +253,20 @@ def _copy_openmpi_libraries(prefix: Path, dest: Path) -> None:
         )
     if copied == 0:
         raise SystemExit(f"No OpenMPI libraries found in {lib}")
+
+
+def _copy_matching_libraries(
+    source_dir: Path, dest: Path, patterns: tuple[str, ...]
+) -> int:
+    if not source_dir.exists():
+        return 0
+    copied = 0
+    for pattern in patterns:
+        for source in source_dir.glob(pattern):
+            if source.is_file() or source.is_symlink():
+                shutil.copy2(source, dest / source.name, follow_symlinks=False)
+                copied += 1
+    return copied
 
 
 def _copy_first_existing_tree(sources: tuple[Path, ...], dest: Path) -> None:
