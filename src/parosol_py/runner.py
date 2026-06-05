@@ -152,6 +152,13 @@ def mpi_runtime_environment(
     _set_component_path_if_exists(
         env, "PRTE_MCA_mca_base_component_path", openmpi_prefix / "lib" / "prte"
     )
+    if sys.platform.startswith("linux"):
+        env.setdefault("OMPI_MCA_pml", "ob1")
+        env.setdefault("OMPI_MCA_btl", "self,vader,tcp")
+        env.setdefault("OMPI_MCA_osc", "pt2pt")
+        env.setdefault("OMPI_MCA_mpi_warn_on_fork", "0")
+        env.setdefault("UCX_TLS", "sm,self,tcp")
+        env.setdefault("UCX_NET_DEVICES", "none")
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         env.setdefault("OMPI_ALLOW_RUN_AS_ROOT", "1")
         env.setdefault("OMPI_ALLOW_RUN_AS_ROOT_CONFIRM", "1")

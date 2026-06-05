@@ -135,6 +135,13 @@ def test_mpi_runtime_environment_sets_packaged_openmpi_prefix(monkeypatch, tmp_p
     assert env["PRTE_MCA_mca_base_component_path"] == str(
         package_bin / "openmpi" / "lib" / "prte"
     )
+    if sys.platform.startswith("linux"):
+        assert env["OMPI_MCA_pml"] == "ob1"
+        assert env["OMPI_MCA_btl"] == "self,vader,tcp"
+        assert env["OMPI_MCA_osc"] == "pt2pt"
+        assert env["OMPI_MCA_mpi_warn_on_fork"] == "0"
+        assert env["UCX_TLS"] == "sm,self,tcp"
+        assert env["UCX_NET_DEVICES"] == "none"
     assert "OMPI_ALLOW_RUN_AS_ROOT" not in env
 
 
