@@ -3,8 +3,8 @@ name: Publish From Existing Run
 "on":
   workflow_dispatch:
     inputs:
-      source_run_id:
-        description: "GitHub Actions run ID that already contains wheels + sdist artifacts"
+      source_run_ids:
+        description: "Comma or whitespace separated run IDs containing wheel and sdist artifacts"
         required: true
         type: string
 
@@ -19,24 +19,30 @@ jobs:
       name: pypi
       url: https://pypi.org/p/parosol-py
     steps:
-      - name: Download wheel artifacts from source run
-        uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          run-id: ${{ inputs.source_run_id }}
-          pattern: wheels-*
-          path: dist
-          merge-multiple: true
-
-      - name: Download sdist artifact from source run
-        uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          run-id: ${{ inputs.source_run_id }}
-          name: sdist
-          path: dist
+      - name: Download artifacts from each source run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_IDS: ${{ inputs.source_run_ids }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist artifact-zips
+          normalized_ids="$(printf '%s\n' "${SOURCE_RUN_IDS}" | tr ',;' '  ')"
+          for run_id in ${normalized_ids}; do
+            echo "Inspecting artifacts from run ${run_id}"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" --paginate \
+              --jq '.artifacts[] | select(.expired == false and (.name == "sdist" or (.name | startswith("wheels-")))) | [.id, .name] | @tsv' \
+              > "artifact-zips/${run_id}.tsv"
+            if [[ ! -s "artifact-zips/${run_id}.tsv" ]]; then
+              echo "No active wheel/sdist artifacts found for run ${run_id}" >&2
+              exit 1
+            fi
+            while IFS=$'\t' read -r artifact_id artifact_name; do
+              zip_path="artifact-zips/${run_id}-${artifact_name}.zip"
+              echo "Downloading ${artifact_name} (${artifact_id})"
+              gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "${zip_path}"
+              unzip -o "${zip_path}" -d dist
+            done < "artifact-zips/${run_id}.tsv"
+          done
 
       - name: Set up Python for debug tooling
         uses: actions/setup-python@v5

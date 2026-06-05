@@ -35,6 +35,7 @@ fi
   ninja \
   eigen \
   hdf5 \
-  openmpi=4.1.6
+  openmpi=4.1.6 \
+  compilers
 
 "${CONDA_ROOT}/bin/mpirun" --version
