@@ -1,3 +1,6 @@
+import tomllib
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -10,7 +13,12 @@ from parosol_py.runner import RunResult, RunSummary
 
 
 def test_package_imports():
-    assert parosol_py.__version__ == "0.1.11"
+    pyproject = tomllib.loads(
+        (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert parosol_py.__version__ == pyproject["project"]["version"]
 
 
 def test_solve_dry_run_writes_input_and_reports_summary(tmp_path):
