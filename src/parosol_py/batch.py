@@ -6,6 +6,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from .config import load_config, run_case_config
 from .load_history import estimate_load_history_from_files
 from .reports import write_summary_json
@@ -145,7 +147,12 @@ def _run_batch_postprocess(
         critical_volume_percent=float(
             load_history_cfg.get("critical_volume_percent", 2.0)
         ),
-        input_load_amplitudes=_case_input_load_amplitudes(selected_case_summaries),
+            input_load_amplitudes=_case_input_load_amplitudes(
+                selected_case_summaries,
+                case_configs=_load_history_case_configs(
+                    case_configs, selected_summaries=selected_case_summaries
+                ),
+            ),
     )
     load_history_cfg["status"] = "computed"
     load_history_cfg["input_fields"] = [str(path) for path in load_case_paths]
@@ -367,13 +374,61 @@ def _load_history_case_summaries(
     ]
 
 
-def _case_input_load_amplitudes(case_summaries: list[dict[str, Any]]) -> list[float]:
+def _case_input_load_amplitudes(
+    case_summaries: list[dict[str, Any]],
+    *,
+    case_configs: list[dict[str, Any]] | None = None,
+) -> list[float]:
     amplitudes = []
-    for summary in case_summaries:
+    configs = list(case_configs or [])
+    for index, summary in enumerate(case_summaries):
         generalized = summary.get("mechanics", {}).get("generalized_load", {})
         value = generalized.get("value")
-        amplitudes.append(1.0 if value is None else abs(float(value)))
+        amplitude = None if value is None else abs(float(value))
+        if amplitude is None or amplitude <= 0.0 or not np.isfinite(amplitude):
+            config = configs[index] if index < len(configs) else None
+            amplitude = _configured_load_amplitude(config)
+        amplitudes.append(float(amplitude))
     return amplitudes
+
+
+def _configured_load_amplitude(case_config: dict[str, Any] | None) -> float:
+    if not isinstance(case_config, dict):
+        return 1.0
+    load_case = case_config.get("load_case", {})
+    values = []
+    if isinstance(load_case, dict):
+        for section in ("prescribed", "loaded"):
+            for spec in load_case.get(section, ()) or ():
+                if isinstance(spec, dict) and "value" in spec:
+                    try:
+                        values.append(abs(_numeric_load_value(spec["value"])))
+                    except (TypeError, ValueError):
+                        continue
+    finite = [value for value in values if np.isfinite(value) and value > 0.0]
+    return float(finite[0]) if finite else 1.0
+
+
+def _numeric_load_value(value) -> float:
+    if isinstance(value, str):
+        text = value.strip()
+        for suffix in (
+            "degrees",
+            "degree",
+            "deg",
+            "radians",
+            "radian",
+            "rad",
+            "mm",
+            "%",
+            "N",
+            "n",
+        ):
+            if text.lower().endswith(suffix.lower()):
+                text = text[: -len(suffix)].strip()
+                break
+        return float(text)
+    return float(value)
 
 
 def _find_case_summary(
