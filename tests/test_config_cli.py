@@ -1056,6 +1056,9 @@ def test_run_case_config_builds_nodeset_torsion_field(monkeypatch, tmp_path: Pat
 
     run_case_config(config_path)
 
+    assert captured["load_case_type"] == "torsion"
+    assert captured["test_axis"] == "z"
+    assert captured["rotation_degrees"] == pytest.approx(1.0)
     bc = captured["boundary_conditions"]
     assert np.any(bc.fixed_coordinates[:, 3] == 0)
     assert np.any(bc.fixed_coordinates[:, 3] == 1)
@@ -1188,6 +1191,9 @@ def test_run_case_config_builds_nodeset_symmetric_bending_field(
 
     run_case_config(config_path)
 
+    assert captured["load_case_type"] == "bending"
+    assert captured["test_axis"] == "x"
+    assert captured["rotation_degrees"] == pytest.approx(1.0)
     bc = captured["boundary_conditions"]
     z_rows = bc.fixed_coordinates[:, 3] == 2
     assert np.min(bc.fixed_values[z_rows]) < 0.0

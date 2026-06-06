@@ -125,7 +125,17 @@ def run_case_config(
     inferred_load_direction = load_case_cfg.get("direction") or _nodeset_load_direction(
         load_case_cfg
     )
-    test_axis = str(load_case_cfg.get("axis", inferred_load_direction or "z"))
+    effective_load_type = _effective_load_case_type(load_case_cfg)
+    test_axis = str(
+        load_case_cfg.get(
+            "axis",
+            _nodeset_rotation_axis(load_case_cfg)
+            if effective_load_type in {"bending", "torsion"}
+            else None,
+        )
+        or inferred_load_direction
+        or "z"
+    )
     common = {
         "spacing": spacing,
         "origin": origin,
@@ -136,12 +146,10 @@ def run_case_config(
         "strain": float(
             load_case_cfg.get("strain", load_case_cfg.get("normal_strain", -0.01))
         ),
-        "load_case_type": str(load_case_cfg.get("type", "constrained_axial"))
-        .strip()
-        .lower(),
+        "load_case_type": effective_load_type,
         "load_direction": inferred_load_direction,
         "rotation_degrees": _load_case_rotation_degrees(load_case_cfg),
-        "load_case_center": _load_case_center(load_case_cfg),
+        "load_case_center": _effective_load_case_center(load_case_cfg),
         "outputs": outputs,
         "tolerance": float(
             solver_cfg.get(
@@ -899,6 +907,46 @@ def _nodeset_load_direction(load_case_cfg: dict[str, Any]) -> str | None:
     return None
 
 
+def _effective_load_case_type(load_case_cfg: dict[str, Any]) -> str:
+    load_type = str(load_case_cfg.get("type", "constrained_axial")).strip().lower()
+    if load_type not in {"nodeset", "custom"}:
+        return load_type
+    kinds = [
+        str(entry.get("kind", "")).strip().lower()
+        for section in ("prescribed", "loaded")
+        for entry in load_case_cfg.get(section, ()) or ()
+        if isinstance(entry, dict)
+    ]
+    if any(kind in {"torsion", "twist"} for kind in kinds):
+        return "torsion"
+    if any(kind in {"bending", "bend"} for kind in kinds):
+        return "bending"
+    return load_type
+
+
+def _nodeset_rotation_axis(load_case_cfg: dict[str, Any]) -> str | None:
+    load_type = str(load_case_cfg.get("type", "")).strip().lower()
+    if load_type not in {"nodeset", "custom"}:
+        return None
+    for section in ("prescribed", "loaded"):
+        for entry in load_case_cfg.get(section, ()) or ():
+            if not isinstance(entry, dict):
+                continue
+            kind = str(entry.get("kind", "")).strip().lower()
+            if kind in {"torsion", "twist"}:
+                axis = str(entry.get("axis", "z")).strip().lower()
+                return axis if axis in {"x", "y", "z"} else "z"
+            if kind in {"bending", "bend"}:
+                axis = str(
+                    entry.get(
+                        "moment_axis",
+                        entry.get("axis", entry.get("gradient_axis", "z")),
+                    )
+                ).strip().lower()
+                return axis if axis in {"x", "y", "z"} else "z"
+    return None
+
+
 def _load_case_vector(load_case_cfg: dict[str, Any]) -> tuple[float, float] | None:
     value = load_case_cfg.get("shear_vector", load_case_cfg.get("vector"))
     if value is None:
@@ -921,6 +969,40 @@ def _load_case_center(load_case_cfg: dict[str, Any]) -> tuple[float, float] | No
     return tuple(float(v) for v in value)
 
 
+def _effective_load_case_center(load_case_cfg: dict[str, Any]) -> tuple[float, float] | None:
+    center = _load_case_center(load_case_cfg)
+    if center is not None:
+        return center
+    load_type = str(load_case_cfg.get("type", "")).strip().lower()
+    if load_type not in {"nodeset", "custom"}:
+        return None
+    for section in ("prescribed", "loaded"):
+        for entry in load_case_cfg.get(section, ()) or ():
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get("kind", "")).strip().lower() not in {
+                "bending",
+                "bend",
+                "torsion",
+                "twist",
+            }:
+                continue
+            value = entry.get("center")
+            if value is None or str(value).strip().lower() in {
+                "centroid",
+                "center",
+                "center_of_mass",
+                "center_of_bounds",
+            }:
+                continue
+            if len(value) != 2:
+                raise ValueError(
+                    "nodeset rotational center must contain exactly two values"
+                )
+            return tuple(float(v) for v in value)
+    return None
+
+
 def _load_case_rotation_degrees(load_case_cfg: dict[str, Any]) -> float | None:
     load_type = str(load_case_cfg.get("type", "")).strip().lower()
     if load_type in {"torsion", "twist"}:
@@ -937,7 +1019,43 @@ def _load_case_rotation_degrees(load_case_cfg: dict[str, Any]) -> float | None:
                 load_case_cfg.get("bending_angle", load_case_cfg.get("angle", 1.0)),
             )
         )
+    if load_type in {"nodeset", "custom"}:
+        for section in ("prescribed", "loaded"):
+            for entry in load_case_cfg.get(section, ()) or ():
+                if not isinstance(entry, dict):
+                    continue
+                if str(entry.get("kind", "")).strip().lower() not in {
+                    "bending",
+                    "bend",
+                    "torsion",
+                    "twist",
+                }:
+                    continue
+                if "value" in entry:
+                    return abs(_numeric_config_value(entry["value"]))
     return None
+
+
+def _numeric_config_value(value) -> float:
+    if isinstance(value, str):
+        text = value.strip()
+        for suffix in (
+            "degrees",
+            "degree",
+            "deg",
+            "radians",
+            "radian",
+            "rad",
+            "mm",
+            "%",
+            "N",
+            "n",
+        ):
+            if text.lower().endswith(suffix.lower()):
+                text = text[: -len(suffix)].strip()
+                break
+        return float(text)
+    return float(value)
 
 
 def _load_case_surface(load_case_cfg: dict[str, Any]):

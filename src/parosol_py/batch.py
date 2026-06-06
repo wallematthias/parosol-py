@@ -382,14 +382,30 @@ def _case_input_load_amplitudes(
     amplitudes = []
     configs = list(case_configs or [])
     for index, summary in enumerate(case_summaries):
-        generalized = summary.get("mechanics", {}).get("generalized_load", {})
-        value = generalized.get("value")
-        amplitude = None if value is None else abs(float(value))
+        amplitude = _generalized_load_amplitude(summary)
         if amplitude is None or amplitude <= 0.0 or not np.isfinite(amplitude):
             config = configs[index] if index < len(configs) else None
             amplitude = _configured_load_amplitude(config)
         amplitudes.append(float(amplitude))
     return amplitudes
+
+
+def _generalized_load_amplitude(summary: dict[str, Any]) -> float | None:
+    generalized = summary.get("mechanics", {}).get("generalized_load", {})
+    if not isinstance(generalized, dict):
+        return None
+    if str(generalized.get("name", "")).strip().lower() == "moment":
+        vector = generalized.get("vector")
+        if isinstance(vector, dict):
+            values = [
+                float(vector.get(axis, 0.0) or 0.0)
+                for axis in ("x", "y", "z")
+            ]
+            magnitude = float(np.linalg.norm(values))
+            if np.isfinite(magnitude) and magnitude > 0.0:
+                return magnitude
+    value = generalized.get("value")
+    return None if value is None else abs(float(value))
 
 
 def _configured_load_amplitude(case_config: dict[str, Any] | None) -> float:
@@ -465,23 +481,19 @@ def _compact_load_history_summary(
     failure_loads = []
     for amplitude, summary in zip(amplitudes, case_summaries, strict=False):
         generalized = summary.get("mechanics", {}).get("generalized_load")
-        estimated = {
-            "case": summary.get("case", {}).get("name"),
-            "value": _signed_amplitude(amplitude, generalized),
-            "units": None if generalized is None else generalized.get("units"),
-            "component": None if generalized is None else generalized.get("component"),
-            "load_type": None if generalized is None else generalized.get("name"),
-        }
+        estimated = _load_history_amplitude_entry(
+            amplitude,
+            generalized,
+            case=summary.get("case", {}).get("name"),
+        )
         estimated_loads.append(estimated)
         if factor is not None and generalized and generalized.get("value") is not None:
             failure_loads.append(
-                {
-                    "case": summary.get("case", {}).get("name"),
-                    "value": _signed_amplitude(amplitude, generalized) * float(factor),
-                    "units": generalized.get("units"),
-                    "component": generalized.get("component"),
-                    "load_type": generalized.get("name"),
-                }
+                _load_history_amplitude_entry(
+                    float(amplitude) * float(factor),
+                    generalized,
+                    case=summary.get("case", {}).get("name"),
+                )
             )
     output = {
         "results": {
@@ -493,6 +505,47 @@ def _compact_load_history_summary(
     if failure:
         output["failure"] = failure
     return output
+
+
+def _load_history_amplitude_entry(
+    amplitude, generalized: dict[str, Any] | None, *, case
+) -> dict[str, Any]:
+    value = _signed_amplitude(amplitude, generalized)
+    units = None if generalized is None else generalized.get("units")
+    component = None if generalized is None else generalized.get("component")
+    load_type = None if generalized is None else generalized.get("name")
+    entry = {
+        "case": case,
+        "value": value,
+        "units": units,
+        "component": component,
+        "load_type": load_type,
+    }
+    if isinstance(generalized, dict):
+        vector = _scaled_generalized_vector(float(amplitude), generalized)
+        if vector is not None:
+            entry["vector"] = vector
+    return entry
+
+
+def _scaled_generalized_vector(amplitude: float, generalized: dict[str, Any]) -> dict[str, float] | None:
+    load_type = str(generalized.get("name", "")).strip().lower()
+    if load_type == "moment" and isinstance(generalized.get("vector"), dict):
+        source = np.asarray(
+            [float(generalized["vector"].get(axis, 0.0) or 0.0) for axis in ("x", "y", "z")],
+            dtype=np.float64,
+        )
+        norm = float(np.linalg.norm(source))
+        if np.isfinite(norm) and norm > 0.0:
+            scaled = source * (float(amplitude) / norm)
+            return {axis: float(scaled[index]) for index, axis in enumerate(("x", "y", "z"))}
+    if load_type == "force":
+        component = str(generalized.get("component", "")).strip().lower()
+        if component in {"x", "y", "z"}:
+            vector = {"x": 0.0, "y": 0.0, "z": 0.0}
+            vector[component] = _signed_amplitude(amplitude, generalized)
+            return vector
+    return None
 
 
 def _signed_amplitude(amplitude, generalized: dict[str, Any] | None) -> float:

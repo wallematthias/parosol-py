@@ -357,7 +357,7 @@ def test_run_batch_config_runs_load_history_final_rerun(
     assert Path(rerun["output"]).exists()
 
 
-def test_run_batch_config_uses_unit_prescription_for_zero_reaction_load_history_case(
+def test_run_batch_config_uses_moment_for_rotational_load_history_case(
     monkeypatch,
     tmp_path: Path,
 ):
@@ -441,11 +441,21 @@ def test_run_batch_config_uses_unit_prescription_for_zero_reaction_load_history_
                     "load_case": config["load_case"],
                     "outputs": {"exported": exported, "input_file": str(tmp_path / "material.npy")},
                     "mechanics": {
-                        "generalized_load": {
-                            "name": "force",
-                            "value": 0.0 if is_torsion else 10.0,
-                            "units": "N",
-                        }
+                        "generalized_load": (
+                            {
+                                "name": "moment",
+                                "value": 0.0,
+                                "units": "N*mm",
+                                "vector": {"x": 0.0, "y": 0.0, "z": 5.0},
+                            }
+                            if is_torsion
+                            else {
+                                "name": "force",
+                                "component": "z",
+                                "value": 10.0,
+                                "units": "N",
+                            }
+                        )
                     },
                 }
             ),
@@ -458,7 +468,12 @@ def test_run_batch_config_uses_unit_prescription_for_zero_reaction_load_history_
     summary = run_batch_config(batch_path)
 
     details = summary["postprocess"]["load_history"]["details"]
-    assert details["input_load_amplitudes"] == [10.0, 1.0]
+    assert details["input_load_amplitudes"] == [10.0, 5.0]
+    estimated = summary["postprocess"]["load_history"]["results"]["estimated_loads"]
+    assert estimated[0]["units"] == "N"
+    assert set(estimated[0]["vector"]) == {"x", "y", "z"}
+    assert estimated[1]["units"] == "N*mm"
+    assert estimated[1]["vector"] == {"x": 0.0, "y": 0.0, "z": estimated[1]["value"]}
     final_load = seen[-1]["load_case"]
     assert final_load["prescribed"][1]["kind"] == "torsion"
     assert final_load["prescribed"][1]["value"].endswith("deg")
