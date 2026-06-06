@@ -4,6 +4,7 @@ import numpy as np
 
 from parosol_py.cli import main
 from parosol_py.load_history import estimate_load_history
+from parosol_py.nodesets import boundary_conditions_from_nodesets
 
 
 def test_estimate_load_history_returns_non_negative_scaling():
@@ -35,9 +36,9 @@ def test_estimate_load_history_normalizes_sed_to_unit_load():
         input_load_amplitudes=[10.0],
     )
 
-    assert result.scaling_factors[0] == np.float64(4.0)
-    assert result.load_amplitudes[0] == np.float64(2.0)
-    assert result.input_load_amplitudes[0] == np.float64(10.0)
+    assert np.isclose(result.scaling_factors[0], 4.0)
+    assert np.isclose(result.load_amplitudes[0], 2.0)
+    assert np.isclose(result.input_load_amplitudes[0], 10.0)
     assert np.allclose(result.loading_history, 4.0)
 
 
@@ -70,3 +71,18 @@ def test_cli_load_history_writes_summary_and_output(tmp_path):
     assert "load_amplitudes" in summary["load_history"]["results"]
     assert "scaling_factors" in summary["load_history"]["details"]
     assert (tmp_path / "history.npy").exists()
+
+
+def test_nodeset_prescribed_specs_accumulate_on_same_dof():
+    conditions = boundary_conditions_from_nodesets(
+        {"top": [(0, 0, 0)]},
+        prescribed=[
+            {"nodeset": "top", "dof": "x", "value": 1.5},
+            {"nodeset": "top", "dof": "x", "value": 2.5},
+        ],
+        dimensions_xyz=(2, 2, 2),
+        spacing=(1.0, 1.0, 1.0),
+    )
+
+    assert conditions.fixed_coordinates.tolist() == [[0, 0, 0, 0]]
+    assert conditions.fixed_values.tolist() == [4.0]

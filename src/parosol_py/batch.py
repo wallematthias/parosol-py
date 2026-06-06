@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,7 @@ def run_batch_config(
         base_dir=base_dir,
     )
 
+    full_case_configs: list[dict[str, Any]] = []
     full_case_summaries: list[dict[str, Any]] = []
     case_summaries: list[dict[str, Any]] = []
     for index, case_override in enumerate(cases):
@@ -48,6 +50,7 @@ def run_batch_config(
             batch_work_dir=batch_work_dir,
             case_name=case_config["case"]["name"],
         )
+        full_case_configs.append(case_config)
         run_case_config(case_path, dry_run=dry_run, work_dir=None)
         case_summary_path = case_config["output"].get("result") or case_config[
             "output"
@@ -74,8 +77,11 @@ def run_batch_config(
         summary["postprocess"] = copy.deepcopy(postprocess_cfg)
         _run_batch_postprocess(
             summary["postprocess"],
+            base_config=config,
+            case_configs=full_case_configs,
             case_summaries=full_case_summaries,
             base_dir=base_dir,
+            batch_work_dir=batch_work_dir,
             dry_run=bool(dry_run),
         )
     write_summary_json(summary_path, summary)
@@ -85,8 +91,11 @@ def run_batch_config(
 def _run_batch_postprocess(
     postprocess_cfg: dict[str, Any],
     *,
+    base_config: dict[str, Any],
+    case_configs: list[dict[str, Any]],
     case_summaries: list[dict[str, Any]],
     base_dir: Path,
+    batch_work_dir: Path,
     dry_run: bool,
 ) -> None:
     load_history_cfg = postprocess_cfg.get("load_history")
@@ -146,6 +155,170 @@ def _run_batch_postprocess(
             case_summaries=selected_case_summaries,
         )
     )
+    _run_load_history_final_rerun(
+        load_history_cfg,
+        base_config=base_config,
+        case_configs=case_configs,
+        case_summaries=case_summaries,
+        base_dir=base_dir,
+        batch_work_dir=batch_work_dir,
+        dry_run=dry_run,
+    )
+
+
+def _run_load_history_final_rerun(
+    load_history_cfg: dict[str, Any],
+    *,
+    base_config: dict[str, Any],
+    case_configs: list[dict[str, Any]],
+    case_summaries: list[dict[str, Any]],
+    base_dir: Path,
+    batch_work_dir: Path,
+    dry_run: bool,
+) -> None:
+    final_cfg = load_history_cfg.get("final_rerun")
+    if not isinstance(final_cfg, dict) or not final_cfg.get("enabled", False):
+        return
+    requested_cases = load_history_cfg.get("cases")
+    selected_summaries = _load_history_case_summaries(
+        case_summaries, requested_cases=requested_cases
+    )
+    selected_configs = _load_history_case_configs(
+        case_configs, selected_summaries=selected_summaries
+    )
+    details = load_history_cfg.get("details", {})
+    load_amplitudes = list(details.get("load_amplitudes", ()))
+    input_amplitudes = list(details.get("input_load_amplitudes", ()))
+    if len(load_amplitudes) != len(selected_configs):
+        raise ValueError(
+            "load-history final rerun needs one estimated amplitude per selected unit case"
+        )
+    case_override = copy.deepcopy(final_cfg.get("case", {}))
+    case_override.setdefault("name_suffix", final_cfg.get("name_suffix", "final_combined"))
+    rerun_config = _case_config(
+        base_config,
+        case_override,
+        index=len(case_configs),
+        base_dir=base_dir,
+    )
+    rerun_config["load_case"] = _combined_nodeset_load_case(
+        selected_configs,
+        load_amplitudes=load_amplitudes,
+        input_amplitudes=input_amplitudes,
+    )
+    output_cfg = rerun_config.setdefault("output", {})
+    if final_cfg.get("fields") is not None:
+        output_cfg["fields"] = list(final_cfg.get("fields") or ["sed"])
+        output_cfg["export_fields"] = True
+    if final_cfg.get("visualization_field") is not None:
+        output_cfg["visualization_field"] = str(final_cfg.get("visualization_field"))
+    if dry_run:
+        final_cfg["status"] = "dry_run"
+        final_cfg["load_case"] = rerun_config["load_case"]
+        return
+    case_path = _write_case_config(
+        rerun_config,
+        batch_work_dir=batch_work_dir,
+        case_name=rerun_config["case"]["name"],
+    )
+    run_case_config(case_path, dry_run=False, work_dir=None)
+    summary_path = rerun_config["output"].get("result") or rerun_config["output"]["summary"]
+    final_summary = _read_case_summary(Path(summary_path))
+    final_output = final_cfg.get("output")
+    final_field = str(final_cfg.get("field", "sed"))
+    if final_output:
+        exported = final_summary.get("outputs", {}).get("exported", {})
+        field_path = exported.get(final_field)
+        if field_path is not None:
+            destination = _resolve_path(final_output, base_dir=base_dir)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(field_path, destination)
+            final_cfg["output"] = str(destination)
+    final_cfg["status"] = "computed"
+    final_cfg["case"] = _compact_case_summary(final_summary)
+    final_cfg["load_case"] = rerun_config["load_case"]
+
+
+def _load_history_case_configs(
+    case_configs: list[dict[str, Any]],
+    *,
+    selected_summaries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    configs = []
+    for summary in selected_summaries:
+        name = str(summary.get("case", {}).get("name", ""))
+        match = next(
+            (
+                config
+                for config in case_configs
+                if str(config.get("case", {}).get("name", "")) == name
+            ),
+            None,
+        )
+        if match is None:
+            raise ValueError(f"load-history case config {name!r} was not found")
+        configs.append(match)
+    return configs
+
+
+def _combined_nodeset_load_case(
+    case_configs: list[dict[str, Any]],
+    *,
+    load_amplitudes,
+    input_amplitudes,
+) -> dict[str, Any]:
+    combined = {"type": "nodeset", "fixed": [], "prescribed": [], "loaded": []}
+    seen_fixed = set()
+    for index, case_config in enumerate(case_configs):
+        load_case = case_config.get("load_case", {})
+        if str(load_case.get("type", "")).strip().lower() not in {"nodeset", "custom"}:
+            raise ValueError("load-history final rerun currently requires nodeset unit cases")
+        scale = _load_history_case_scale(
+            load_amplitudes[index],
+            input_amplitudes[index] if index < len(input_amplitudes) else 1.0,
+        )
+        for spec in load_case.get("fixed", ()):
+            frozen = json.dumps(spec, sort_keys=True)
+            if frozen not in seen_fixed:
+                combined["fixed"].append(copy.deepcopy(spec))
+                seen_fixed.add(frozen)
+        combined["prescribed"].extend(
+            _scaled_load_spec(spec, scale) for spec in load_case.get("prescribed", ())
+        )
+        combined["loaded"].extend(
+            _scaled_load_spec(spec, scale) for spec in load_case.get("loaded", ())
+        )
+    for key in ("fixed", "prescribed", "loaded"):
+        if not combined[key]:
+            combined.pop(key)
+    return combined
+
+
+def _load_history_case_scale(load_amplitude, input_amplitude) -> float:
+    input_value = float(input_amplitude)
+    if abs(input_value) <= 1.0e-12:
+        return 0.0
+    return float(load_amplitude) / input_value
+
+
+def _scaled_load_spec(spec: dict[str, Any], scale: float) -> dict[str, Any]:
+    scaled = copy.deepcopy(spec)
+    if "value" in scaled:
+        scaled["value"] = _scaled_load_value(scaled["value"], scale)
+    return scaled
+
+
+def _scaled_load_value(value, scale: float):
+    if isinstance(value, str):
+        text = value.strip()
+        suffix = ""
+        for candidate in ("degrees", "degree", "deg", "radians", "radian", "rad", "mm", "%"):
+            if text.lower().endswith(candidate):
+                suffix = text[-len(candidate) :]
+                text = text[: -len(candidate)].strip()
+                break
+        return f"{float(text) * float(scale):g}{suffix}"
+    return float(value) * float(scale)
 
 
 def _load_history_field(load_history_cfg: dict[str, Any]) -> str:

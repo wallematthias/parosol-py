@@ -212,11 +212,15 @@ def _add_displacement_spec(
     for node in _spec_nodes(node_sets, spec):
         for dof in _spec_dofs(spec):
             direction = AXIS_TO_INDEX[dof]
-            constraints[(*node, direction)] = _displacement_value(
-                value,
-                dof=dof,
-                dimensions_xyz=dimensions_xyz,
-                spacing=spacing,
+            _accumulate_constraint(
+                constraints,
+                (*node, direction),
+                _displacement_value(
+                    value,
+                    dof=dof,
+                    dimensions_xyz=dimensions_xyz,
+                    spacing=spacing,
+                ),
             )
 
 
@@ -277,7 +281,7 @@ def _add_bending_spec(
             value = amplitude * (relative * relative - neutral_fraction)
         else:
             value = amplitude * relative
-        constraints[(*node, dof_index)] = float(value)
+        _accumulate_constraint(constraints, (*node, dof_index), float(value))
 
 
 def _add_torsion_spec(
@@ -313,7 +317,7 @@ def _add_torsion_spec(
         for dof_index, value in enumerate(tangent):
             if dof_index == axis_index or abs(float(value)) <= 0.0:
                 continue
-            constraints[(*node, dof_index)] = float(value)
+            _accumulate_constraint(constraints, (*node, dof_index), float(value))
 
 
 def _node_positions(nodes: list[Node], spacing: tuple[float, float, float]) -> np.ndarray:
@@ -376,7 +380,15 @@ def _add_load_spec(
         value = value / len(nodes)
     for node in nodes:
         for dof in _spec_dofs(spec):
-            constraints[(*node, AXIS_TO_INDEX[dof])] = value
+            _accumulate_constraint(constraints, (*node, AXIS_TO_INDEX[dof]), value)
+
+
+def _accumulate_constraint(
+    constraints: dict[tuple[int, int, int, int], float],
+    key: tuple[int, int, int, int],
+    value: float,
+) -> None:
+    constraints[key] = float(constraints.get(key, 0.0)) + float(value)
 
 
 def _spec_nodes(node_sets: dict[str, list[Node]], spec: dict) -> list[Node]:

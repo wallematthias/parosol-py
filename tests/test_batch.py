@@ -245,6 +245,118 @@ def test_run_batch_config_computes_load_history_postprocess(
     assert saved["image"].shape == (2, 2, 2)
 
 
+def test_run_batch_config_runs_load_history_final_rerun(
+    monkeypatch,
+    tmp_path: Path,
+):
+    np.save(tmp_path / "material.npy", np.ones((2, 2, 2), dtype=np.float32) * 1000)
+    sed_a = tmp_path / "compression_sed.npy"
+    sed_b = tmp_path / "shear_sed.npy"
+    np.save(sed_a, np.ones((2, 2, 2), dtype=np.float32))
+    np.save(sed_b, np.ones((2, 2, 2), dtype=np.float32) * 2.0)
+    batch_path = tmp_path / "batch.json"
+    batch_path.write_text(
+        json.dumps(
+            {
+                "case": {"name": "sample", "work_dir": "runs/sample"},
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "nodesets": {"top": {"type": "label_image", "image": "nodes.nii.gz", "label": 201}},
+                "output": {"fields": ["sed"], "export_fields": True},
+                "postprocess": {
+                    "load_history": {
+                        "enabled": True,
+                        "fields": ["sed"],
+                        "cases": ["compression_z", "shear_zx"],
+                        "output": "runs/fields/load_history_estimated_sed.npy",
+                        "summary": "runs/load_history_summary.json",
+                        "final_rerun": {
+                            "enabled": True,
+                            "name_suffix": "load_history_final",
+                            "fields": ["sed"],
+                            "output": "runs/fields/load_history_final_sed.npy",
+                        },
+                    }
+                },
+                "batch": {
+                    "summary": "runs/result.json",
+                    "cases": [
+                        {
+                            "name_suffix": "compression_z",
+                            "load_case": {
+                                "type": "nodeset",
+                                "prescribed": [
+                                    {"nodeset": "top", "dof": "z", "value": "-1%", "units": "%"}
+                                ],
+                            },
+                        },
+                        {
+                            "name_suffix": "shear_zx",
+                            "load_case": {
+                                "type": "nodeset",
+                                "prescribed": [
+                                    {"nodeset": "top", "dof": "x", "value": "1%", "units": "%"}
+                                ],
+                            },
+                        },
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    sed_paths = [sed_a, sed_b]
+    seen = []
+
+    def fake_run_case_config(path, *, dry_run=None, work_dir=None):
+        config = json.loads(Path(path).read_text(encoding="utf-8"))
+        seen.append(config)
+        index = min(len(seen) - 1, 1)
+        summary_path = Path(config["output"]["summary"])
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        exported = {"sed": str(sed_paths[index])}
+        if config["case"]["name"].endswith("load_history_final"):
+            final_sed = tmp_path / "final_sed.npy"
+            np.save(final_sed, np.ones((2, 2, 2), dtype=np.float32) * 3.0)
+            exported = {"sed": str(final_sed)}
+        summary_path.write_text(
+            json.dumps(
+                {
+                    "case": {"name": config["case"]["name"]},
+                    "load_case": config["load_case"],
+                    "outputs": {"exported": exported, "input_file": str(tmp_path / "material.npy")},
+                    "mechanics": {
+                        "generalized_load": {
+                            "name": "force",
+                            "value": 10.0 * (index + 1),
+                            "units": "N",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return object()
+
+    monkeypatch.setattr("parosol_py.batch.run_case_config", fake_run_case_config)
+
+    summary = run_batch_config(batch_path)
+
+    assert [config["case"]["name"] for config in seen] == [
+        "sample_compression_z",
+        "sample_shear_zx",
+        "sample_load_history_final",
+    ]
+    final_load = seen[-1]["load_case"]
+    assert final_load["type"] == "nodeset"
+    assert final_load["prescribed"][0]["dof"] == "z"
+    assert final_load["prescribed"][0]["value"].endswith("%")
+    assert final_load["prescribed"][1]["dof"] == "x"
+    rerun = summary["postprocess"]["load_history"]["final_rerun"]
+    assert rerun["status"] == "computed"
+    assert rerun["case"]["case"]["name"] == "sample_load_history_final"
+    assert Path(rerun["output"]).exists()
+
+
 def test_cli_shortcut_routes_load_history_profile_to_batch(
     monkeypatch,
     tmp_path: Path,
