@@ -152,6 +152,7 @@ def _mechanics_from_node_fields(
         boundary_conditions,
         node_coords=node_coords,
         direction_index=direction_index,
+        load_type=load_type,
     )
     if selected is None:
         top_value = dimensions[axis_index]
@@ -231,6 +232,7 @@ def _reaction_node_indices_from_boundary_conditions(
     *,
     node_coords: list[tuple[int, int, int]],
     direction_index: int,
+    load_type: str,
 ) -> tuple[list[int], list[int]] | None:
     if boundary_conditions is None:
         return None
@@ -245,10 +247,11 @@ def _reaction_node_indices_from_boundary_conditions(
     coord_to_index = {coord: index for index, coord in enumerate(node_coords)}
     prescribed_nodes: set[tuple[int, int, int]] = set()
     fixed_nodes: set[tuple[int, int, int]] = set()
+    rotational = str(load_type).strip().lower() in {"bending", "bend", "torsion", "twist"}
     for coord, value in zip(fixed_coordinates, fixed_values, strict=True):
         node = tuple(int(v) for v in coord[:3])
         dof = int(coord[3])
-        if dof != direction_index:
+        if not rotational and dof != direction_index:
             continue
         if np.isclose(value, 0.0) or np.isclose(value, 1e-16):
             fixed_nodes.add(node)

@@ -937,14 +937,29 @@ def _nodeset_rotation_axis(load_case_cfg: dict[str, Any]) -> str | None:
                 axis = str(entry.get("axis", "z")).strip().lower()
                 return axis if axis in {"x", "y", "z"} else "z"
             if kind in {"bending", "bend"}:
-                axis = str(
-                    entry.get(
-                        "moment_axis",
-                        entry.get("axis", entry.get("gradient_axis", "z")),
+                axis = str(entry.get("moment_axis", "")).strip().lower()
+                if not axis:
+                    axis = _bending_moment_axis(
+                        gradient_axis=str(entry.get("gradient_axis", "x")),
+                        dof=str(entry.get("dof", entry.get("axis", "z"))),
                     )
-                ).strip().lower()
                 return axis if axis in {"x", "y", "z"} else "z"
     return None
+
+
+def _bending_moment_axis(*, gradient_axis: str, dof: str) -> str:
+    gradient = str(gradient_axis).strip().lower()
+    displacement = str(dof).strip().lower()
+    axes = {
+        "x": np.asarray([1.0, 0.0, 0.0]),
+        "y": np.asarray([0.0, 1.0, 0.0]),
+        "z": np.asarray([0.0, 0.0, 1.0]),
+    }
+    if gradient not in axes or displacement not in axes or gradient == displacement:
+        return displacement if displacement in axes else "z"
+    moment = np.cross(axes[gradient], axes[displacement])
+    index = int(np.argmax(np.abs(moment)))
+    return ("x", "y", "z")[index]
 
 
 def _load_case_vector(load_case_cfg: dict[str, Any]) -> tuple[float, float] | None:

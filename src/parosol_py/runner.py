@@ -143,6 +143,7 @@ def mpi_runtime_environment(
     env.setdefault("OPAL_PREFIX", prefix_text)
     env.setdefault("PRTE_PREFIX", prefix_text)
     env.setdefault("PMIX_PREFIX", prefix_text)
+    env.setdefault("PMIX_MCA_pcompress_base_silence_warning", "1")
     _set_component_path_if_exists(
         env, "OPAL_MCA_mca_base_component_path", openmpi_prefix / "lib" / "openmpi"
     )

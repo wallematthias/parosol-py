@@ -70,6 +70,50 @@ def test_torsion_reports_moment_and_rotational_failure_load():
     )
 
 
+def test_nodeset_torsion_diagnostics_use_rotational_prescribed_nodes():
+    stiffness = np.ones((1, 1, 2), dtype=np.float32)
+    node_coords = _two_voxel_nodes()
+    forces = np.zeros((len(node_coords), 3), dtype=np.float32)
+    prescribed_nodes = {(1, 0, 1), (0, 1, 1)}
+    fixed_nodes = {coord for coord in node_coords if coord[2] == 0}
+    for index, coord in enumerate(node_coords):
+        if coord == (1, 0, 1):
+            forces[index, 1] = 1.0
+        if coord == (0, 1, 1):
+            forces[index, 0] = -1.0
+    fixed_coordinates = []
+    fixed_values = []
+    for node in fixed_nodes:
+        for dof in range(3):
+            fixed_coordinates.append((*node, dof))
+            fixed_values.append(0.0)
+    for node in prescribed_nodes:
+        for dof, value in ((0, 0.1), (1, -0.1)):
+            fixed_coordinates.append((*node, dof))
+            fixed_values.append(value)
+    boundary_conditions = BoundaryConditionSet(
+        fixed_coordinates=np.asarray(fixed_coordinates, dtype=np.uint16),
+        fixed_values=np.asarray(fixed_values, dtype=np.float32),
+    )
+
+    diagnostics = build_fea_diagnostics(
+        fields={"forces": forces, "sed": np.full((2,), 0.001, dtype=np.float32)},
+        stiffness_gpa_xyz=stiffness,
+        axis="z",
+        strain=0.0,
+        load_case_type="torsion",
+        rotation_degrees=1.0,
+        boundary_conditions=boundary_conditions,
+    )
+
+    mechanics = diagnostics["mechanics"]
+    assert mechanics["reaction_node_source"] == "boundary_conditions"
+    assert mechanics["top_node_count"] == len(prescribed_nodes)
+    assert mechanics["bottom_node_count"] == len(fixed_nodes)
+    assert mechanics["generalized_load"]["name"] == "moment"
+    assert mechanics["generalized_load"]["value"] != pytest.approx(0.0)
+
+
 def test_projected_boundary_conditions_drive_reaction_summary():
     stiffness = np.ones((1, 1, 2), dtype=np.float32)
     node_coords = _two_voxel_nodes()

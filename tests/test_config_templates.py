@@ -60,6 +60,8 @@ def test_profile_override_templates_are_available():
     assert "direction: x, strain: -0.01" in read_config_template("load_history_6")
     assert "direction: y, strain: -0.01" in read_config_template("load_history_6")
     assert "bending_angle_degrees: -1" in read_config_template("load_history_6")
+    assert "neutral_axis_angle_degrees: 0" in read_config_template("load_history_6")
+    assert "neutral_axis_angle_degrees: 90" in read_config_template("load_history_6")
     assert "twist_angle_degrees: -1" in read_config_template("load_history_6")
     xtremecti = read_config_template("XtremeCTI")
     xtremectii = read_config_template("XtremeCTII")

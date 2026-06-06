@@ -126,6 +126,7 @@ def test_mpi_runtime_environment_sets_packaged_openmpi_prefix(monkeypatch, tmp_p
     assert env["OPAL_PREFIX"] == str(package_bin / "openmpi")
     assert env["PRTE_PREFIX"] == str(package_bin / "openmpi")
     assert env["PMIX_PREFIX"] == str(package_bin / "openmpi")
+    assert env["PMIX_MCA_pcompress_base_silence_warning"] == "1"
     assert env["OPAL_MCA_mca_base_component_path"] == str(
         package_bin / "openmpi" / "lib" / "openmpi"
     )

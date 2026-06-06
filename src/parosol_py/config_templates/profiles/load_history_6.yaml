@@ -16,14 +16,14 @@ batch:
         type: bending
         axis: z
         bending_angle_degrees: -1
-        neutral_axis_angle_degrees: 90
+        neutral_axis_angle_degrees: 0
         center: center_of_mass
     - name_suffix: bending_y
       load_case:
         type: bending
         axis: z
         bending_angle_degrees: -1
-        neutral_axis_angle_degrees: 0
+        neutral_axis_angle_degrees: 90
         center: center_of_mass
     - name_suffix: torsion_z
       load_case:
