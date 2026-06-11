@@ -109,5 +109,6 @@ void Element_Stress(const double* mat_prop, const int& nprops, const int& nod, c
                     const int& nst, const double* g_num, double* eld, double* strain, double* stress, double* e_vol, double* e_dev, 
                     double* sigma, double* theta, double* e_xx,double* e_yy,double* e_zz,double* e_xy,double* e_yz,double* e_xz, 
                     double* s_xx,double* s_yy,double* s_zz,double* s_xy,double* s_yz,double* s_xz,double* DP_s,double* DP_e, 
-                    double* e1_out, double* e2_out, double* e3_out, double* s1_out, double* s2_out, double* s3_out);
-
+                    double* e1_out, double* e2_out, double* e3_out, double* s1_out, double* s2_out, double* s3_out,
+                    bool compute_von_mises, bool compute_component_fields,
+                    bool compute_dp, bool compute_principal);

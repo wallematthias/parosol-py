@@ -1958,6 +1958,31 @@ def test_cli_run_and_summarize_legacy(tmp_path: Path):
     assert summary["reference"]["pistoia"]["failure_load"]["fz"] == -4741.0
 
 
+def test_cli_run_dry_summary_path_does_not_replace_result_path(tmp_path: Path):
+    material = np.ones((2, 2, 2), dtype=np.float64) * 1000.0
+    np.save(tmp_path / "material.npy", material)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert main(["run", str(config_path)]) == 0
+
+    output_dir = tmp_path / "case"
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    result = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
+
+    assert "fields" in summary
+    assert summary["outputs"]["exported"]["result"].endswith("result.json")
+    assert "fields" not in result
+
+
 def test_cli_shortcut_runs_direct_profile_and_records_execution(tmp_path: Path):
     labels = np.ones((3, 3, 3), dtype=np.uint8) * 100
     image_path = tmp_path / "distal_radius.npy"

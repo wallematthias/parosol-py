@@ -69,6 +69,10 @@ public:
    * @return dot product
    */
   virtual double dot(Eigen::VectorXd &a, Eigen::VectorXd &b)=0;
+
+  virtual void dot_pair(Eigen::VectorXd &a1, Eigen::VectorXd &b1,
+                        Eigen::VectorXd &a2, Eigen::VectorXd &b2,
+                        double &dot1, double &dot2)=0;
   
   /** Gets the process id
    * @return PID
@@ -82,5 +86,4 @@ public:
 };
 
 #endif /* STIFFNESSMATRIX_H */
-
 

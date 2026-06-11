@@ -141,29 +141,35 @@ class HDF5Printer {
 				emoduli[i]=_grid.GetElementWeight()*1000;
 				i++;
 			}
-            MPI_Barrier(MPI_COMM_WORLD);
             Writer->Write("Emoduli", emoduli.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
         }
 
         //x displacement, res residuum
-	void PrintAll(Eigen::VectorXd &x, Eigen::VectorXd &force, Eigen::VectorXd &res,int SED_flag, int EFF_flag, int VonMises_flag, 
+		void PrintAll(Eigen::VectorXd &x, Eigen::VectorXd &force, Eigen::VectorXd &res,int SED_flag, int EFF_flag, int VonMises_flag,
 				  int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag) {
 			PrintGrid();
 
 			PostProcess<OctreeGrid<T> > post(_grid);
+            typename PostProcess<OctreeGrid<T> >::FieldSelection selection;
+            selection.von_mises = VonMises_flag == 1;
+            selection.sed = SED_flag == 1;
+            selection.eff = EFF_flag == 1;
+            selection.e_dev = e_dev_flag == 1;
+            selection.e_vol = e_vol_flag == 1;
+            selection.strain = strain_flag == 1;
+            selection.stress = stress_flag == 1;
+            selection.dp_s = DP_s_flag == 1;
+            selection.dp_e = DP_e_flag == 1;
+            selection.principal = strain_flag == 1 || stress_flag == 1;
 			Eigen::VectorXd m, s, eff, e_dev, e_vol, e_xx, e_yy, e_zz, e_xy, e_yz, e_xz, s_xx, s_yy, s_zz, s_xy, s_yz, s_xz, dp_s, dp_e, e1, e2, e3, s1, s2, s3;
-	    post.ComputeStressAndStrain(x,m,s,eff,e_dev,e_vol,e_xx,e_yy,e_zz,e_xy,e_yz,e_xz,s_xx,s_yy,s_zz,s_xy,s_yz,s_xz,dp_s,dp_e,e1,e2,e3,s1,s2,s3);
-			MPI_Barrier(MPI_COMM_WORLD);
+	    post.ComputeStressAndStrain(x,m,s,eff,e_dev,e_vol,e_xx,e_yy,e_zz,e_xy,e_yz,e_xz,s_xx,s_yy,s_zz,s_xy,s_yz,s_xz,dp_s,dp_e,e1,e2,e3,s1,s2,s3,selection);
 
 			Writer->Select("/Solution");
 			Writer->Write("disp", x.data(), _grid.GetNrNodesGlobal(),_grid.GetNrPrivateNodes(), 3, _grid.GetNodeOffset());
-			MPI_Barrier(MPI_COMM_WORLD);
 			Writer->Write("force", force.data(), _grid.GetNrNodesGlobal(),_grid.GetNrPrivateNodes(), 3, _grid.GetNodeOffset());
-			MPI_Barrier(MPI_COMM_WORLD);
 			if(VonMises_flag==1){
 			Writer->Write("VonMises", m.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
 			}
-			MPI_Barrier(MPI_COMM_WORLD);
 			if(SED_flag==1){
 			Writer->Write("SED", s.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
 			}
@@ -199,20 +205,21 @@ class HDF5Printer {
 			Writer->Write("DP_e", dp_e.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
 			}
 			
-			Writer->Write("e1", e1.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
-			Writer->Write("e2", e2.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
-			Writer->Write("e3", e3.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
+            if(selection.principal){
+			    Writer->Write("e1", e1.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
+			    Writer->Write("e2", e2.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
+			    Writer->Write("e3", e3.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
 
-			Writer->Write("s1", s1.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
-			Writer->Write("s2", s2.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
-			Writer->Write("s3", s3.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
+			    Writer->Write("s1", s1.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
+			    Writer->Write("s2", s2.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
+			    Writer->Write("s3", s3.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
+            }
 			
 		}
 
 		void PrintPartition(std::string dset) {
           Eigen::VectorXi part(_grid.GetNrElem());
 		  part.setConstant(_grid.GetNrElem(), _MyPID);
-		  MPI_Barrier(MPI_COMM_WORLD);
 		  Writer->Write(dset, part.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
 		}
 

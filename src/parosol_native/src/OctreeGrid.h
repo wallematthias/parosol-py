@@ -858,6 +858,62 @@ class OctreeGrid : public BaseGrid
 			MPI_Allreduce(&localdot, &globaldot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 			return globaldot;
 		}
+
+		void dot_pair(Eigen::VectorXd &v1x, Eigen::VectorXd &v1y, Eigen::VectorXd &v2x, Eigen::VectorXd &v2y,
+					  double &globaldot1, double &globaldot2)
+		{
+			double localdot[2] = {0.0, 0.0};
+			double globaldot[2] = {0.0, 0.0};
+			t_index length = 3*(_GridIteratorEnd - _OctreeGrid.begin());
+
+#define BLOCK 8192
+			const unsigned int blocksize = BLOCK;
+			int start = 0;
+			while (length > blocksize) {
+				localdot[0] += v1x.segment<BLOCK>(start).dot(v1y.segment<BLOCK>(start));
+				localdot[1] += v2x.segment<BLOCK>(start).dot(v2y.segment<BLOCK>(start));
+				start += blocksize;
+				length -= blocksize;
+			}
+			if (length !=0) {
+				localdot[0] += v1x.segment(start,length).dot(v1y.segment(start,length));
+				localdot[1] += v2x.segment(start,length).dot(v2y.segment(start,length));
+			}
+
+			MPI_Allreduce(localdot, globaldot, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+			globaldot1 = globaldot[0];
+			globaldot2 = globaldot[1];
+		}
+
+		void dot_triple(Eigen::VectorXd &v1x, Eigen::VectorXd &v1y,
+						Eigen::VectorXd &v2x, Eigen::VectorXd &v2y,
+						Eigen::VectorXd &v3x, Eigen::VectorXd &v3y,
+						double &globaldot1, double &globaldot2, double &globaldot3)
+		{
+			double localdot[3] = {0.0, 0.0, 0.0};
+			double globaldot[3] = {0.0, 0.0, 0.0};
+			t_index length = 3*(_GridIteratorEnd - _OctreeGrid.begin());
+
+			const unsigned int blocksize = BLOCK;
+			int start = 0;
+			while (length > blocksize) {
+				localdot[0] += v1x.segment<BLOCK>(start).dot(v1y.segment<BLOCK>(start));
+				localdot[1] += v2x.segment<BLOCK>(start).dot(v2y.segment<BLOCK>(start));
+				localdot[2] += v3x.segment<BLOCK>(start).dot(v3y.segment<BLOCK>(start));
+				start += blocksize;
+				length -= blocksize;
+			}
+			if (length !=0) {
+				localdot[0] += v1x.segment(start,length).dot(v1y.segment(start,length));
+				localdot[1] += v2x.segment(start,length).dot(v2y.segment(start,length));
+				localdot[2] += v3x.segment(start,length).dot(v3y.segment(start,length));
+			}
+
+			MPI_Allreduce(localdot, globaldot, 3, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+			globaldot1 = globaldot[0];
+			globaldot2 = globaldot[1];
+			globaldot3 = globaldot[2];
+		}
         //!@}
 
 

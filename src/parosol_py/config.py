@@ -93,10 +93,7 @@ def run_case_config(
     output_fields = _output_fields(output_cfg, output_profile)
     export_fields = bool(output_cfg.get("export_fields", output_profile.export_fields))
     result_path = _resolve_path(
-        output_cfg.get(
-            "result",
-            output_cfg.get("summary", run_dir / "result.json"),
-        ),
+        output_cfg.get("result", run_dir / "result.json"),
         base_dir=base_dir,
     )
 
@@ -366,7 +363,10 @@ def run_case_config(
         extra["model"] = _model_summary(built_model)
     extra["quality"] = _quality_config(solver_cfg)
     summary_path = _resolve_path(
-        output_cfg.get("run_summary", result_path.with_name("summary.json")),
+        output_cfg.get(
+            "run_summary",
+            output_cfg.get("summary", result_path.with_name("summary.json")),
+        ),
         base_dir=base_dir,
     )
     summary = solve_summary_dict(result, extra=extra)

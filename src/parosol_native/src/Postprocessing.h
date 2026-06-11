@@ -34,6 +34,23 @@ template <class Grid>
 class PostProcess
 {
 	public:
+        struct FieldSelection {
+            bool von_mises;
+            bool sed;
+            bool eff;
+            bool e_dev;
+            bool e_vol;
+            bool strain;
+            bool stress;
+            bool dp_s;
+            bool dp_e;
+            bool principal;
+
+            FieldSelection()
+                : von_mises(true), sed(true), eff(true), e_dev(true), e_vol(true),
+                  strain(true), stress(true), dp_s(true), dp_e(true), principal(true) {}
+        };
+
 		PostProcess(Grid &grid) :_grid(grid)
 	{
 	}
@@ -47,7 +64,8 @@ class PostProcess
 									Eigen::VectorXd &s_xx, Eigen::VectorXd &s_yy, Eigen::VectorXd &s_zz, Eigen::VectorXd &s_xy, 
 									Eigen::VectorXd &s_yz, Eigen::VectorXd &s_xz, Eigen::VectorXd &DP_s,Eigen::VectorXd &DP_e, 
 									Eigen::VectorXd &e1, Eigen::VectorXd &e2, Eigen::VectorXd &e3, 
-									Eigen::VectorXd &s1, Eigen::VectorXd &s2, Eigen::VectorXd &s3) { // add stress, strain, distortioanl strain, volumetric strain
+									Eigen::VectorXd &s1, Eigen::VectorXd &s2, Eigen::VectorXd &s3,
+                                    const FieldSelection& selection = FieldSelection()) { // add stress, strain, distortioanl strain, volumetric strain
 			//fetch the nodes of the neighbours
 			_grid.Recv_import_Ghost(disp);
 			_grid.Send_import_Ghost(disp);
@@ -89,38 +107,52 @@ class PostProcess
 			double temp_s1, temp_s2, temp_s3;
 			double sigma, theta;
 			t_index nr_elem =_grid.GetNrElem();
-			VonMises.setZero(nr_elem);
-			SED.setZero(nr_elem);
-			eff.setZero(nr_elem);
-			e_dev.setZero(nr_elem);
-			e_vol.setZero(nr_elem);
-			e_xx.setZero(nr_elem);
-			e_yy.setZero(nr_elem);
-			e_zz.setZero(nr_elem);
-			e_xy.setZero(nr_elem);
-			e_yz.setZero(nr_elem);
-			e_xz.setZero(nr_elem);
-			s_xx.setZero(nr_elem);
-			s_yy.setZero(nr_elem);
-			s_zz.setZero(nr_elem);
-			s_xy.setZero(nr_elem);
-			s_yz.setZero(nr_elem);
-			s_xz.setZero(nr_elem);
-			DP_s.setZero(nr_elem);
-			DP_e.setZero(nr_elem);
-			e1.setZero(nr_elem);
-			e2.setZero(nr_elem);
-			e3.setZero(nr_elem);
-			s1.setZero(nr_elem);
-			s2.setZero(nr_elem);
-			s3.setZero(nr_elem);
+            if (selection.von_mises) VonMises.setZero(nr_elem); else VonMises.resize(0);
+            if (selection.sed) SED.setZero(nr_elem); else SED.resize(0);
+            if (selection.eff) eff.setZero(nr_elem); else eff.resize(0);
+            if (selection.e_dev) e_dev.setZero(nr_elem); else e_dev.resize(0);
+            if (selection.e_vol) e_vol.setZero(nr_elem); else e_vol.resize(0);
+            if (selection.strain) {
+			    e_xx.setZero(nr_elem);
+			    e_yy.setZero(nr_elem);
+			    e_zz.setZero(nr_elem);
+			    e_xy.setZero(nr_elem);
+			    e_yz.setZero(nr_elem);
+			    e_xz.setZero(nr_elem);
+            } else {
+                e_xx.resize(0); e_yy.resize(0); e_zz.resize(0);
+                e_xy.resize(0); e_yz.resize(0); e_xz.resize(0);
+            }
+            if (selection.stress) {
+			    s_xx.setZero(nr_elem);
+			    s_yy.setZero(nr_elem);
+			    s_zz.setZero(nr_elem);
+			    s_xy.setZero(nr_elem);
+			    s_yz.setZero(nr_elem);
+			    s_xz.setZero(nr_elem);
+            } else {
+                s_xx.resize(0); s_yy.resize(0); s_zz.resize(0);
+                s_xy.resize(0); s_yz.resize(0); s_xz.resize(0);
+            }
+            if (selection.dp_s) DP_s.setZero(nr_elem); else DP_s.resize(0);
+            if (selection.dp_e) DP_e.setZero(nr_elem); else DP_e.resize(0);
+            if (selection.principal) {
+			    e1.setZero(nr_elem);
+			    e2.setZero(nr_elem);
+			    e3.setZero(nr_elem);
+			    s1.setZero(nr_elem);
+			    s2.setZero(nr_elem);
+			    s3.setZero(nr_elem);
+            } else {
+                e1.resize(0); e2.resize(0); e3.resize(0);
+                s1.resize(0); s2.resize(0); s3.resize(0);
+            }
 			//fetch the 24 values in pref and store store
 			// res = K_e * xpref
             Eigen::Matrix<double,24,1> xpref;
 			int nr_ele = 0;
 
 			_grid.Wait_import_Ghost();
-			MPI_Barrier(MPI_COMM_WORLD);
 
 			for(_grid.initIterateOverElements(); _grid.TestIterateOverElements(); _grid.IncIterateOverElements()){
 
@@ -129,6 +161,8 @@ class PostProcess
 				_matprop[0] = 1000*_grid.GetElementWeight();
 				_matprop[1] = _grid.GetElementPoissonRatio();
                 double emoduli = 1000*_grid.GetElementWeight();
+                bool compute_components = selection.strain || selection.stress;
+                bool compute_dp = selection.dp_s || selection.dp_e;
 				Element_Stress(_matprop, NumMaterialProps,
 						NumNodesPerElement, NumDofsPerElement,
 	                    Dimension, NumGaussPoints, SSMatrixSize,
@@ -141,36 +175,42 @@ class PostProcess
 						&temp_s_xy,&temp_s_yz,&temp_s_xz,
 						&temp_DP_s,&temp_DP_e,
 						&temp_e1, &temp_e2, &temp_e3,
-						&temp_s1, &temp_s2, &temp_s3); // add extra structures
-				VonMises[nr_ele] = stressbuf[6];
-				SED[nr_ele] = strainbuf[6];
-                eff[nr_ele] = sqrt(2*SED[nr_ele]/emoduli);
-                e_dev[nr_ele] = temp_e_dev;
-                e_vol[nr_ele] = temp_e_vol;
-                e_xx[nr_ele] = temp_e_xx;
-                e_yy[nr_ele] = temp_e_yy;
-                e_zz[nr_ele] = temp_e_zz;
-                e_xy[nr_ele] = temp_e_xy;
-                e_yz[nr_ele] = temp_e_yz;
-                e_xz[nr_ele] = temp_e_xz;
-                s_xx[nr_ele] = temp_s_xx;
-                s_yy[nr_ele] = temp_s_yy;
-                s_zz[nr_ele] = temp_s_zz;
-                s_xy[nr_ele] = temp_s_xy;
-                s_yz[nr_ele] = temp_s_yz;
-                s_xz[nr_ele] = temp_s_xz;
-				e1[nr_ele] = temp_e1;
-				e2[nr_ele] = temp_e2;
-				e3[nr_ele] = temp_e3;
-				s1[nr_ele] = temp_s1;
-				s2[nr_ele] = temp_s2;
-				s3[nr_ele] = temp_s3;
+						&temp_s1, &temp_s2, &temp_s3,
+                        selection.von_mises, compute_components, compute_dp, selection.principal || selection.e_dev || selection.e_vol); // add extra structures
+                if (selection.von_mises) VonMises[nr_ele] = stressbuf[6];
+                if (selection.sed) SED[nr_ele] = strainbuf[6];
+                if (selection.eff) eff[nr_ele] = sqrt(2*strainbuf[6]/emoduli);
+                if (selection.e_dev) e_dev[nr_ele] = temp_e_dev;
+                if (selection.e_vol) e_vol[nr_ele] = temp_e_vol;
+                if (selection.strain) {
+                    e_xx[nr_ele] = temp_e_xx;
+                    e_yy[nr_ele] = temp_e_yy;
+                    e_zz[nr_ele] = temp_e_zz;
+                    e_xy[nr_ele] = temp_e_xy;
+                    e_yz[nr_ele] = temp_e_yz;
+                    e_xz[nr_ele] = temp_e_xz;
+                }
+                if (selection.stress) {
+                    s_xx[nr_ele] = temp_s_xx;
+                    s_yy[nr_ele] = temp_s_yy;
+                    s_zz[nr_ele] = temp_s_zz;
+                    s_xy[nr_ele] = temp_s_xy;
+                    s_yz[nr_ele] = temp_s_yz;
+                    s_xz[nr_ele] = temp_s_xz;
+                }
+                if (selection.principal) {
+				    e1[nr_ele] = temp_e1;
+				    e2[nr_ele] = temp_e2;
+				    e3[nr_ele] = temp_e3;
+				    s1[nr_ele] = temp_s1;
+				    s2[nr_ele] = temp_s2;
+				    s3[nr_ele] = temp_s3;
+                }
+                if (selection.dp_s) DP_s[nr_ele] = temp_DP_s;
+                if (selection.dp_e) DP_e[nr_ele] = temp_DP_e;
+					nr_ele++;
 
-		DP_s[nr_ele] = temp_DP_s;
-		DP_e[nr_ele] = temp_DP_e;
-				nr_ele++;
-
-			}
+				}
 			delete[] strainbuf;
 			delete[] stressbuf;
 		}

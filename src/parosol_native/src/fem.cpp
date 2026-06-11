@@ -134,7 +134,8 @@ void Element_Stress(const double* mat_prop, const int& nprops, const int& nod, c
                     const int& nst, const double* g_num, double* eld, double* strain, double* stress, double* e_vol, double* e_dev, 
                     double* sigma, double* theta, double* e_xx,double* e_yy,double* e_zz,double* e_xy,double* e_yz,double* e_xz, 
                     double* s_xx,double* s_yy,double* s_zz,double* s_xy,double* s_yz,double* s_xz,double* DP_s,double* DP_e, 
-                    double* e1_out, double* e2_out, double* e3_out, double* s1_out, double* s2_out, double* s3_out) {
+                    double* e1_out, double* e2_out, double* e3_out, double* s1_out, double* s2_out, double* s3_out,
+                    bool compute_von_mises, bool compute_component_fields, bool compute_dp, bool compute_principal) {
     int i,j,n; //oldvar: error
     double e,v;
     char element;
@@ -176,54 +177,58 @@ void Element_Stress(const double* mat_prop, const int& nprops, const int& nod, c
         e11 = strain[ACCESS(0,i,nst+1,nip)]; e22 = strain[ACCESS(1,i,nst+1,nip)]; e33 = strain[ACCESS(2,i,nst+1,nip)]; 
 	    e12 = strain[ACCESS(3,i,nst+1,nip)]; e13 = strain[ACCESS(4,i,nst+1,nip)]; e23 = strain[ACCESS(5,i,nst+1,nip)];
 	
-	    MatrixXd s_tens(3,3);
-	    s_tens(0,0) = s11; s_tens(1,1) = s22; s_tens(2,2)=s33;
-	    s_tens(0,1)=s_tens(1,0) = s12; s_tens(0,2)=s_tens(2,0) = s13; s_tens(2,1)=s_tens(1,2) = s23;
-	    EigenSolver<MatrixXd> es_s(s_tens);
-    
-	    complex<double> lambda_s = es_s.eigenvalues()[0];
-        s1 = (double)lambda_s.real();
-	    lambda_s = es_s.eigenvalues()[1];
-	    s2 = (double)lambda_s.real();
-	    lambda_s = es_s.eigenvalues()[2];
-        s3 = (double)lambda_s.real();
-        std::vector<double> s_temp = {s1, s2, s3};
-        std::sort(s_temp.begin(), s_temp.end(), std::greater<double>());
-        s1_out[0] = s_temp[0];
-        s2_out[0] = s_temp[1];
-        s3_out[0] = s_temp[2];
+        if (compute_principal) {
+            MatrixXd s_tens(3,3);
+	        s_tens(0,0) = s11; s_tens(1,1) = s22; s_tens(2,2)=s33;
+	        s_tens(0,1)=s_tens(1,0) = s12; s_tens(0,2)=s_tens(2,0) = s13; s_tens(2,1)=s_tens(1,2) = s23;
+	        EigenSolver<MatrixXd> es_s(s_tens);
 
+	        complex<double> lambda_s = es_s.eigenvalues()[0];
+            s1 = (double)lambda_s.real();
+	        lambda_s = es_s.eigenvalues()[1];
+	        s2 = (double)lambda_s.real();
+	        lambda_s = es_s.eigenvalues()[2];
+            s3 = (double)lambda_s.real();
+            std::vector<double> s_temp = {s1, s2, s3};
+            std::sort(s_temp.begin(), s_temp.end(), std::greater<double>());
+            s1_out[0] = s_temp[0];
+            s2_out[0] = s_temp[1];
+            s3_out[0] = s_temp[2];
 
+            MatrixXd e_tens(3,3);
+            e_tens(0,0) = e11; e_tens(1,1) = e22; e_tens(2,2)=e33;
+            e_tens(0,1)=e_tens(1,0) = e12; e_tens(0,2)=e_tens(2,0) = e13; e_tens(2,1)=e_tens(1,2) = e23;
+            EigenSolver<MatrixXd> es_e(e_tens);
 
-        MatrixXd e_tens(3,3);
-        e_tens(0,0) = e11; e_tens(1,1) = e22; e_tens(2,2)=e33;
-        e_tens(0,1)=e_tens(1,0) = e12; e_tens(0,2)=e_tens(2,0) = e13; e_tens(2,1)=e_tens(1,2) = e23;
-        EigenSolver<MatrixXd> es_e(e_tens);
+            complex<double> lambda_e = es_e.eigenvalues()[0];
+            e1 =(double)lambda_e.real();
+	        lambda_e = es_e.eigenvalues()[1];
+            e2 =(double)lambda_e.real();
+            lambda_e = es_e.eigenvalues()[2];
+            e3 =(double)lambda_e.real();
+            std::vector<double> e_temp = {e1, e2, e3};
+            std::sort(e_temp.begin(), e_temp.end(), std::greater<double>());
+            e1_out[0] = e_temp[0];
+            e2_out[0] = e_temp[1];
+            e3_out[0] = e_temp[2];
 
-        complex<double> lambda_e = es_e.eigenvalues()[0];
-        e1 =(double)lambda_e.real();
-	    lambda_e = es_e.eigenvalues()[1];
-        e2 =(double)lambda_e.real();
-        lambda_e = es_e.eigenvalues()[2];
-        e3 =(double)lambda_e.real();
-        std::vector<double> e_temp = {e1, e2, e3};
-        std::sort(e_temp.begin(), e_temp.end(), std::greater<double>());
-        e1_out[0] = e_temp[0];
-        e2_out[0] = e_temp[1];
-        e3_out[0] = e_temp[2];
+            e_vol[0] = (e1+e2+e3);
+            e_dev[0] = sqrt(0.5*(((e1-e2)*(e1-e2)+(e2-e3)*(e2-e3)+(e1-e3)*(e1-e3))));
+        }
 
-        e_vol[0] = (e1+e2+e3);
+        if (compute_component_fields) {
+	        s_xx[0] = s11; s_yy[0] = s22; s_zz[0] = s33; s_xy[0] = s12; s_yz[0] = s23; s_xz[0] = s13;
+	        e_xx[0] = e11; e_yy[0] = e22; e_zz[0] = e33; e_xy[0] = e12; e_yz[0] = e23; e_xz[0] = e13;
+        }
 
-        e_dev[0] = sqrt(0.5*(((e1-e2)*(e1-e2)+(e2-e3)*(e2-e3)+(e1-e3)*(e1-e3))));
-	
-	    s_xx[0] = s11; s_yy[0] = s22; s_zz[0] = s33; s_xy[0] = s12; s_yz[0] = s23; s_xz[0] = s13;
-        
-	    e_xx[0] = e11; e_yy[0] = e22; e_zz[0] = e33; e_xy[0] = e12; e_yz[0] = e23; e_xz[0] = e13;
+        if (compute_dp) {
+	        DP_s[0] = 0.02673*(s11+s22+s33) + sqrt((((s11-s22)*(s11-s22)+(s22-s33)*(s22-s33)+(s33-s11)*(s33-s11))/6.0)+(s12*s12)+(s13*s13)+(s23*s23));
+	        DP_e[0] = 0.02673*(e11+e22+e33) + sqrt((((e11-e22)*(e11-e22)+(e22-e33)*(e22-e33)+(e33-e11)*(e33-e11))/6.0)+(e12*e12)+(e13*e13)+(e23*e23));
+        }
 
-	    DP_s[0] = 0.02673*(s11+s22+s33) + sqrt((((s11-s22)*(s11-s22)+(s22-s33)*(s22-s33)+(s33-s11)*(s33-s11))/6.0)+(s12*s12)+(s13*s13)+(s23*s23));
-	    DP_e[0] = 0.02673*(e11+e22+e33) + sqrt((((e11-e22)*(e11-e22)+(e22-e33)*(e22-e33)+(e33-e11)*(e33-e11))/6.0)+(e12*e12)+(e13*e13)+(e23*e23));
-
-        invar(deeld, sigma[i], stress[ACCESS(nst,i,nst+1,nip)], theta[i],nst);
+        if (compute_von_mises) {
+            invar(deeld, sigma[i], stress[ACCESS(nst,i,nst+1,nip)], theta[i],nst);
+        }
 
         for(j=0;j<nst;j++)
             strain[ACCESS(nst,i,nst+1,nip)] = strain[ACCESS(nst,i,nst+1,nip)] + strain[ACCESS(j,i,nst+1,nip)]*stress[ACCESS(j,i,nst+1,nip)];
@@ -720,4 +725,3 @@ int main() {
     return 0;
 }
 #endif
-

@@ -73,7 +73,9 @@ std::tuple<int, double, double> PCGSolver::Solve_res(Eigen::VectorXd &r, Eigen::
         _mat.Apply(x0, d0);                     // d = A*x
         r0 = s - d0;                            // r = s - d = s - A*x = b - A*x, s is used as b initially (RHS)
         _prec.Solve(r0, d0);                    // d = C^-1 * r
-        resreal0 = sqrt(_mat.dot(r0, r0));      // resreal0 = ||r^T*r|| => non-preconditioned
+        double ignored_delta = 0.0;
+        _mat.dot_pair(r0, r0, r0, d0, resreal0, ignored_delta);
+        resreal0 = sqrt(resreal0);              // resreal0 = ||r^T*r|| => non-preconditioned
 
         if (_verbose) 
             PCOUT(MyPID, "   Zero-based residuum: " << resreal0 << std::endl);
@@ -83,7 +85,8 @@ std::tuple<int, double, double> PCGSolver::Solve_res(Eigen::VectorXd &r, Eigen::
     _mat.Apply(x, d);                           // d = A*x
     r = s - d;                                  // r = s - d = s - A*x = b - A*x, s is used as b initially (RHS)
     _prec.Solve(r, d);                          // d = inv(C) * r
-    norm = sqrt(_mat.dot(r, r));                // norm = ||r^T*r||
+    _mat.dot_pair(r, r, r, d, norm, delta_new);
+    norm = sqrt(norm);                          // norm = ||r^T*r||
 
     if (_startvectorSet && _verbose) 
         PCOUT(MyPID, "   Startvector-based residuum: " << norm << std::endl);
@@ -97,7 +100,8 @@ std::tuple<int, double, double> PCGSolver::Solve_res(Eigen::VectorXd &r, Eigen::
         _mat.Apply(x, d);                           // d = A*x
         r = s - d;                                  // r = s - d = s - A*x = b - A*x, s is used as b initially (RHS)
         _prec.Solve(r, d);                          // d = inv(C) * r
-        resreal0 = norm = sqrt(_mat.dot(r, r));     // norm = ||r^T*r||
+        _mat.dot_pair(r, r, r, d, norm, delta_new);
+        resreal0 = norm = sqrt(norm);               // norm = ||r^T*r||
 
         if (_verbose) 
             PCOUT(MyPID, "   Bad startvector discarded, using zero-vector instead" << std::endl);
@@ -111,7 +115,6 @@ std::tuple<int, double, double> PCGSolver::Solve_res(Eigen::VectorXd &r, Eigen::
     // Arbenz:
     // res = sqrt( r^T inv(C) r);
     // res0 = sqrt(b^T inv(C) b);
-    delta_new = _mat.dot(r, d);                 // delta_new = r^T * d
     res0 = sqrt(delta_new);                     // res0 = sqrt(delta_new) = sqrt(r^T * d) = sqrt(r^T * inv(C) * r)
     
     if (_verbose)
@@ -133,18 +136,20 @@ std::tuple<int, double, double> PCGSolver::Solve_res(Eigen::VectorXd &r, Eigen::
         // res = sqrt( r^T inv(C) r);
         // res0 = sqrt(b^T inv(C) b);
 
-        _mat.Apply(d, s);                       // s = A*d        
-        alpha = delta_new / _mat.dot(d, s);     // alpha = delta_new / (d^T*s)
+        _mat.Apply(d, s);                       // s = A*d
+        double dTs = 0.0;
+        _mat.dot_pair(d, s, r, r, dTs, norm);
+        alpha = delta_new / dTs;                // alpha = delta_new / (d^T*s)
         x = x + alpha * d;                      // x = x + alpha*d
         //r = r - alpha*q;
         r = r - alpha * s;                      // r = r - alpha*s
         _prec.Solve(r, s);                      // s = inv(C) * r
         delta_old = delta_new;                  // delta_old = delta_new
-        delta_new = _mat.dot(r, s);             // delta_new = r^T * s
+        _mat.dot_pair(r, s, r, r, delta_new, norm);
         beta = delta_new / delta_old;           // beta = delta_new/delta_old
         d = s + beta * d;                       // d = s + beta*d
         // res = sqrt(delta_new);               // res = sqrt(delta_new) = sqrt(r^T * s) = sqrt(r^T * inv(C) * r)
-        norm = sqrt(_mat.dot(r, r));            // norm = ||r*r||        
+        norm = sqrt(norm);                      // norm = ||r*r||
 
         i++;
 

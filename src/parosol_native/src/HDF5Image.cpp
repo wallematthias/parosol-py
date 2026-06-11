@@ -24,6 +24,7 @@
 #include <string>
 #include <iostream>
 #include <map>
+#include <cstdlib>
 
 #include "Timing.h"
 
@@ -90,11 +91,6 @@ int HDF5Image::Scan(BaseGrid* grid)
   MyPID = mpi_rank;
   PCOUT(MyPID, "Generating mesh... \n")
 
-  _procx = _layout.CPUGrid()[0];
-  _procy = _layout.CPUGrid()[1];
-  _procz = _layout.CPUGrid()[2];
-  
-  PCOUT(MyPID, "Computing dimension, using cores in x: "<< _procx << ", y: " << _procy << ", z: " << _procz << "\n")
   //setting left corner
   grid->corner_x = 0;
   grid->corner_y = 0;
@@ -117,6 +113,15 @@ int HDF5Image::Scan(BaseGrid* grid)
     grid->gdim[i] = global_dims_of_hdf5[2-i];
     grid->ldim[i] = global_dims_of_hdf5[2-i];
   }
+  const char* shape_aware = std::getenv("PAROSOL_LAYOUT_SHAPE_AWARE");
+  if (shape_aware != 0 && std::string(shape_aware) == "1") {
+    _layout.ComputeGridForDimensions(grid->gdim[0], grid->gdim[1], grid->gdim[2]);
+  }
+  _procx = _layout.CPUGrid()[0];
+  _procy = _layout.CPUGrid()[1];
+  _procz = _layout.CPUGrid()[2];
+
+  PCOUT(MyPID, "Computing dimension, using cores in x: "<< _procx << ", y: " << _procy << ", z: " << _procz << "\n")
    
   grid->_grid =0;
   
@@ -150,27 +155,14 @@ int HDF5Image::Scan(BaseGrid* grid)
   }
   
     long imagesize = grid->ldim[0]*grid->ldim[1]*grid->ldim[2];
-    float *image = new float[imagesize];
     //timer.Start("Image");
-    
-    reader.Read("Image", image, my_offset, my_count, 3);
+
+    grid->_grid = new double[imagesize];
+    reader.Read("Image", grid->_grid, my_offset, my_count, 3);
 
     //timer.Stop("Image");
     //t_timing elapsed_time = timer.ElapsedTime("Image");
     //PCOUT(MyPID, "Time for Reading the Image: " << COUTTIME(elapsed_time) << "s\n");
-  
-    //copy the image into the grid
-    grid->_grid = new double[imagesize];
-  
-    unsigned long i=0;
-    for(unsigned int x = 0; x < grid->ldim[2]; x++)
-    for(unsigned int y = 0; y < grid->ldim[1]; y++)
-	for(unsigned int z = 0; z < grid->ldim[0]; z++) {
-	  grid->_grid[i] = image[i];
-	  i++;
-	}
-    
-    delete[] image;
 
     hsize_t poisson_dims_of_hdf5[3];
     std::string poisson_dataset = "";
@@ -187,17 +179,8 @@ int HDF5Image::Scan(BaseGrid* grid)
           exit(-1);
         }
       }
-      float *poisson_image = new float[imagesize];
-      reader.Read(poisson_dataset.c_str(), poisson_image, my_offset, my_count, 3);
       grid->_poisson_grid = new double[imagesize];
-      unsigned long p=0;
-      for(unsigned int x = 0; x < grid->ldim[2]; x++)
-      for(unsigned int y = 0; y < grid->ldim[1]; y++)
-      for(unsigned int z = 0; z < grid->ldim[0]; z++) {
-        grid->_poisson_grid[p] = poisson_image[p];
-        p++;
-      }
-      delete[] poisson_image;
+      reader.Read(poisson_dataset.c_str(), grid->_poisson_grid, my_offset, my_count, 3);
     }
 
     //timer.Start("BC");

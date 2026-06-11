@@ -102,6 +102,13 @@ class GenericMatrix: public StiffnessMatrix
 			return _grid.dot(a,b);
 		}
 
+		void dot_pair(Eigen::VectorXd &a1, Eigen::VectorXd &b1,
+					 Eigen::VectorXd &a2, Eigen::VectorXd &b2,
+					 double &dot1, double &dot2)
+		{
+			_grid.dot_pair(a1, b1, a2, b2, dot1, dot2);
+		}
+
 
 		friend std::ostream& operator<<(std::ostream& stream, const GenericMatrix &mat)
 		{

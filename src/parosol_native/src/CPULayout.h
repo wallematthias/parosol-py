@@ -24,6 +24,7 @@
 #include <mpi.h>
 #include <vector>
 #include <algorithm>
+#include <limits>
 
 
 /** This class generate and holds geometric cpu layout. 
@@ -43,10 +44,7 @@ class CPULayout
 		computedims(_PSize,  dims);
 		for(int i=0; i<3; i++)
 			_proc[i] = dims[i];
-
-		_cpucord_x = _MyPID  % _proc_x;
-		_cpucord_y = (_MyPID / _proc_x) % _proc_y;
-		_cpucord_z = (_MyPID / _proc_x) / _proc_y;
+		update_coords();
 	}
 
 	~CPULayout() {}
@@ -65,6 +63,14 @@ class CPULayout
 	int PSIZE() {
 		return _PSize;
 	}
+
+    void ComputeGridForDimensions(long dim_x, long dim_y, long dim_z) {
+        std::vector<unsigned> dims;
+        computedims_for_shape(_PSize, dim_x, dim_y, dim_z, dims);
+        for(int i=0; i<3; i++)
+            _proc[i] = dims[i];
+        update_coords();
+    }
 
 	friend std::ostream& operator<<(std::ostream& stream, const CPULayout &layout);
 
@@ -91,6 +97,12 @@ class CPULayout
 		return stream;
 	}
 	private:
+    void update_coords() {
+		_cpucord_x = _MyPID  % _proc_x;
+		_cpucord_y = (_MyPID / _proc_x) % _proc_y;
+		_cpucord_z = (_MyPID / _proc_x) / _proc_y;
+    }
+
 	//Compute the factorization of nr_proc and store it in the vector. This
 	//is needed to compute the grid
 	void factor(unsigned nr_proc, std::vector<unsigned> &factors)
@@ -138,7 +150,61 @@ class CPULayout
 		sort(dims.begin(), dims.end());
 		return;
 	}
+
+    double surface_cost(long sx, long sy, long sz, unsigned px, unsigned py, unsigned pz) {
+        double bx = static_cast<double>(sx) / static_cast<double>(px);
+        double by = static_cast<double>(sy) / static_cast<double>(py);
+        double bz = static_cast<double>(sz) / static_cast<double>(pz);
+        double cut_area =
+            std::max(static_cast<double>(px) - 1.0, 0.0) * by * bz +
+            std::max(static_cast<double>(py) - 1.0, 0.0) * bx * bz +
+            std::max(static_cast<double>(pz) - 1.0, 0.0) * bx * by;
+        double block_max = std::max(bx, std::max(by, bz));
+        double block_min = std::min(bx, std::min(by, bz));
+        double imbalance = block_min > 0.0 ? block_max / block_min : std::numeric_limits<double>::infinity();
+        return cut_area * imbalance;
+    }
+
+    void computedims_for_shape(unsigned nr_cpu, long sx, long sy, long sz, std::vector<unsigned> &dims) {
+        if (nr_cpu <= 1) {
+            dims.push_back(1);
+            dims.push_back(1);
+            dims.push_back(1);
+            return;
+        }
+        double best_cost = std::numeric_limits<double>::infinity();
+        double best_order = std::numeric_limits<double>::infinity();
+        unsigned best_dims[3] = {1, 1, nr_cpu};
+        for (unsigned a = 1; a <= nr_cpu; ++a) {
+            if (nr_cpu % a != 0) continue;
+            unsigned rem = nr_cpu / a;
+            for (unsigned b = 1; b <= rem; ++b) {
+                if (rem % b != 0) continue;
+                unsigned c = rem / b;
+                unsigned perms[6][3] = {
+                    {a, b, c}, {a, c, b}, {b, a, c},
+                    {b, c, a}, {c, a, b}, {c, b, a},
+                };
+                for (int i = 0; i < 6; ++i) {
+                    unsigned px = perms[i][0], py = perms[i][1], pz = perms[i][2];
+                    double cost = surface_cost(sx, sy, sz, px, py, pz);
+                    double order = -static_cast<double>(sy) / static_cast<double>(py) * 1e6
+                                 - static_cast<double>(sz) / static_cast<double>(pz) * 1e3
+                                 - static_cast<double>(sx) / static_cast<double>(px);
+                    if (cost < best_cost || (cost == best_cost && order < best_order)) {
+                        best_cost = cost;
+                        best_order = order;
+                        best_dims[0] = px;
+                        best_dims[1] = py;
+                        best_dims[2] = pz;
+                    }
+                }
+            }
+        }
+        dims.push_back(best_dims[0]);
+        dims.push_back(best_dims[1]);
+        dims.push_back(best_dims[2]);
+    }
 };
 
 #endif /* CPULayoutH */
-
