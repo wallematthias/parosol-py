@@ -21,6 +21,7 @@ load_case:
 
 solver:
   outputs: [sed]
+  tolerance: 1.0e-4
 
 postprocess:
   pistoia:

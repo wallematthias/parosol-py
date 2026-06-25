@@ -218,14 +218,22 @@ def mpi_runtime_environment(
     env = dict(os.environ if base_env is None else base_env)
     prefix_text = str(openmpi_prefix)
     bin_path = str(openmpi_prefix / "bin")
-    lib_path = str(openmpi_prefix / "lib")
+    lib_paths = [openmpi_prefix / "lib"]
+    # Conda/pip installs may provide OpenMPI's secondary runtime libraries
+    # (for example libhwloc) in the active environment rather than inside the
+    # relocated OpenMPI tree. Keep this after the bundled lib dir so packaged
+    # libraries remain preferred when present.
+    env_lib = Path(sys.prefix) / "lib"
+    if env_lib.exists() and env_lib not in lib_paths:
+        lib_paths.append(env_lib)
     old_path = env.get("PATH")
     env["PATH"] = bin_path if not old_path else f"{bin_path}{os.pathsep}{old_path}"
+    library_path = os.pathsep.join(str(path) for path in lib_paths)
     old_library_path = env.get("LD_LIBRARY_PATH")
     env["LD_LIBRARY_PATH"] = (
-        lib_path
+        library_path
         if not old_library_path
-        else f"{lib_path}{os.pathsep}{old_library_path}"
+        else f"{library_path}{os.pathsep}{old_library_path}"
     )
     env.setdefault("OPAL_PREFIX", prefix_text)
     env.setdefault("PRTE_PREFIX", prefix_text)

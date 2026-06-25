@@ -68,7 +68,9 @@ def test_profile_override_templates_are_available():
     xtremecti = read_config_template("XtremeCTI")
     xtremectii = read_config_template("XtremeCTII")
     assert "E: 6829" in xtremecti
+    assert "tolerance: 1.0e-4" in xtremecti
     assert "E: 8748" in xtremectii
+    assert "tolerance: 1.0e-4" in xtremectii
     assert "type: constrained_axial" in xtremectii
     assert "strain: -0.01" in xtremectii
     assert "pistoia:" in xtremectii

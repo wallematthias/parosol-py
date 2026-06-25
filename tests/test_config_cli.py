@@ -2012,6 +2012,7 @@ def test_cli_shortcut_runs_direct_profile_and_records_execution(tmp_path: Path):
     assert summary["execution"]["profile"] == "XtremeCTII"
     assert summary["execution"]["image"] == str(image_path.resolve())
     assert summary["execution"]["generated_config"] == str(generated)
+    assert "tolerance: 0.0001" in generated.read_text(encoding="utf-8")
 
 
 def test_cli_shortcut_direct_profile_uses_auto_spacing_for_metadata_images(
