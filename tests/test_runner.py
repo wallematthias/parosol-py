@@ -40,34 +40,25 @@ def test_build_parosol_command_maps_outputs():
 def test_build_parosol_command_can_launch_with_mpi(monkeypatch):
     monkeypatch.setattr("parosol_py.runner.packaged_mpi_launcher", lambda: None)
     monkeypatch.setattr("parosol_py.runner.shutil.which", lambda name: None)
-    cmd = build_parosol_command(
-        executable=Path("/opt/parosol"),
-        input_file=Path("/tmp/case.h5"),
-        outputs=("sed",),
-        tolerance=1e-6,
-        level=6,
-        mpi_processes=4,
-        mpi_launcher="mpirun",
-    )
+    monkeypatch.setattr("parosol_py.runner._common_mpi_launcher", lambda: None)
 
-    assert cmd == [
-        "mpirun",
-        "-np",
-        "4",
-        "/opt/parosol",
-        "--SED",
-        "--tol",
-        "1e-06",
-        "--level",
-        "6",
-        "/tmp/case.h5",
-    ]
+    with pytest.raises(RuntimeError, match="Could not find a compatible MPI launcher"):
+        build_parosol_command(
+            executable=Path("/opt/parosol"),
+            input_file=Path("/tmp/case.h5"),
+            outputs=("sed",),
+            tolerance=1e-6,
+            level=6,
+            mpi_processes=4,
+            mpi_launcher="mpirun",
+        )
 
 
 def test_build_parosol_command_prefers_packaged_mpi_launcher(monkeypatch, tmp_path):
     launcher = tmp_path / "bin" / "msmpi" / "mpiexec.exe"
     launcher.parent.mkdir(parents=True)
-    launcher.write_text("fake launcher", encoding="utf-8")
+    launcher.write_bytes(b"MZfake launcher")
+    launcher.chmod(0o755)
     monkeypatch.setattr(
         "parosol_py.runner.packaged_mpi_launcher", lambda: launcher
     )
@@ -88,6 +79,8 @@ def test_build_parosol_command_respects_explicit_mpi_launcher(monkeypatch):
         lambda: Path("/package/mpiexec.exe"),
     )
 
+    monkeypatch.setattr("parosol_py.runner._is_compatible_executable", lambda path: True)
+
     cmd = build_parosol_command(
         executable=Path("/opt/parosol"),
         input_file=Path("/tmp/case.h5"),
@@ -104,6 +97,17 @@ def test_resolve_mpi_launcher_can_use_packaged_alias(monkeypatch):
     monkeypatch.setattr("parosol_py.runner.packaged_mpi_launcher", lambda: launcher)
 
     assert resolve_mpi_launcher("packaged") == str(launcher)
+
+
+def test_packaged_mpi_launcher_skips_wrong_format_file(monkeypatch, tmp_path):
+    package_bin = tmp_path / "bin"
+    launcher = package_bin / "openmpi" / "bin" / "mpirun"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("mach-o-or-text-from-another-platform", encoding="utf-8")
+    launcher.chmod(0o755)
+    monkeypatch.setattr("parosol_py.runner._package_bin_dir", lambda: package_bin)
+
+    assert packaged_mpi_launcher() is None
 
 
 def test_mpi_runtime_environment_sets_packaged_openmpi_prefix(monkeypatch, tmp_path):
@@ -139,7 +143,7 @@ def test_mpi_runtime_environment_sets_packaged_openmpi_prefix(monkeypatch, tmp_p
     if sys.platform.startswith("linux"):
         assert env["OMPI_MCA_pml"] == "ob1"
         assert env["OMPI_MCA_btl"] == "self,vader,tcp"
-        assert env["OMPI_MCA_osc"] == "pt2pt"
+        assert "OMPI_MCA_osc" not in env
         assert env["OMPI_MCA_mpi_warn_on_fork"] == "0"
         assert env["UCX_TLS"] == "sm,self,tcp"
         assert env["UCX_NET_DEVICES"] == "none"
@@ -161,6 +165,25 @@ def test_mpi_runtime_environment_skips_missing_component_paths(
     assert "OPAL_MCA_mca_base_component_path" not in env
     assert "PMIX_MCA_mca_base_component_path" not in env
     assert "PRTE_MCA_mca_base_component_path" not in env
+
+
+def test_mpi_runtime_environment_sets_pt2pt_osc_only_when_component_exists(
+    monkeypatch, tmp_path
+):
+    package_bin = tmp_path / "bin"
+    launcher = package_bin / "openmpi" / "bin" / "mpirun"
+    osc = package_bin / "openmpi" / "lib" / "openmpi" / "mca_osc_pt2pt.so"
+    launcher.parent.mkdir(parents=True)
+    osc.parent.mkdir(parents=True)
+    launcher.write_text("fake launcher", encoding="utf-8")
+    osc.write_text("osc", encoding="utf-8")
+    monkeypatch.setattr("parosol_py.runner._package_bin_dir", lambda: package_bin)
+
+    env = mpi_runtime_environment([str(launcher), "-np", "2"], base_env={})
+
+    assert env is not None
+    if sys.platform.startswith("linux"):
+        assert env["OMPI_MCA_osc"] == "pt2pt"
 
 
 def test_mpi_runtime_environment_prepends_packaged_openmpi_lib(monkeypatch, tmp_path):

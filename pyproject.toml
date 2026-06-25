@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "parosol-py"
-version = "0.1.13"
+version = "0.1.14"
 description = "Python package and API wrapper for the ParOSol micro-FE solver"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -47,7 +47,7 @@ wheel.packages = ["src/parosol_py", "src/parosol_torch"]
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-*"
 skip = "*-musllinux_* *-manylinux_i686 *-win32"
-before-build = "python scripts/stage_mpi_runtime.py"
+before-build = "python scripts/stage_mpi_runtime.py && python scripts/verify_packaged_mpi.py"
 test-command = "python -m parosol_py._wheel_smoke"
 build-verbosity = 1
 

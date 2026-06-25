@@ -10,9 +10,11 @@ from parosol_py.modeling.common import load_density_and_mask, material_from_dens
 from parosol_py.modeling.io import read_image_zyx
 from parosol_py.modeling.alignment import (
     estimate_rigid_icp,
+    orient_reference_points,
     read_reference_points,
     surface_points_from_mask,
 )
+from parosol_py.modeling.common import displacement_from_load_case
 
 
 def test_model_image_reader_canonicalizes_nifti_direction(tmp_path: Path):
@@ -507,6 +509,68 @@ def test_reference_points_reader_supports_binary_vtk(tmp_path: Path):
     )
 
     np.testing.assert_allclose(read_reference_points(vtk_path), points.astype(float))
+
+
+def test_reference_points_orientation_reorders_and_flips_axes():
+    stored_zyx = np.asarray(
+        [
+            [0.0, 10.0, 100.0],
+            [2.0, 20.0, 200.0],
+            [4.0, 30.0, 300.0],
+        ]
+    )
+
+    oriented = orient_reference_points(
+        stored_zyx,
+        axis_order="zyx",
+        flips="x",
+    )
+
+    np.testing.assert_allclose(
+        oriented,
+        [
+            [300.0, 10.0, 0.0],
+            [200.0, 20.0, 2.0],
+            [100.0, 30.0, 4.0],
+        ],
+    )
+
+
+def test_icp_supports_vtk_like_centroid_initialization():
+    fixed = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 2.0],
+            [2.0, 2.0, 2.0],
+        ]
+    )
+    moving = fixed + np.asarray([3.0, -2.0, 1.0])
+
+    transform = estimate_rigid_icp(
+        moving_points=moving,
+        fixed_points=fixed,
+        iterations=10,
+        tolerance=1.0e-8,
+        start_by_matching_centroids_only=True,
+        convergence="absolute",
+        distance_mode="rms",
+    )
+
+    np.testing.assert_allclose(transform["translation"], [-3.0, 2.0, -1.0], atol=1e-6)
+
+
+def test_model_percent_displacement_uses_padded_full_height():
+    displacement = displacement_from_load_case(
+        {"target_displacement_percent": -0.68},
+        axis="z",
+        dimensions_xyz=(10, 20, 42),
+        spacing=(1.0, 1.0, 1.0),
+        default=-0.01,
+    )
+
+    assert displacement == pytest.approx(-0.2856)
 
 
 def test_proximal_femur_model_can_use_reference_registration(tmp_path: Path):

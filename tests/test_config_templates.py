@@ -31,7 +31,9 @@ def test_profile_override_templates_are_available():
     assert "XtremeCTI" in profiles
     assert "XtremeCTII" in profiles
     assert "vertebra" in profiles
+    assert "spine-batch" in profiles
     assert "proximal_femur" in profiles
+    assert "hip-batch" in profiles
     assert "proximal_femur_sideways_fall" in profiles
     assert "standard_mechanics_fields" in profiles
     assert "debug_sets" in profiles
@@ -71,8 +73,10 @@ def test_profile_override_templates_are_available():
     assert "strain: -0.01" in xtremectii
     assert "pistoia:" in xtremectii
     assert "type: spine_compression" in read_config_template("vertebra")
+    assert "target_displacement_percent: -0.68" in read_config_template("spine-batch")
     assert "body: 20" in read_config_template("vertebra")
     assert "type: proximal_femur" in read_config_template("proximal_femur")
+    assert "target_displacement_percent: 4.0" in read_config_template("hip-batch")
     assert "femur: 2" in read_config_template("proximal_femur")
     assert "type: proximal_femur_sideways_fall" in read_config_template(
         "proximal_femur_sideways_fall"

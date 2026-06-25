@@ -115,7 +115,7 @@ def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_pat
     (prefix / "share" / "doc" / "openmpi").mkdir(parents=True)
     for filename in ("mpirun", "mpiexec", "prterun"):
         path = prefix / "bin" / filename
-        path.write_text(filename, encoding="utf-8")
+        path.write_text(f"#!/bin/sh\nexec echo {filename}\n", encoding="utf-8")
         path.chmod(0o755)
     (prefix / "lib" / "libmpi.so").write_text("mpi", encoding="utf-8")
     (prefix / "lib" / "libpmix.so").write_text("pmix", encoding="utf-8")
@@ -160,6 +160,28 @@ def test_stage_openmpi_copies_launcher_libraries_and_notice(monkeypatch, tmp_pat
     assert "not relicensed as GPL" in notice
 
 
+def test_stage_openmpi_rejects_wrong_format_launcher(monkeypatch, tmp_path):
+    stage = _load_stage_module()
+    prefix = tmp_path / "openmpi"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "lib").mkdir()
+    launcher = prefix / "bin" / "mpirun"
+    launcher.write_text("wrong-platform-launcher", encoding="utf-8")
+    launcher.chmod(0o755)
+    (prefix / "lib" / "libmpi.so").write_text("mpi", encoding="utf-8")
+
+    monkeypatch.setattr(stage, "PACKAGE_BIN", tmp_path / "package" / "bin")
+    monkeypatch.setattr(stage, "_openmpi_prefix", lambda: prefix)
+    monkeypatch.setattr(stage.shutil, "which", lambda name: None)
+
+    try:
+        stage._stage_openmpi()
+    except SystemExit as exc:
+        assert "compatible OpenMPI launcher" in str(exc)
+    else:
+        raise AssertionError("wrong-format OpenMPI launcher was staged")
+
+
 def test_stage_openmpi_copies_prefixed_runtime_dependencies(monkeypatch, tmp_path):
     stage = _load_stage_module()
     prefix = tmp_path / "openmpi"
@@ -188,3 +210,21 @@ def test_stage_openmpi_copies_prefixed_runtime_dependencies(monkeypatch, tmp_pat
     stage._copy_openmpi_runtime_dependencies(prefix, dest)
 
     assert (dest / "lib" / "libxml2.16.dylib").read_text(encoding="utf-8") == "xml"
+
+
+def test_runtime_dependency_copy_preserves_soname_symlinks(tmp_path):
+    stage = _load_stage_module()
+    source_dir = tmp_path / "prefix" / "lib"
+    dest = tmp_path / "package" / "lib"
+    source_dir.mkdir(parents=True)
+    dest.mkdir(parents=True)
+    real = source_dir / "libxml2.so.16.1.3"
+    real.write_text("xml", encoding="utf-8")
+    (source_dir / "libxml2.so.16").symlink_to(real.name)
+    (source_dir / "libxml2.so").symlink_to(real.name)
+
+    copied = stage._copy_runtime_dependency_with_links(real, dest, set())
+
+    assert {"libxml2.so", "libxml2.so.16", "libxml2.so.16.1.3"} <= copied
+    assert (dest / "libxml2.so.16").is_symlink()
+    assert (dest / "libxml2.so.16").resolve() == (dest / "libxml2.so.16.1.3")

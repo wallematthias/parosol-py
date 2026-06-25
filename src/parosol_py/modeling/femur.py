@@ -15,6 +15,7 @@ from .common import (
     load_density_and_mask,
     material_from_density,
     nodes_for_labels,
+    occupied_length_mm,
     pad_along_axis,
     pmma_spec,
     projected_caps_from_mask,
@@ -130,6 +131,7 @@ def build_proximal_femur_model(
         dimensions_xyz=tuple(int(v) for v in material_xyz.shape),
         spacing=spacing,
         default=1.0 / max(float(material_xyz.shape[1]) * spacing[1], 1.0),
+        length_mm=occupied_length_mm(material_xyz, axis="y", spacing=spacing),
     )
     boundary_conditions = sideways_fall_bcs(
         node_sets,

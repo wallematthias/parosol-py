@@ -18,4 +18,15 @@ else
   exit 1
 fi
 
-/usr/lib64/openmpi/bin/mpirun --version
+openmpi_prefix="${PAROSOL_OPENMPI_PREFIX:-/usr/lib64/openmpi}"
+if [[ ! -x "${openmpi_prefix}/bin/mpirun" ]]; then
+  echo "OpenMPI launcher is missing or not executable: ${openmpi_prefix}/bin/mpirun" >&2
+  exit 1
+fi
+if [[ ! -x "${openmpi_prefix}/bin/ompi_info" ]]; then
+  echo "OpenMPI ompi_info is missing or not executable: ${openmpi_prefix}/bin/ompi_info" >&2
+  exit 1
+fi
+
+"${openmpi_prefix}/bin/mpirun" --version
+"${openmpi_prefix}/bin/ompi_info" --parsable --path prefix

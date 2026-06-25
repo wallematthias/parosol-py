@@ -178,13 +178,15 @@ def _stage_openmpi() -> None:
     dest.mkdir(parents=True, exist_ok=True)
     for name in ("mpirun", "mpiexec", "prterun", "prte", "orted", "ompi_info"):
         source = _find_in_prefix_or_path(prefix, "bin", name)
-        if source is not None:
+        if source is not None and _is_platform_executable(source):
             target = dest / "bin" / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
             target.chmod(target.stat().st_mode | 0o755)
     if not any((dest / "bin" / name).exists() for name in ("mpirun", "mpiexec")):
-        raise SystemExit("OpenMPI launcher was not found; cannot stage MPI runtime.")
+        raise SystemExit(
+            "A compatible OpenMPI launcher was not found; cannot stage MPI runtime."
+        )
 
     _copy_openmpi_libraries(prefix, dest / "lib")
     _copy_openmpi_runtime_dependencies(prefix, dest)
@@ -221,6 +223,29 @@ def _find_in_prefix_or_path(prefix: Path, subdir: str, name: str) -> Path | None
         return candidate
     found = shutil.which(name)
     return Path(found).resolve() if found else None
+
+
+def _is_platform_executable(path: Path) -> bool:
+    if not path.is_file() or not os.access(path, os.X_OK):
+        return False
+    try:
+        header = path.read_bytes()[:4]
+    except OSError:
+        return False
+    if header.startswith(b"#!"):
+        return True
+    if sys.platform.startswith("linux"):
+        return header == b"\x7fELF"
+    if sys.platform == "darwin":
+        return header in {
+            b"\xcf\xfa\xed\xfe",
+            b"\xca\xfe\xba\xbe",
+            b"\xca\xfe\xba\xbf",
+            b"\xfe\xed\xfa\xcf",
+        }
+    if sys.platform.startswith("win"):
+        return header[:2] == b"MZ"
+    return True
 
 
 def _copy_openmpi_libraries(prefix: Path, dest: Path) -> None:
@@ -281,17 +306,19 @@ def _copy_openmpi_runtime_dependencies(prefix: Path, dest: Path) -> None:
 
     lib_dest = dest / "lib"
     seen = {path.name for path in _openmpi_runtime_files(dest)}
+    library_paths = (lib_dest, prefix / "lib", prefix.parent)
     changed = True
     while changed:
         changed = False
         for path in list(_openmpi_runtime_files(dest)):
-            for dependency in _runtime_dependencies(path):
+            for dependency in _runtime_dependencies(path, library_paths=library_paths):
                 source = _dependency_source(prefix, dependency)
-                if source is None or source.name in seen:
+                if source is None:
                     continue
-                shutil.copy2(source, lib_dest / source.name)
-                seen.add(source.name)
-                changed = True
+                copied = _copy_runtime_dependency_with_links(source, lib_dest, seen)
+                if copied:
+                    seen.update(copied)
+                    changed = True
 
 
 def _openmpi_runtime_files(dest: Path) -> list[Path]:
@@ -303,13 +330,17 @@ def _openmpi_runtime_files(dest: Path) -> list[Path]:
     return files
 
 
-def _runtime_dependencies(path: Path) -> list[str]:
+def _runtime_dependencies(
+    path: Path, *, library_paths: tuple[Path, ...] = ()
+) -> list[str]:
     if sys.platform == "darwin":
+        env = _dependency_scan_env(library_paths)
         proc = subprocess.run(
             ["otool", "-L", str(path)],
             text=True,
             capture_output=True,
             check=False,
+            env=env,
         )
         if proc.returncode != 0:
             return []
@@ -322,11 +353,13 @@ def _runtime_dependencies(path: Path) -> list[str]:
         return dependencies
 
     if sys.platform.startswith("linux"):
+        env = _dependency_scan_env(library_paths)
         proc = subprocess.run(
             ["ldd", str(path)],
             text=True,
             capture_output=True,
             check=False,
+            env=env,
         )
         if proc.returncode != 0:
             return []
@@ -344,6 +377,20 @@ def _runtime_dependencies(path: Path) -> list[str]:
     return []
 
 
+def _dependency_scan_env(library_paths: tuple[Path, ...]) -> dict[str, str] | None:
+    existing = os.environ.get("LD_LIBRARY_PATH")
+    paths = [str(path) for path in library_paths if path.exists()]
+    if not paths:
+        return None
+    env = dict(os.environ)
+    env["LD_LIBRARY_PATH"] = (
+        os.pathsep.join(paths)
+        if not existing
+        else os.pathsep.join([*paths, existing])
+    )
+    return env
+
+
 def _dependency_source(prefix: Path, dependency: str) -> Path | None:
     if dependency.startswith(("/usr/lib/", "/System/Library/")):
         return None
@@ -358,6 +405,33 @@ def _dependency_source(prefix: Path, dependency: str) -> Path | None:
     if candidate.exists():
         return candidate.resolve()
     return None
+
+
+def _copy_runtime_dependency_with_links(
+    source: Path, dest: Path, seen: set[str]
+) -> set[str]:
+    copied: set[str] = set()
+    source = source.resolve()
+    aliases = [source]
+    for candidate in source.parent.iterdir():
+        if candidate.name in seen or not (candidate.is_file() or candidate.is_symlink()):
+            continue
+        try:
+            if candidate.resolve() == source:
+                aliases.append(candidate)
+        except OSError:
+            continue
+
+    for alias in aliases:
+        if alias.name in seen or alias.name in copied:
+            continue
+        target = dest / alias.name
+        if alias.is_symlink():
+            target.symlink_to(os.readlink(alias))
+        else:
+            shutil.copy2(alias, target)
+        copied.add(alias.name)
+    return copied
 
 
 def _copy_openmpi_config(source: Path, dest: Path) -> None:

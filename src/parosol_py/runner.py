@@ -68,7 +68,7 @@ def packaged_mpi_launcher() -> Path | None:
         bin_dir / "mpiexec.exe",
     ]
     for launcher in candidates:
-        if launcher.exists():
+        if _is_compatible_executable(launcher):
             return launcher
 
     try:
@@ -86,20 +86,107 @@ def packaged_mpi_launcher() -> Path | None:
         "parosol_py/bin/mpiexec.exe",
     ):
         launcher = Path(distribution.locate_file(relative))
-        if launcher.exists():
+        if _is_compatible_executable(launcher):
             return launcher
     return None
 
 
 def resolve_mpi_launcher(mpi_launcher: str | Path = "mpirun") -> str:
     token = str(mpi_launcher).strip()
-    packaged = packaged_mpi_launcher()
-    if token.lower() in {"", "auto", "packaged", "mpirun", "mpiexec", "mpiexec.exe"}:
+    if not token:
+        token = "auto"
+    explicit_env = os.environ.get("PAROSOL_MPI_LAUNCHER")
+    automatic_tokens = {"auto", "packaged", "mpirun", "mpiexec", "mpiexec.exe"}
+    if explicit_env and token.lower() in automatic_tokens:
+        return _resolve_explicit_mpi_launcher(explicit_env)
+    if token.lower() in automatic_tokens:
+        packaged = packaged_mpi_launcher()
         if packaged is not None:
             return str(packaged)
-        found = shutil.which(token or "mpirun")
-        return found if found is not None else (token or "mpirun")
-    return str(Path(mpi_launcher))
+        for name in _mpi_launcher_names(token):
+            found = shutil.which(name)
+            if found and _is_compatible_executable(Path(found)):
+                return found
+        common = _common_mpi_launcher()
+        if common is not None:
+            return str(common)
+        raise RuntimeError(_missing_mpi_launcher_message(token))
+    return _resolve_explicit_mpi_launcher(token)
+
+
+def _resolve_explicit_mpi_launcher(value: str | Path) -> str:
+    token = str(value).strip()
+    path_like = os.sep in token or (os.altsep is not None and os.altsep in token)
+    if path_like:
+        path = Path(token).expanduser()
+        if not _is_compatible_executable(path):
+            raise RuntimeError(
+                f"MPI launcher is not executable for this platform: {path}. "
+                "Set PAROSOL_MPI_LAUNCHER to a compatible mpirun/mpiexec, "
+                "load the cluster MPI module, or install/run a parosol-py wheel "
+                "with a bundled MPI runtime."
+            )
+        return str(path)
+    found = shutil.which(token)
+    if found and _is_compatible_executable(Path(found)):
+        return found
+    raise RuntimeError(_missing_mpi_launcher_message(token))
+
+
+def _mpi_launcher_names(token: str) -> tuple[str, ...]:
+    lower = token.lower()
+    if lower in {"mpirun", "mpiexec", "mpiexec.exe"}:
+        return (token,)
+    if sys.platform.startswith("win"):
+        return ("mpiexec.exe", "mpiexec")
+    return ("mpirun", "mpiexec")
+
+
+def _common_mpi_launcher() -> Path | None:
+    candidates = [
+        Path("/usr/lib64/openmpi/bin/mpirun"),
+        Path("/usr/lib64/openmpi/bin/mpiexec"),
+        Path("/usr/lib/x86_64-linux-gnu/openmpi/bin/mpirun"),
+        Path("/usr/lib/x86_64-linux-gnu/openmpi/bin/mpiexec"),
+        Path("/opt/homebrew/bin/mpirun"),
+        Path("/opt/homebrew/bin/mpiexec"),
+    ]
+    for candidate in candidates:
+        if _is_compatible_executable(candidate):
+            return candidate
+    return None
+
+
+def _is_compatible_executable(path: Path) -> bool:
+    if not path.is_file() or not os.access(path, os.X_OK):
+        return False
+    try:
+        header = path.read_bytes()[:4]
+    except OSError:
+        return False
+    if header.startswith(b"#!"):
+        return True
+    if sys.platform.startswith("linux"):
+        return header == b"\x7fELF"
+    if sys.platform == "darwin":
+        return header in {
+            b"\xcf\xfa\xed\xfe",
+            b"\xca\xfe\xba\xbe",
+            b"\xca\xfe\xba\xbf",
+            b"\xfe\xed\xfa\xcf",
+        }
+    if sys.platform.startswith("win"):
+        return header[:2] == b"MZ"
+    return True
+
+
+def _missing_mpi_launcher_message(requested: str) -> str:
+    return (
+        f"Could not find a compatible MPI launcher for {requested!r}. "
+        "Use mpi_processes: 1 for serial runs, load an MPI module so mpirun/mpiexec "
+        "is on PATH, set PAROSOL_MPI_LAUNCHER=/path/to/mpirun, or install/run a "
+        "parosol-py wheel that bundles a compatible MPI runtime."
+    )
 
 
 def mpi_runtime_environment(
@@ -156,7 +243,8 @@ def mpi_runtime_environment(
     if sys.platform.startswith("linux"):
         env.setdefault("OMPI_MCA_pml", "ob1")
         env.setdefault("OMPI_MCA_btl", "self,vader,tcp")
-        env.setdefault("OMPI_MCA_osc", "pt2pt")
+        if (openmpi_prefix / "lib" / "openmpi" / "mca_osc_pt2pt.so").exists():
+            env.setdefault("OMPI_MCA_osc", "pt2pt")
         env.setdefault("OMPI_MCA_mpi_warn_on_fork", "0")
         env.setdefault("UCX_TLS", "sm,self,tcp")
         env.setdefault("UCX_NET_DEVICES", "none")

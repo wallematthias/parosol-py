@@ -56,7 +56,12 @@ def align_mask_to_reference(
     iterations = int(registration_config.get("iterations", 50))
     tolerance = float(registration_config.get("tolerance", 1.0e-4))
     margin_voxels = int(registration_config.get("margin_voxels", 4))
-    reference_points = read_reference_points(reference_path, max_points=max_points)
+    method = str(registration_config.get("method", "lightweight_icp")).strip().lower()
+    reference_points = _reference_points_from_config(
+        reference_path,
+        registration_config=registration_config,
+        max_points=max_points,
+    )
     moving_points = surface_points_from_mask(
         mask_zyx,
         spacing=spacing,
@@ -68,6 +73,9 @@ def align_mask_to_reference(
         fixed_points=reference_points,
         iterations=iterations,
         tolerance=tolerance,
+        start_by_matching_centroids_only=_icp_centroid_start(registration_config),
+        convergence=str(registration_config.get("convergence", "delta")),
+        distance_mode=str(registration_config.get("distance_mode", "mean")),
     )
     output_origin, output_size = _output_grid_for_transform(
         moving_points,
@@ -113,7 +121,7 @@ def align_mask_to_reference(
         origin=output_origin,
         metadata={
             "enabled": True,
-            "method": "lightweight_icp",
+            "method": method,
             "reference_points": str(reference_path),
             "iterations": transform["iterations"],
             "mean_distance": transform["mean_distance"],
@@ -177,7 +185,12 @@ def align_spine_body_to_reference(
     iterations = int(registration_config.get("iterations", 50))
     tolerance = float(registration_config.get("tolerance", 1.0e-4))
     margin_voxels = int(registration_config.get("margin_voxels", 4))
-    reference_points = read_reference_points(reference_path, max_points=max_points)
+    method = str(registration_config.get("method", "lightweight_icp")).strip().lower()
+    reference_points = _reference_points_from_config(
+        reference_path,
+        registration_config=registration_config,
+        max_points=max_points,
+    )
     body_points = surface_points_from_mask(
         body_mask_zyx,
         spacing=spacing,
@@ -189,6 +202,9 @@ def align_spine_body_to_reference(
         fixed_points=reference_points,
         iterations=iterations,
         tolerance=tolerance,
+        start_by_matching_centroids_only=_icp_centroid_start(registration_config),
+        convergence=str(registration_config.get("convergence", "delta")),
+        distance_mode=str(registration_config.get("distance_mode", "mean")),
     )
     active_points = surface_points_from_mask(
         body_mask_zyx | process_mask_zyx,
@@ -244,7 +260,7 @@ def align_spine_body_to_reference(
         origin=output_origin,
         metadata={
             "enabled": True,
-            "method": "lightweight_icp",
+            "method": method,
             "reference_points": str(reference_path),
             "iterations": transform["iterations"],
             "mean_distance": transform["mean_distance"],
@@ -267,6 +283,52 @@ def read_reference_points(path: str | Path, *, max_points: int | None = None) ->
         points = np.loadtxt(path, dtype=float)
     points = _points_array(points, "reference points")
     return _sample_points(points, max_points=max_points)
+
+
+def _reference_points_from_config(
+    path: str | Path,
+    *,
+    registration_config: dict[str, Any],
+    max_points: int | None,
+) -> np.ndarray:
+    points = read_reference_points(path, max_points=None)
+    points = orient_reference_points(
+        points,
+        axis_order=registration_config.get(
+            "reference_axis_order",
+            registration_config.get("reference_order", "xyz"),
+        ),
+        flips=registration_config.get("reference_flips", (False, False, False)),
+    )
+    return _sample_points(points, max_points=max_points)
+
+
+def orient_reference_points(
+    points: np.ndarray,
+    *,
+    axis_order: str | tuple[str, str, str] | list[str] = "xyz",
+    flips: Any = (False, False, False),
+) -> np.ndarray:
+    """Convert stored reference points into physical x/y/z coordinates."""
+
+    values = _points_array(points, "reference points").copy()
+    if isinstance(axis_order, str):
+        order = tuple(axis_order.lower().replace(",", "").replace(" ", ""))
+    else:
+        order = tuple(str(axis).lower() for axis in axis_order)
+    if order != ("x", "y", "z"):
+        if sorted(order) != ["x", "y", "z"] or len(order) != 3:
+            raise ValueError("reference_axis_order must be a permutation of x/y/z")
+        source_index = {axis: idx for idx, axis in enumerate(order)}
+        values = values[:, [source_index["x"], source_index["y"], source_index["z"]]]
+    flags = _reference_flip_flags(flips)
+    if any(flags):
+        lo = values.min(axis=0)
+        hi = values.max(axis=0)
+        for axis, enabled in enumerate(flags):
+            if enabled:
+                values[:, axis] = lo[axis] + hi[axis] - values[:, axis]
+    return values
 
 
 def surface_points_from_mask(
@@ -292,20 +354,41 @@ def estimate_rigid_icp(
     fixed_points: np.ndarray,
     iterations: int = 50,
     tolerance: float = 1.0e-4,
+    start_by_matching_centroids_only: bool = False,
+    convergence: str = "delta",
+    distance_mode: str = "mean",
 ) -> dict[str, Any]:
     moving = _points_array(moving_points, "moving_points")
     fixed = _points_array(fixed_points, "fixed_points")
-    rotation, translation = _best_initial_transform(moving, fixed)
+    if start_by_matching_centroids_only:
+        rotation = np.eye(3)
+        translation = fixed.mean(axis=0) - moving.mean(axis=0)
+    else:
+        rotation, translation = _best_initial_transform(moving, fixed)
     previous_error = np.inf
     used_iterations = 0
+    convergence_token = str(convergence).strip().lower()
+    distance_token = str(distance_mode).strip().lower()
     for used_iterations in range(1, max(1, int(iterations)) + 1):
         transformed = moving @ rotation.T + translation
         matched = fixed[_nearest_indices(transformed, fixed)]
         step_rotation, step_translation = _kabsch(transformed, matched)
         rotation = step_rotation @ rotation
         translation = step_rotation @ translation + step_translation
-        error = float(np.mean(np.linalg.norm(transformed - matched, axis=1)))
-        if abs(previous_error - error) <= float(tolerance):
+        distances = np.linalg.norm(transformed - matched, axis=1)
+        if distance_token == "mean":
+            error = float(np.mean(distances))
+        elif distance_token == "rms":
+            error = float(np.sqrt(np.mean(distances * distances)))
+        else:
+            raise ValueError("distance_mode must be 'mean' or 'rms'")
+        if convergence_token == "delta":
+            converged = abs(previous_error - error) <= float(tolerance)
+        elif convergence_token in {"absolute", "abs"}:
+            converged = error <= float(tolerance)
+        else:
+            raise ValueError("convergence must be 'delta' or 'absolute'")
+        if converged:
             previous_error = error
             break
         previous_error = error
@@ -423,6 +506,25 @@ def _nearest_indices(query: np.ndarray, target: np.ndarray) -> np.ndarray:
     except ImportError:
         return _nearest_indices_numpy(query, target)
     return cKDTree(target).query(query, workers=-1)[1]
+
+
+def _reference_flip_flags(flips: Any) -> tuple[bool, bool, bool]:
+    if isinstance(flips, str):
+        tokens = {token.strip().lower() for token in flips.replace(",", " ").split()}
+        flags = tuple(axis in tokens for axis in ("x", "y", "z"))
+    else:
+        flags = tuple(bool(v) for v in flips)
+    if len(flags) != 3:
+        raise ValueError("reference_flips must contain three booleans or axis names")
+    return flags
+
+
+def _icp_centroid_start(registration_config: dict[str, Any]) -> bool:
+    if "start_by_matching_centroids_only" in registration_config:
+        return bool(registration_config["start_by_matching_centroids_only"])
+    mode = str(registration_config.get("initialization", "")).strip().lower()
+    method = str(registration_config.get("method", "")).strip().lower()
+    return mode in {"centroid", "centroids", "vtk"} or method == "vtk_icp"
 
 
 def _nearest_mean_distance(

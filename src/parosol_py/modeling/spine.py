@@ -16,6 +16,7 @@ from .common import (
     load_density_and_mask,
     material_from_density,
     nodes_for_labels,
+    occupied_length_mm,
     pad_along_axis,
     pmma_spec,
     projected_caps_from_mask,
@@ -141,6 +142,7 @@ def build_spine_compression_model(
         dimensions_xyz=tuple(int(v) for v in material_xyz.shape),
         spacing=spacing,
         default=-0.01,
+        length_mm=occupied_length_mm(material_xyz, axis=axis, spacing=spacing),
     )
     boundary_conditions = constrained_contact_bcs(
         node_sets,

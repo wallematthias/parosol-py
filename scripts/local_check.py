@@ -140,10 +140,12 @@ def _smoke_install(wheel: Path) -> None:
                 str(python),
                 "-c",
                 (
-                    "from parosol_py.runner import packaged_executable; "
+                    "from parosol_py.runner import packaged_executable, packaged_mpi_launcher; "
                     "from parosol_py.config_templates import read_config_template; "
                     "p = packaged_executable(); "
+                    "m = packaged_mpi_launcher(); "
                     "assert p.exists(), p; "
+                    "assert m is not None and m.exists(), m; "
                     "assert 'materials:' in read_config_template('default')"
                 ),
             ]

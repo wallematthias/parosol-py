@@ -581,15 +581,38 @@ def displacement_from_load_case(
     dimensions_xyz: tuple[int, int, int],
     spacing: tuple[float, float, float],
     default: float,
+    length_mm: float | None = None,
 ) -> float:
     cfg = {} if load_case_config is None else load_case_config
     if "displacement" in cfg:
         return float(cfg["displacement"])
     if "normal_displacement" in cfg:
         return float(cfg["normal_displacement"])
-    strain = float(cfg.get("strain", cfg.get("normal_strain", default)))
+    if "target_displacement_percent" in cfg:
+        strain = float(cfg["target_displacement_percent"]) / 100.0
+    else:
+        strain = float(cfg.get("strain", cfg.get("normal_strain", default)))
     axis_index = AXIS_TO_INDEX[axis]
-    return strain * float(dimensions_xyz[axis_index]) * float(spacing[axis_index])
+    if length_mm is None:
+        length = float(dimensions_xyz[axis_index]) * float(spacing[axis_index])
+    else:
+        length = float(length_mm)
+    return strain * length
+
+
+def occupied_length_mm(
+    material_xyz: np.ndarray,
+    *,
+    axis: str,
+    spacing: tuple[float, float, float],
+) -> float:
+    axis_index = AXIS_TO_INDEX[axis]
+    lateral_axes = tuple(idx for idx in range(3) if idx != axis_index)
+    occupied = np.any(np.asarray(material_xyz) > 0, axis=lateral_axes)
+    indices = np.where(occupied)[0]
+    if indices.size == 0:
+        raise ValueError(f"Could not infer occupied model length along {axis}")
+    return float(indices[-1] - indices[0] + 1) * float(spacing[axis_index])
 
 
 def constrained_contact_bcs(
