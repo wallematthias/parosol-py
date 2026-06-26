@@ -5,14 +5,39 @@ import json
 import tempfile
 import zipfile
 from datetime import datetime, timezone
+from importlib import resources
 from pathlib import Path
 from typing import Any
+
+from .modeling.io import resolve_path
+from .paths import suffix_text
 
 
 WORKFLOW_FILENAMES = ("workflow.yaml", "workflow.yml", "parosol_slicer_case.yaml")
 WORKFLOW_BUNDLE_FORMAT = "parosol-py-workflow"
 WORKFLOW_BUNDLE_SUFFIX = ".parosol-workflow"
 WORKFLOW_MANIFEST = "manifest.json"
+_BUILTIN_WORKFLOWS = resources.files("parosol_py") / "workflows"
+
+
+def builtin_workflow_path(name: str) -> Path | None:
+    token = name.strip()
+    if not token:
+        return None
+    candidate = _BUILTIN_WORKFLOWS / f"{token}{WORKFLOW_BUNDLE_SUFFIX}"
+    if candidate.is_file():
+        return Path(candidate)
+    return None
+
+
+def available_builtin_workflows() -> tuple[str, ...]:
+    if not _BUILTIN_WORKFLOWS.is_dir():
+        return ()
+    names: list[str] = []
+    for path in _BUILTIN_WORKFLOWS.iterdir():
+        if path.is_file() and path.name.endswith(WORKFLOW_BUNDLE_SUFFIX):
+            names.append(path.name.removesuffix(WORKFLOW_BUNDLE_SUFFIX))
+    return tuple(sorted(names))
 
 
 def load_workflow_template(path: str | Path) -> tuple[dict[str, Any], Path]:
@@ -85,24 +110,83 @@ def apply_workflow_template(
 
     case_cfg = _section(config, "case")
     case_cfg["name"] = case_name
-    case_cfg["work_dir"] = str(out)
+    is_batch_workflow = isinstance(config.get("batch"), dict)
+    case_cfg["work_dir"] = str(out / case_name) if is_batch_workflow else str(out)
 
     input_cfg = _section(config, "input")
     input_cfg["image"] = str(image)
-    input_cfg.setdefault("spacing", "auto")
-    input_cfg.setdefault("origin", "auto")
+    if _supports_image_metadata(image):
+        input_cfg.setdefault("spacing", "auto")
+        input_cfg.setdefault("origin", "auto")
+    else:
+        input_cfg.pop("spacing", None)
+        input_cfg.pop("origin", None)
     if mask is not None:
         input_cfg["mask"] = str(mask)
     else:
         input_cfg.pop("mask", None)
 
+    model_cfg = config.get("model")
+    if isinstance(model_cfg, dict):
+        model_cfg["density_image"] = str(image)
+        if mask is not None:
+            model_cfg["mask_image"] = str(mask)
+        else:
+            model_cfg.pop("mask_image", None)
+        workflow_template_cfg = config.get("workflow_template", {})
+        reference_cfg = (
+            workflow_template_cfg.get("reference", {})
+            if isinstance(workflow_template_cfg, dict)
+            else {}
+        )
+        if (
+            isinstance(reference_cfg, dict)
+            and reference_cfg.get("disk_labels")
+            and reference_cfg.get("nodesets")
+        ):
+            replay_cfg = model_cfg.setdefault("workflow_replay", {})
+            replay_cfg["enabled"] = True
+            replay_cfg["disk_labels"] = str(
+                resolve_path(reference_cfg["disk_labels"], base_dir=Path(template_path).expanduser().resolve().parent)
+            )
+            replay_cfg["nodesets"] = str(
+                resolve_path(reference_cfg["nodesets"], base_dir=Path(template_path).expanduser().resolve().parent)
+            )
+            registration_cfg = model_cfg.get("registration", {})
+            if isinstance(registration_cfg, dict) and registration_cfg.get("reference_points"):
+                replay_cfg["reference_points"] = registration_cfg["reference_points"]
+                sibling_editor_reference = (
+                    Path(str(registration_cfg["reference_points"])).resolve().parent
+                    / "slicer_reference_points.npz"
+                )
+                if sibling_editor_reference.is_file():
+                    replay_cfg["editor_reference_points"] = str(
+                        sibling_editor_reference
+                    )
+            target = registration_cfg.get("target") if isinstance(registration_cfg, dict) else None
+            if target:
+                replay_cfg["registration_target"] = target
+        model_outputs = model_cfg.setdefault("outputs", {})
+        if not isinstance(model_outputs, dict):
+            raise ValueError("model.outputs must be a mapping in workflow template")
+        model_dir = out / "model"
+        model_outputs["material_image"] = str(model_dir / "material.nii.gz")
+        model_outputs["nodeset_image"] = str(model_dir / "nodesets.nii.gz")
+        model_outputs["manifest"] = str(model_dir / "model.json")
+        model_outputs["qc_image"] = str(model_dir / "qc.png")
+
     output_cfg = _section(config, "output")
-    output_cfg["result"] = str(out / "result.json")
+    output_cfg["result"] = str(out / case_name / "result.json" if is_batch_workflow else out / "result.json")
     output_cfg["summary"] = output_cfg["result"]
-    output_cfg["run_summary"] = str(out / "summary.json")
+    output_cfg["run_summary"] = str(out / case_name / "summary.json" if is_batch_workflow else out / "summary.json")
     output_cfg.setdefault("fields", ["sed"])
-    output_cfg["fields_dir"] = str(out / "fields")
-    output_cfg["visualization"] = str(out / "overview.png")
+    output_cfg["fields_dir"] = str(out / case_name / "fields" if is_batch_workflow else out / "fields")
+    output_cfg["visualization"] = str(out / case_name / "overview.png" if is_batch_workflow else out / "overview.png")
+
+    if is_batch_workflow:
+        batch_cfg = _section(config, "batch")
+        batch_cfg["work_dir"] = str(out)
+        batch_cfg["summary"] = str(out / "result.json")
 
     config["execution"] = {
         "interface": "shortcut-template",
@@ -162,6 +246,9 @@ def _resolve_template_paths(config: dict[str, Any], base_dir: Path) -> dict[str,
     model = config.get("model")
     if isinstance(model, dict):
         _resolve_paths_in_mapping(model, base_dir)
+    workflow_template = config.get("workflow_template")
+    if isinstance(workflow_template, dict):
+        _resolve_paths_in_mapping(workflow_template, base_dir)
     return config
 
 
@@ -175,6 +262,8 @@ def _resolve_paths_in_mapping(value: dict[str, Any], base_dir: Path) -> None:
             "density_image",
             "mask_image",
             "reference_points",
+            "disk_labels",
+            "nodesets",
         } and isinstance(item, str) and item:
             path = Path(item).expanduser()
             if not path.is_absolute():
@@ -186,3 +275,8 @@ def _section(config: dict[str, Any], name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{name} must be a mapping in workflow template")
     return value
+
+
+def _supports_image_metadata(path: Path) -> bool:
+    suffixes = suffix_text(path)
+    return suffixes.endswith((".aim", ".mha", ".mhd", ".nii", ".nii.gz", ".npz"))

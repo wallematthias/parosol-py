@@ -35,7 +35,12 @@ from .modeling import build_model
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .paths import suffix_text
 from .profiles import get_output_profile, get_solver_profile
-from .reports import compact_summary_dict, solve_summary_dict, write_summary_json
+from .reports import (
+    compact_summary_dict,
+    solve_summary_dict,
+    write_results_csv,
+    write_summary_json,
+)
 from .set_export import write_element_sets, write_node_sets
 from .visualization import dense_scalar_field, write_case_overview
 
@@ -186,12 +191,17 @@ def run_case_config(
 
     built_model = None
     if model_cfg:
+        model_build_cfg = dict(model_cfg)
+        slicer_editor_cfg = config.get("slicer_editor")
+        if isinstance(slicer_editor_cfg, dict):
+            model_build_cfg["slicer_editor"] = slicer_editor_cfg
         built_model = build_model(
-            model_cfg,
+            model_build_cfg,
             base_dir=base_dir,
             material_config=material_cfg,
             load_case_config=load_case_cfg,
             preprocessing_config=preprocessing_cfg,
+            nodeset_config=nodeset_cfg,
         )
         material = built_model.material
         spacing = built_model.spacing
@@ -338,13 +348,12 @@ def run_case_config(
         )
 
     load_type = str(load_case_cfg.get("type", "constrained_axial")).strip().lower()
+    load_case_summary = _load_case_summary(
+        load_case_cfg, load_type=load_type, axis=common["test_axis"], strain=common["strain"]
+    )
     extra: dict[str, Any] = {
         "case": {"name": case_name},
-        "load_case": {
-            "type": load_type,
-            "axis": common["test_axis"],
-            "strain": common["strain"],
-        },
+        "load_case": load_case_summary,
     }
     extra["execution"] = {
         "config": str(config_path),
@@ -373,10 +382,17 @@ def run_case_config(
     exported = summary.setdefault("outputs", {}).setdefault("exported", {})
     exported["result"] = str(result_path)
     exported["summary"] = str(summary_path)
+    results_csv_path = _resolve_path(
+        output_cfg.get("results_csv", result_path.with_name("results.csv")),
+        base_dir=base_dir,
+    )
+    exported["results_csv"] = str(results_csv_path)
     write_summary_json(summary_path, summary)
     write_summary_json(result_path, compact_summary_dict(summary))
+    write_results_csv(results_csv_path, summary)
     result.exported["result"] = result_path
     result.exported["summary"] = summary_path
+    result.exported["results_csv"] = results_csv_path
     return result
 
 
@@ -865,6 +881,10 @@ def _boundary_conditions_from_config(
         origin=origin,
         base_dir=base_dir,
     )
+    percent_reference_lengths_mm = {
+        axis: _occupied_axis_length_mm(material_grid.array_xyz, axis=axis, spacing=material_grid.spacing)
+        for axis in ("x", "y", "z")
+    }
     return boundary_conditions_from_nodesets(
         node_sets,
         fixed=list(load_case_cfg.get("fixed", ())),
@@ -872,6 +892,7 @@ def _boundary_conditions_from_config(
         loaded=list(load_case_cfg.get("loaded", ())),
         dimensions_xyz=tuple(int(v) for v in material_grid.array_xyz.shape),
         spacing=material_grid.spacing,
+        percent_reference_lengths_mm=percent_reference_lengths_mm,
     )
 
 
@@ -880,6 +901,21 @@ def _load_case_displacement(load_case_cfg: dict[str, Any]) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _occupied_axis_length_mm(
+    material_xyz: np.ndarray,
+    *,
+    axis: str,
+    spacing: tuple[float, float, float],
+) -> float:
+    axis_index = {"x": 0, "y": 1, "z": 2}[axis]
+    lateral_axes = tuple(idx for idx in range(3) if idx != axis_index)
+    occupied = np.any(np.asarray(material_xyz) > 0, axis=lateral_axes)
+    indices = np.flatnonzero(occupied)
+    if indices.size == 0:
+        return float(material_xyz.shape[axis_index]) * float(spacing[axis_index])
+    return float(indices[-1] - indices[0] + 1) * float(spacing[axis_index])
 
 
 def _nodeset_load_direction(load_case_cfg: dict[str, Any]) -> str | None:
@@ -1243,6 +1279,21 @@ def _load_material_array(
             maximum_e_mpa=_optional_float(
                 e_cfg.get("maximum_e_mpa", density_cfg.get("maximum_e_mpa"))
             ),
+            bin_material=_truthy_config_value(
+                density_cfg.get(
+                    "bin_material",
+                    e_cfg.get("bin_material", e_cfg.get("binned_material", False)),
+                )
+            ),
+            number_bins=int(
+                density_cfg.get(
+                    "number_bins",
+                    density_cfg.get(
+                        "bins",
+                        e_cfg.get("number_bins", e_cfg.get("bins", 128)),
+                    ),
+                )
+            ),
             **{
                 key: value
                 for key, value in e_cfg.items()
@@ -1254,6 +1305,10 @@ def _load_material_array(
                     "floor_mpa",
                     "floor",
                     "maximum_e_mpa",
+                    "bin_material",
+                    "binned_material",
+                    "number_bins",
+                    "bins",
                 }
             },
         )
@@ -1306,6 +1361,12 @@ def _connectivity_filter_enabled(preprocessing_cfg: dict[str, Any]) -> bool:
     )
     if isinstance(value, str):
         return value.strip().lower() in {"on", "true", "yes", "largest"}
+    return bool(value)
+
+
+def _truthy_config_value(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
 
 
@@ -1386,6 +1447,21 @@ def _section(config: dict[str, Any], name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"config section '{name}' must be a table/object")
     return value
+
+
+def _load_case_summary(
+    load_case_cfg: dict[str, Any], *, load_type: str, axis: str, strain: float
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {"type": load_type, "axis": axis}
+    explicit_strain = "strain" in load_case_cfg or "normal_strain" in load_case_cfg
+    if load_type not in {"nodeset", "custom"} or explicit_strain:
+        summary["strain"] = strain
+    if load_type in {"nodeset", "custom"}:
+        for key in ("fixed", "prescribed", "loaded"):
+            value = load_case_cfg.get(key)
+            if value:
+                summary[key] = json.loads(json.dumps(value))
+    return summary
 
 
 def _resolve_path(value, *, base_dir: Path) -> Path:

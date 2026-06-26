@@ -14,7 +14,11 @@ from .config_templates import available_config_profiles, read_config_template
 from .load_history import estimate_load_history_from_files
 from .paths import image_stem, suffix_text
 from .reports import parse_legacy_analysis_file, parse_pistoia_file, write_summary_json
-from .workflow_template import apply_workflow_template, load_workflow_template
+from .workflow_template import (
+    apply_workflow_template,
+    builtin_workflow_path,
+    load_workflow_template,
+)
 
 _COMMANDS = {
     "run",
@@ -450,6 +454,22 @@ def _shortcut_config(args: argparse.Namespace) -> dict[str, Any]:
             template_path=workflow_path,
             dry_run=bool(args.dry_run),
         )
+    builtin_workflow = builtin_workflow_path(args.profile)
+    if builtin_workflow is not None:
+        template, workflow_path = load_workflow_template(builtin_workflow)
+        config = apply_workflow_template(
+            template,
+            image_path=image_path,
+            mask_path=mask_path,
+            output_dir=output_dir,
+            case_name=case_name,
+            profile=args.profile,
+            command=" ".join(["parosol", *getattr(args, "_argv", [])]),
+            template_path=workflow_path,
+            dry_run=bool(args.dry_run),
+        )
+        config["execution"]["interface"] = "shortcut"
+        return config
     if args.profile == "interactive_custom":
         raise ValueError("--profile interactive_custom requires --template")
 

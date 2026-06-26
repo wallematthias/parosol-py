@@ -13,6 +13,7 @@ from .common import (
     constrained_contact_bcs,
     displacement_from_load_case,
     export_model_artifacts,
+    pad_arrays_to_foreground_margin,
     load_density_and_mask,
     material_from_density,
     nodes_for_labels,
@@ -67,6 +68,32 @@ def build_spine_compression_model(
         registration_metadata = aligned.metadata
 
     active_zyx = body_mask_zyx | process_mask_zyx
+    axis = str(model_config.get("geometry", {}).get("axis", "z")).strip().lower()
+    if axis not in AXIS_TO_INDEX:
+        raise ValueError("model.geometry.axis must be one of x, y, z")
+    axis_index = AXIS_TO_INDEX[axis]
+    thickness = _thickness_voxels(model_config, spacing=spacing, axis=axis)
+    intrusion_depth = _intrusion_depth_voxels(
+        model_config, spacing=spacing, axis=axis, default=thickness
+    )
+    padded, origin = pad_arrays_to_foreground_margin(
+        anchor_mask_zyx=active_zyx,
+        spacing=spacing,
+        origin=origin,
+        margin_voxels=thickness + intrusion_depth,
+        arrays={
+            "density": density_zyx,
+            "body": body_mask_zyx,
+            "process": process_mask_zyx,
+        },
+        constant_values={"density": 0.0, "body": False, "process": False},
+    )
+    density_zyx = padded["density"]
+    body_mask_zyx = padded["body"]
+    process_mask_zyx = padded["process"]
+    active_zyx = body_mask_zyx | process_mask_zyx
+    pmma = pmma_spec(material_config)
+
     bone_mpa_zyx, poisson_ratio = material_from_density(
         density_zyx,
         active_zyx,
@@ -75,12 +102,6 @@ def build_spine_compression_model(
     grid_bone = np.transpose(bone_mpa_zyx, (2, 1, 0))
     grid_body = np.transpose(body_mask_zyx, (2, 1, 0))
     grid_process = np.transpose(process_mask_zyx, (2, 1, 0))
-    axis = str(model_config.get("geometry", {}).get("axis", "z")).strip().lower()
-    if axis not in AXIS_TO_INDEX:
-        raise ValueError("model.geometry.axis must be one of x, y, z")
-    axis_index = AXIS_TO_INDEX[axis]
-    thickness = _thickness_voxels(model_config, spacing=spacing, axis=axis)
-    pmma = pmma_spec(material_config)
 
     material_xyz = pad_along_axis(
         grid_bone,
@@ -112,9 +133,6 @@ def build_spine_compression_model(
         body_padded=body_padded,
         process_padded=process_padded,
         label_masks=label_masks,
-    )
-    intrusion_depth = _intrusion_depth_voxels(
-        model_config, spacing=spacing, axis=axis, default=thickness
     )
     inferior, superior = projected_caps_from_mask(
         disk_target_mask,

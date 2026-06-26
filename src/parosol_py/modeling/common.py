@@ -49,13 +49,16 @@ def load_density_and_mask(
         geometry.get("crop_to_mask", model_config.get("crop_to_mask", False)),
     )
     if _enabled(crop_spec):
-        margin = (
-            crop_spec.get("margin_voxels")
-            if isinstance(crop_spec, dict)
-            else preprocessing.get(
-                "crop_margin_voxels", geometry.get("crop_margin_voxels", 4)
-            )
+        default_margin = preprocessing.get(
+            "crop_margin_voxels", geometry.get("crop_margin_voxels", 4)
         )
+        margin = (
+            crop_spec.get("margin_voxels", default_margin)
+            if isinstance(crop_spec, dict)
+            else default_margin
+        )
+        if margin is None:
+            margin = default_margin if default_margin is not None else 4
         crop_labels = _crop_labels(model_config, crop_spec)
         density_zyx, mask_zyx, origin = _crop_to_mask_bbox(
             density_zyx,
@@ -69,13 +72,14 @@ def load_density_and_mask(
         spacing = _triple(model_config["spacing"], "model.spacing")
     if "spacing" in geometry:
         spacing = _triple(geometry["spacing"], "model.geometry.spacing")
+    input_spacing = spacing
     target_spacing = _target_resample_spacing(geometry, spacing)
     if target_spacing is not None:
         density_zyx = _resample_array_zyx(
             density_zyx,
             spacing=spacing,
             target_spacing=target_spacing,
-            interpolation="linear",
+            interpolation="bspline",
         )
         mask_zyx = _resample_array_zyx(
             mask_zyx,
@@ -85,7 +89,10 @@ def load_density_and_mask(
         )
         spacing = target_spacing
     smooth_spec = preprocessing.get("smooth", geometry.get("smooth", False))
-    if _enabled(smooth_spec):
+    if _enabled(smooth_spec) and _smooth_spacing_guard_allows(
+        smooth_spec,
+        input_spacing=input_spacing,
+    ):
         density_zyx, mask_zyx = _smooth_density_and_labels(
             density_zyx,
             mask_zyx,
@@ -159,6 +166,101 @@ def _crop_labels(
     return parsed or None
 
 
+def pad_arrays_to_foreground_margin(
+    *,
+    anchor_mask_zyx: np.ndarray,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    margin_voxels: int,
+    arrays: dict[str, np.ndarray],
+    constant_values: dict[str, Any] | None = None,
+) -> tuple[dict[str, np.ndarray], tuple[float, float, float]]:
+    active = np.asarray(anchor_mask_zyx, dtype=bool)
+    if not np.any(active):
+        raise ValueError("foreground margin padding requires a non-empty anchor mask")
+    target = max(0, int(margin_voxels))
+    if target == 0:
+        return {name: np.asarray(value) for name, value in arrays.items()}, origin
+    coords = np.argwhere(active)
+    lo = coords.min(axis=0)
+    hi = coords.max(axis=0)
+    shape = np.asarray(active.shape, dtype=int)
+    lower = np.maximum(0, target - lo)
+    upper = np.maximum(0, target - ((shape - 1) - hi))
+    if not np.any(lower) and not np.any(upper):
+        return {name: np.asarray(value) for name, value in arrays.items()}, origin
+    pad_width = tuple((int(lower[i]), int(upper[i])) for i in range(3))
+    constants = {} if constant_values is None else constant_values
+    padded: dict[str, np.ndarray] = {}
+    for name, value in arrays.items():
+        array = np.asarray(value)
+        padded[name] = np.pad(
+            array,
+            pad_width,
+            mode="constant",
+            constant_values=constants.get(name, 0),
+        )
+    padded_origin = (
+        float(origin[0]) - float(lower[2]) * float(spacing[0]),
+        float(origin[1]) - float(lower[1]) * float(spacing[1]),
+        float(origin[2]) - float(lower[0]) * float(spacing[2]),
+    )
+    return padded, padded_origin
+
+
+def fixture_margin_voxels(
+    model_config: dict[str, Any],
+    *,
+    spacing: tuple[float, float, float],
+    default_axis: str = "z",
+    default_intrusion_scale: float = 2.5,
+) -> int:
+    geometry = model_config.get("geometry", {})
+    axis = str(geometry.get("cap_axis", geometry.get("axis", default_axis))).strip().lower()
+    if axis not in AXIS_TO_INDEX:
+        axis = default_axis
+    axis_index = AXIS_TO_INDEX[axis]
+    feature = geometry.get("cap")
+    if not isinstance(feature, dict):
+        feature = geometry.get("disk")
+    if not isinstance(feature, dict):
+        feature = geometry
+
+    def _value_voxels(
+        *voxel_keys: str,
+        mm_keys: tuple[str, ...] = (),
+    ) -> int | None:
+        for key in voxel_keys:
+            if key in feature:
+                return int(feature[key])
+            if key in geometry:
+                return int(geometry[key])
+        for key in mm_keys:
+            if key in feature:
+                return int(round(float(feature[key]) / spacing[axis_index]))
+            if key in geometry:
+                return int(round(float(geometry[key]) / spacing[axis_index]))
+        return None
+
+    thickness = _value_voxels(
+        "thickness_voxels",
+        "pmma_thickness_voxels",
+        mm_keys=("thickness_mm", "pmma_thickness_mm"),
+    )
+    if thickness is None:
+        return 0
+    thickness = max(1, int(thickness))
+    intrusion = _value_voxels(
+        "intrusion_depth_voxels",
+        "endplate_depth_voxels",
+        "surface_depth_voxels",
+        mm_keys=("intrusion_depth_mm", "endplate_depth_mm", "surface_depth_mm"),
+    )
+    if intrusion is None:
+        intrusion = int(round(float(thickness) * float(default_intrusion_scale)))
+    return max(0, thickness + max(1, int(intrusion)))
+
+
 def _parse_label_values(value: Any) -> set[int]:
     if value is None:
         return set()
@@ -183,6 +285,25 @@ def _enabled(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"on", "true", "yes", "1", "largest"}
     return bool(value)
+
+
+def _smooth_spacing_guard_allows(
+    smooth_spec: Any,
+    *,
+    input_spacing: tuple[float, float, float],
+) -> bool:
+    if not isinstance(smooth_spec, dict):
+        return True
+    threshold = smooth_spec.get(
+        "when_spacing_above_mm",
+        smooth_spec.get(
+            "spacing_threshold_mm",
+            smooth_spec.get("mask_smoothing_spacing_threshold_mm"),
+        ),
+    )
+    if threshold is None:
+        return True
+    return any(float(value) > float(threshold) for value in input_spacing)
 
 
 def _target_resample_spacing(
@@ -240,7 +361,11 @@ def _resample_array_zyx(
     resampler.SetOutputDirection(image.GetDirection())
     resampler.SetDefaultPixelValue(0)
     resampler.SetInterpolator(
-        sitk.sitkNearestNeighbor if interpolation == "nearest" else sitk.sitkLinear
+        sitk.sitkNearestNeighbor
+        if interpolation == "nearest"
+        else sitk.sitkBSpline
+        if interpolation == "bspline"
+        else sitk.sitkLinear
     )
     return sitk.GetArrayFromImage(resampler.Execute(image))
 
@@ -334,6 +459,10 @@ def material_from_density(
     material_config: dict[str, Any],
 ) -> tuple[np.ndarray, float]:
     density_cfg = dict(material_config.get("density", {}))
+    density_values = _apply_density_input_transform(
+        np.asarray(density_zyx, dtype=np.float64),
+        density_cfg=density_cfg,
+    )
     e_cfg = density_cfg.get("E", density_cfg.get("youngs_modulus", density_cfg))
     if not isinstance(e_cfg, dict):
         raise ValueError("materials.density.E must be an object")
@@ -346,7 +475,7 @@ def material_from_density(
         ),
     )
     mapped = density_to_material_map(
-        density_zyx,
+        density_values,
         equation=equation,
         poisson_ratio=poisson_spec,
         mask_threshold=float(
@@ -376,6 +505,22 @@ def material_from_density(
     return mapped.youngs_modulus_mpa, mapped.poisson_ratio
 
 
+def _apply_density_input_transform(
+    density_zyx: np.ndarray,
+    *,
+    density_cfg: dict[str, Any],
+) -> np.ndarray:
+    transform = density_cfg.get("input_transform")
+    if not isinstance(transform, dict) or not transform:
+        return density_zyx
+    equation = str(transform.get("equation", "linear")).strip().lower()
+    if equation in {"linear", "affine"}:
+        slope = float(transform.get("slope", 1.0))
+        intercept = float(transform.get("intercept", 0.0))
+        return slope * density_zyx + intercept
+    raise ValueError("materials.density.input_transform.equation must be 'linear'")
+
+
 def pmma_spec(material_config: dict[str, Any]) -> dict[str, float]:
     spec = material_config.get("pmma", {})
     return {
@@ -403,7 +548,12 @@ def projected_caps_from_mask(
 ) -> tuple[np.ndarray, np.ndarray]:
     axis_index = AXIS_TO_INDEX[axis]
     thickness = max(1, int(thickness_voxels))
-    intrusion = max(1, int(intrusion_depth_voxels or round(thickness * 2.5)))
+    intrusion = max(
+        0,
+        int(round(thickness * 2.5))
+        if intrusion_depth_voxels is None
+        else int(intrusion_depth_voxels),
+    )
     inferior = np.zeros(mask_xyz.shape, dtype=bool)
     superior = np.zeros(mask_xyz.shape, dtype=bool)
     lateral_shape = tuple(mask_xyz.shape[idx] for idx in range(3) if idx != axis_index)
@@ -432,20 +582,22 @@ def projected_caps_from_mask(
         _clean_largest_2d_component(valid & (highs >= upper_limit)),
         shape=shape,
     )
+    inferior_start = max(0, global_lo + intrusion - thickness)
+    inferior_stop = min(mask_xyz.shape[axis_index], global_lo + intrusion)
+    superior_start = max(0, global_hi - intrusion + 1)
+    superior_stop = min(mask_xyz.shape[axis_index], superior_start + thickness)
+
     for lateral in np.ndindex(lateral_shape):
         if inferior_footprint[lateral]:
-            lo = int(lows[lateral])
             selector = _column_selector(lateral, axis_index)
-            selector[axis_index] = slice(max(0, global_lo - thickness), lo)
+            selector[axis_index] = slice(inferior_start, inferior_stop)
             inferior[tuple(selector)] = True
         if superior_footprint[lateral]:
-            hi = int(highs[lateral])
             selector = _column_selector(lateral, axis_index)
-            selector[axis_index] = slice(
-                hi + 1,
-                min(mask_xyz.shape[axis_index], global_hi + 1 + thickness),
-            )
+            selector[axis_index] = slice(superior_start, superior_stop)
             superior[tuple(selector)] = True
+    inferior[mask_xyz] = False
+    superior[mask_xyz] = False
     return inferior, superior
 
 
@@ -492,11 +644,44 @@ def _largest_2d_component(mask: np.ndarray) -> np.ndarray:
     return out
 
 
+def _fill_short_1d_gaps(line: np.ndarray, max_gap: int) -> np.ndarray:
+    out = np.asarray(line, dtype=bool).copy()
+    false_runs = np.flatnonzero(~out)
+    if false_runs.size == 0:
+        return out
+    start = 0
+    while start < false_runs.size:
+        stop = start + 1
+        while stop < false_runs.size and false_runs[stop] == false_runs[stop - 1] + 1:
+            stop += 1
+        run = false_runs[start:stop]
+        if (
+            run.size <= int(max_gap)
+            and int(run[0]) > 0
+            and int(run[-1]) < out.size - 1
+            and out[int(run[0]) - 1]
+            and out[int(run[-1]) + 1]
+        ):
+            out[run] = True
+        start = stop
+    return out
+
+
+def _fill_short_2d_gaps(values: np.ndarray, max_gap: int = 2) -> np.ndarray:
+    out = np.asarray(values, dtype=bool).copy()
+    for row in range(out.shape[0]):
+        out[row, :] = _fill_short_1d_gaps(out[row, :], max_gap)
+    for col in range(out.shape[1]):
+        out[:, col] = _fill_short_1d_gaps(out[:, col], max_gap)
+    return out
+
+
 def _clean_largest_2d_component(mask: np.ndarray) -> np.ndarray:
+    from scipy.ndimage import binary_fill_holes
+
     values = np.asarray(mask, dtype=bool)
-    opened = _dilate_2d(_erode_2d(values))
-    if int(opened.sum()) >= max(4, int(values.sum() * 0.25)):
-        values = opened
+    values = _fill_short_2d_gaps(values, max_gap=2)
+    values = binary_fill_holes(values).astype(bool)
     return _largest_2d_component(values)
 
 
@@ -652,10 +837,10 @@ def sideways_fall_bcs(
         fixed=[
             {
                 "nodeset": "greater_trochanter_pmma",
-                "dofs": ["x", "y", "z"],
+                "dofs": ["y"],
                 "value": 0.0,
             },
-            {"nodeset": "distal_femur", "dofs": ["x", "y", "z"], "value": 0.0},
+            {"nodeset": "distal_femur", "dofs": ["x", "z"], "value": 0.0},
         ],
         prescribed=[
             {"nodeset": "femoral_head_pmma", "dof": "y", "value": displacement}
@@ -692,11 +877,15 @@ def export_model_artifacts(
         )
     if "qc_image" in output_cfg:
         qc_path = resolve_path(output_cfg["qc_image"], base_dir=base_dir)
-        qc_material, qc_labels, qc_origin = _crop_for_qc(
+        qc_material, qc_labels, qc_origin, qc_offset = _crop_for_qc(
             material_xyz,
             labels_xyz,
             spacing=spacing,
             origin=origin,
+        )
+        qc_boundary_conditions = _shift_boundary_conditions_for_crop(
+            boundary_conditions,
+            offset_xyz=qc_offset,
         )
         exported["qc_image"] = write_case_overview(
             qc_material,
@@ -706,7 +895,7 @@ def export_model_artifacts(
             field_xyz=qc_labels.astype(np.float32),
             field_name="MODEL LABELS",
             material_labels_xyz=qc_labels,
-            boundary_conditions=boundary_conditions,
+            boundary_conditions=qc_boundary_conditions,
             title=str(metadata["model"]["type"]),
         )
     if "manifest" in output_cfg:
@@ -742,10 +931,10 @@ def _crop_for_qc(
     spacing: tuple[float, float, float],
     origin: tuple[float, float, float],
     margin: int = 8,
-) -> tuple[np.ndarray, np.ndarray, tuple[float, float, float]]:
+) -> tuple[np.ndarray, np.ndarray, tuple[float, float, float], tuple[int, int, int]]:
     active = np.asarray(material_xyz) > 0
     if not np.any(active):
-        return material_xyz, labels_xyz, origin
+        return material_xyz, labels_xyz, origin, (0, 0, 0)
     coords = np.argwhere(active)
     lo = np.maximum(coords.min(axis=0) - int(margin), 0)
     hi = np.minimum(coords.max(axis=0) + int(margin) + 1, material_xyz.shape)
@@ -753,7 +942,56 @@ def _crop_for_qc(
     cropped_origin = tuple(
         float(origin[idx]) + float(lo[idx]) * float(spacing[idx]) for idx in range(3)
     )
-    return material_xyz[slices], labels_xyz[slices], cropped_origin
+    return (
+        material_xyz[slices],
+        labels_xyz[slices],
+        cropped_origin,
+        tuple(int(v) for v in lo),
+    )
+
+
+def _shift_boundary_conditions_for_crop(
+    boundary_conditions: BoundaryConditionSet,
+    *,
+    offset_xyz: tuple[int, int, int],
+) -> BoundaryConditionSet:
+    offset = np.asarray(offset_xyz, dtype=np.int64)
+    if not np.any(offset):
+        return boundary_conditions
+
+    def _shift(coords: np.ndarray) -> np.ndarray:
+        values = np.asarray(coords, dtype=np.int64).copy()
+        if values.size == 0:
+            return values.astype(np.uint16).reshape((-1, 4))
+        values[:, :3] -= offset
+        keep = np.all(values[:, :3] >= 0, axis=1)
+        return values[keep].astype(np.uint16, copy=False).reshape((-1, 4))
+
+    fixed = _shift(boundary_conditions.fixed_coordinates)
+    loaded = _shift(boundary_conditions.loaded_coordinates)
+    fixed_keep = np.all(
+        np.asarray(boundary_conditions.fixed_coordinates, dtype=np.int64)[:, :3] >= offset,
+        axis=1,
+    ) if boundary_conditions.fixed_coordinates.size else np.zeros((0,), dtype=bool)
+    loaded_keep = np.all(
+        np.asarray(boundary_conditions.loaded_coordinates, dtype=np.int64)[:, :3] >= offset,
+        axis=1,
+    ) if boundary_conditions.loaded_coordinates.size else np.zeros((0,), dtype=bool)
+    node_sets = {
+        name: [
+            tuple(int(coord[idx]) - int(offset[idx]) for idx in range(3))
+            for coord in coords
+            if all(int(coord[idx]) >= int(offset[idx]) for idx in range(3))
+        ]
+        for name, coords in boundary_conditions.node_sets.items()
+    }
+    return BoundaryConditionSet(
+        fixed_coordinates=fixed,
+        fixed_values=boundary_conditions.fixed_values[fixed_keep],
+        loaded_coordinates=loaded,
+        loaded_values=boundary_conditions.loaded_values[loaded_keep],
+        node_sets=node_sets,
+    )
 
 
 def _triple(value, name: str) -> tuple[float, float, float]:

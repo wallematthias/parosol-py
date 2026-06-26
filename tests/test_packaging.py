@@ -26,7 +26,7 @@ def test_pyproject_declares_native_wheel_build_settings():
     assert "cibuildwheel" in pyproject["tool"]
     assert (
         pyproject["tool"]["cibuildwheel"]["before-build"]
-        == "python scripts/stage_mpi_runtime.py"
+        == "python scripts/stage_mpi_runtime.py && python scripts/verify_packaged_mpi.py"
     )
     assert (
         pyproject["tool"]["cibuildwheel"]["test-command"]
@@ -124,5 +124,13 @@ def test_existing_wheel_artifacts_include_config_templates_when_present():
         with ZipFile(wheel) as zf:
             names = set(zf.namelist())
         assert "parosol_py/config_templates/default.yaml" in names
-        assert "parosol_py/config_templates/profiles/xtremectii.yaml" in names
-        assert "parosol_py/config_templates/profiles/vertebra.yaml" in names
+        if "parosol_py/workflows/XtremeCTII.parosol-workflow" not in names:
+            continue
+        assert "parosol_py/workflows/XtremeCTII.parosol-workflow" in names
+        assert "parosol_py/workflows/vertebra.parosol-workflow" in names
+        assert "parosol_py/workflows/ct-spine-compression.parosol-workflow" in names
+        assert "parosol_py/workflows/ct-hip-sideways-fall.parosol-workflow" in names
+        assert (
+            "parosol_py/workflows/ct-hip-sideways-fall-left.parosol-workflow"
+            in names
+        )

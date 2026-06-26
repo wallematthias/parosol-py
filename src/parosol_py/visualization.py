@@ -612,7 +612,7 @@ def _draw_bc_symbols(
             spacing=spacing,
             origin=origin,
             color=color,
-            alpha=0.65,
+            alpha=0.72,
         )
         _draw_representative_symbols(
             ax,
@@ -677,15 +677,24 @@ def _density_overlay(
     y_edges = np.linspace(y_min, y_max, y_bins + 1)
     x_centers = (x_edges[:-1] + x_edges[1:]) / 2.0
     y_centers = (y_edges[:-1] + y_edges[1:]) / 2.0
+    ax.contourf(
+        x_centers,
+        y_centers,
+        hist,
+        levels=[0.5, float(np.nanmax(hist)) + 0.5],
+        colors=[color],
+        alpha=min(max(alpha * 0.20, 0.10), 0.22),
+        zorder=3,
+    )
     ax.contour(
         x_centers,
         y_centers,
         hist,
         levels=[0.5],
         colors=[color],
-        linewidths=0.85,
+        linewidths=1.1,
         alpha=alpha,
-        zorder=3,
+        zorder=3.2,
     )
 
 

@@ -1,3 +1,5 @@
+import pytest
+
 from parosol_py.config_templates import available_config_profiles, read_config_template
 from parosol_py.cli import main
 
@@ -31,10 +33,14 @@ def test_profile_override_templates_are_available():
     assert "XtremeCTI" in profiles
     assert "XtremeCTII" in profiles
     assert "vertebra" in profiles
-    assert "spine-batch" in profiles
-    assert "proximal_femur" in profiles
-    assert "hip-batch" in profiles
-    assert "proximal_femur_sideways_fall" in profiles
+    assert "ct-hip-sideways-fall-left" in profiles
+    assert "ct-hip-sideways-fall-right" in profiles
+    assert "ct-spine-compression" in profiles
+    assert "ct-hip-sideways-fall" in profiles
+    assert "spine-batch" not in profiles
+    assert "proximal_femur" not in profiles
+    assert "hip-batch" not in profiles
+    assert "proximal_femur_sideways_fall" not in profiles
     assert "standard_mechanics_fields" in profiles
     assert "debug_sets" in profiles
     assert "coarse_preview" in profiles
@@ -55,12 +61,12 @@ def test_profile_override_templates_are_available():
     assert "compression_x" in read_config_template("direct_mechanics_manifest")
     assert "load_history_3" in read_config_template("load_history_3")
     assert "postprocess:" in read_config_template("load_history_3")
-    assert "direction: x, strain: -0.01" in read_config_template("load_history_3")
-    assert "direction: y, strain: -0.01" in read_config_template("load_history_3")
+    assert "name_suffix: shear_zx" in read_config_template("load_history_3")
+    assert "name_suffix: shear_zy" in read_config_template("load_history_3")
     assert "load_history:" in read_config_template("load_history_6")
     assert "bending_x" in read_config_template("load_history_6")
-    assert "direction: x, strain: -0.01" in read_config_template("load_history_6")
-    assert "direction: y, strain: -0.01" in read_config_template("load_history_6")
+    assert "name_suffix: shear_zx" in read_config_template("load_history_6")
+    assert "name_suffix: shear_zy" in read_config_template("load_history_6")
     assert "bending_angle_degrees: -1" in read_config_template("load_history_6")
     assert "neutral_axis_angle_degrees: 0" in read_config_template("load_history_6")
     assert "neutral_axis_angle_degrees: 90" in read_config_template("load_history_6")
@@ -68,24 +74,21 @@ def test_profile_override_templates_are_available():
     xtremecti = read_config_template("XtremeCTI")
     xtremectii = read_config_template("XtremeCTII")
     assert "E: 6829" in xtremecti
-    assert "tolerance: 1.0e-4" in xtremecti
+    assert ("tolerance: 1.0e-4" in xtremecti) or ("tolerance: 0.0001" in xtremecti)
     assert "E: 8748" in xtremectii
-    assert "tolerance: 1.0e-4" in xtremectii
+    assert ("tolerance: 1.0e-4" in xtremectii) or ("tolerance: 0.0001" in xtremectii)
     assert "type: constrained_axial" in xtremectii
     assert "strain: -0.01" in xtremectii
     assert "pistoia:" in xtremectii
-    assert "type: spine_compression" in read_config_template("vertebra")
-    assert "target_displacement_percent: -0.68" in read_config_template("spine-batch")
-    assert "body: 20" in read_config_template("vertebra")
-    assert "type: proximal_femur" in read_config_template("proximal_femur")
-    assert "target_displacement_percent: 4.0" in read_config_template("hip-batch")
-    assert "femur: 2" in read_config_template("proximal_femur")
-    assert "type: proximal_femur_sideways_fall" in read_config_template(
-        "proximal_femur_sideways_fall"
-    )
-    assert "type: sideways_fall" in read_config_template(
-        "proximal_femur_sideways_fall"
-    )
+    vertebra = read_config_template("vertebra")
+    hip = read_config_template("ct-hip-sideways-fall")
+    assert "workflow_template:" in vertebra
+    assert "workflow_replay" not in vertebra
+    assert "value: -0.68%" in vertebra
+    assert "units: '%'" in vertebra
+    assert "workflow_template:" in hip
+    assert "value: 4.0%" in hip
+    assert "units: '%'" in hip
     assert "effective_strain" in read_config_template("standard_mechanics_fields")
     assert "set_formats: [json, vtk]" in read_config_template("debug_sets")
     assert "coarsen:" in read_config_template("coarse_preview")
@@ -98,3 +101,14 @@ def test_cli_prints_config_template(capsys):
     out = capsys.readouterr().out
     assert "parosol-py default case settings" in out
     assert "type: constrained_axial" in out
+
+
+def test_legacy_modelling_yaml_profiles_are_not_public_templates():
+    for profile in (
+        "spine-batch",
+        "proximal_femur",
+        "hip-batch",
+        "proximal_femur_sideways_fall",
+    ):
+        with pytest.raises(ValueError, match="unknown config template/profile"):
+            read_config_template(profile)

@@ -159,7 +159,7 @@ load_case:
 
 modeling:
   # Optional anatomy/model generation helpers used before solving.
-  # Profiles such as vertebra and proximal_femur define concrete model blocks.
+  # Workflow profiles such as vertebra and ct-hip-sideways-fall define concrete model blocks.
   # Disk/cap generation is intentionally generic: choose the target mask, set
   # external thickness, and set how far the projected footprint may intrude into
   # the target anatomy.

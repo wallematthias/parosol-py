@@ -88,9 +88,16 @@ def boundary_conditions_from_nodesets(
     loaded: list[dict] | tuple[dict, ...] = (),
     dimensions_xyz: tuple[int, int, int],
     spacing: tuple[float, float, float],
+    percent_reference_lengths_mm: dict[str, float] | None = None,
 ) -> BoundaryConditionSet:
     fixed_constraints: dict[tuple[int, int, int, int], float] = {}
     loaded_constraints: dict[tuple[int, int, int, int], float] = {}
+    nodeset_percent_reference_lengths = _nodeset_percent_reference_lengths(
+        node_sets,
+        fixed=fixed,
+        prescribed=prescribed,
+        spacing=spacing,
+    )
 
     for spec in fixed:
         _add_displacement_spec(
@@ -100,6 +107,8 @@ def boundary_conditions_from_nodesets(
             dimensions_xyz=dimensions_xyz,
             spacing=spacing,
             default_value=0.0,
+            percent_reference_lengths_mm=percent_reference_lengths_mm,
+            nodeset_percent_reference_lengths=nodeset_percent_reference_lengths,
         )
     for spec in prescribed:
         _add_prescribed_spec(
@@ -108,6 +117,8 @@ def boundary_conditions_from_nodesets(
             spec,
             dimensions_xyz=dimensions_xyz,
             spacing=spacing,
+            percent_reference_lengths_mm=percent_reference_lengths_mm,
+            nodeset_percent_reference_lengths=nodeset_percent_reference_lengths,
         )
     for spec in loaded:
         _add_load_spec(loaded_constraints, node_sets, spec)
@@ -130,6 +141,9 @@ def boundary_conditions_from_nodesets(
         loaded_coordinates=loaded_coords,
         loaded_values=loaded_values,
         node_sets=node_sets,
+        reference_lengths_mm=_axis_reference_lengths(
+            nodeset_percent_reference_lengths
+        ),
     )
 
 
@@ -205,10 +219,13 @@ def _add_displacement_spec(
     dimensions_xyz: tuple[int, int, int],
     spacing: tuple[float, float, float],
     default_value: float | None,
+    percent_reference_lengths_mm: dict[str, float] | None,
+    nodeset_percent_reference_lengths: dict[tuple[str, str], float] | None,
 ) -> None:
     value = spec.get("value", default_value)
     if value is None:
         raise ValueError("displacement specs require a value")
+    nodeset_name = str(spec["nodeset"])
     for node in _spec_nodes(node_sets, spec):
         for dof in _spec_dofs(spec):
             direction = AXIS_TO_INDEX[dof]
@@ -217,9 +234,12 @@ def _add_displacement_spec(
                 (*node, direction),
                 _displacement_value(
                     value,
+                    nodeset=nodeset_name,
                     dof=dof,
                     dimensions_xyz=dimensions_xyz,
                     spacing=spacing,
+                    percent_reference_lengths_mm=percent_reference_lengths_mm,
+                    nodeset_percent_reference_lengths=nodeset_percent_reference_lengths,
                 ),
             )
 
@@ -231,6 +251,8 @@ def _add_prescribed_spec(
     *,
     dimensions_xyz: tuple[int, int, int],
     spacing: tuple[float, float, float],
+    percent_reference_lengths_mm: dict[str, float] | None,
+    nodeset_percent_reference_lengths: dict[tuple[str, str], float] | None,
 ) -> None:
     kind = str(spec.get("kind", "uniform")).strip().lower()
     if kind in {"uniform", "constant"}:
@@ -241,6 +263,8 @@ def _add_prescribed_spec(
             dimensions_xyz=dimensions_xyz,
             spacing=spacing,
             default_value=None,
+            percent_reference_lengths_mm=percent_reference_lengths_mm,
+            nodeset_percent_reference_lengths=nodeset_percent_reference_lengths,
         )
         return
     if kind in {"bending", "bend"}:
@@ -411,15 +435,113 @@ def _spec_dofs(spec: dict) -> list[str]:
     return dofs
 
 
+def _nodeset_percent_reference_lengths(
+    node_sets: dict[str, list[Node]],
+    *,
+    fixed: list[dict] | tuple[dict, ...],
+    prescribed: list[dict] | tuple[dict, ...],
+    spacing: tuple[float, float, float],
+) -> dict[tuple[str, str], float]:
+    fixed_specs = list(fixed)
+    if not fixed_specs:
+        return {}
+
+    centroids = {
+        name: _nodeset_centroid(nodes, spacing)
+        for name, nodes in node_sets.items()
+        if nodes
+    }
+    references: dict[tuple[str, str], float] = {}
+    for spec in prescribed:
+        if not _is_percent_value(spec.get("value")):
+            continue
+        nodeset_name = str(spec["nodeset"])
+        if nodeset_name not in centroids:
+            continue
+        explicit_length = spec.get("reference_length_mm")
+        value = _percent_value(spec.get("value"))
+        for dof in _spec_dofs(spec):
+            if explicit_length is not None:
+                length = float(explicit_length)
+                if length > 0.0:
+                    references[(nodeset_name, dof)] = length
+                    continue
+            axis_index = AXIS_TO_INDEX[dof]
+            explicit_reference = spec.get("reference_nodeset")
+            candidates = []
+            if explicit_reference is not None:
+                candidates = [str(explicit_reference)]
+            else:
+                candidates = [
+                    str(candidate["nodeset"])
+                    for candidate in fixed_specs
+                    if dof in _spec_dofs(candidate)
+                ]
+            distances = []
+            load_sign = -1.0 if value < 0.0 else 1.0
+            for candidate in candidates:
+                if candidate not in centroids or candidate == nodeset_name:
+                    continue
+                delta = float(centroids[candidate][axis_index] - centroids[nodeset_name][axis_index])
+                projected = delta * load_sign
+                if explicit_reference is not None:
+                    distances.append(abs(delta))
+                elif projected > 0.0:
+                    distances.append(projected)
+            if distances:
+                references[(nodeset_name, dof)] = max(distances)
+    return references
+
+
+def _axis_reference_lengths(
+    references: dict[tuple[str, str], float],
+) -> dict[str, float]:
+    axis_lengths: dict[str, float] = {}
+    for (_nodeset, dof), value in references.items():
+        length = float(value)
+        if dof in axis_lengths and not np.isclose(axis_lengths[dof], length):
+            axis_lengths[dof] = max(axis_lengths[dof], length)
+        else:
+            axis_lengths[dof] = length
+    return axis_lengths
+
+
+def _nodeset_centroid(
+    nodes: list[Node],
+    spacing: tuple[float, float, float],
+) -> np.ndarray:
+    return _node_positions(nodes, spacing).mean(axis=0)
+
+
+def _is_percent_value(value) -> bool:
+    return isinstance(value, str) and value.strip().endswith("%")
+
+
+def _percent_value(value) -> float:
+    if isinstance(value, str) and value.strip().endswith("%"):
+        return float(value.strip()[:-1])
+    return float(value)
+
+
 def _displacement_value(
     value,
     *,
+    nodeset: str,
     dof: str,
     dimensions_xyz: tuple[int, int, int],
     spacing: tuple[float, float, float],
+    percent_reference_lengths_mm: dict[str, float] | None,
+    nodeset_percent_reference_lengths: dict[tuple[str, str], float] | None,
 ) -> float:
-    if isinstance(value, str) and value.strip().endswith("%"):
+    if _is_percent_value(value):
         fraction = float(value.strip()[:-1]) / 100.0
+        if (
+            nodeset_percent_reference_lengths is not None
+            and (nodeset, dof) in nodeset_percent_reference_lengths
+        ):
+            return fraction * float(nodeset_percent_reference_lengths[(nodeset, dof)])
+        if percent_reference_lengths_mm is not None and dof in percent_reference_lengths_mm:
+            return fraction * float(percent_reference_lengths_mm[dof])
         axis_index = AXIS_TO_INDEX[dof]
         return fraction * dimensions_xyz[axis_index] * spacing[axis_index]
     return float(value)

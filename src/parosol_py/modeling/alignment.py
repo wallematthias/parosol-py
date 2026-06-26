@@ -67,6 +67,18 @@ def align_mask_to_reference(
         spacing=spacing,
         origin=origin,
         max_points=max_points,
+        sample_mode=str(
+            registration_config.get(
+                "source_landmark_mode",
+                registration_config.get("landmark_mode", "linspace"),
+            )
+        ),
+        sample_offset=int(registration_config.get("source_landmark_offset", 0)),
+    )
+    reference_points, scaling_meta = _scale_reference_points_to_sample(
+        moving_points=moving_points,
+        reference_points=reference_points,
+        registration_config=registration_config,
     )
     transform = estimate_rigid_icp(
         moving_points=moving_points,
@@ -77,8 +89,14 @@ def align_mask_to_reference(
         convergence=str(registration_config.get("convergence", "delta")),
         distance_mode=str(registration_config.get("distance_mode", "mean")),
     )
+    full_surface_points = surface_points_from_mask(
+        mask_zyx,
+        spacing=spacing,
+        origin=origin,
+        max_points=None,
+    )
     output_origin, output_size = _output_grid_for_transform(
-        moving_points,
+        full_surface_points,
         rotation=transform["rotation"],
         translation=transform["translation"],
         spacing=spacing,
@@ -93,7 +111,7 @@ def align_mask_to_reference(
         output_size=output_size,
         rotation=transform["rotation"],
         translation=transform["translation"],
-        interpolation="linear",
+        interpolation="bspline",
     )
     mask = _resample_with_transform(
         mask_zyx.astype(np.uint8),
@@ -128,6 +146,7 @@ def align_mask_to_reference(
             "rotation": transform["rotation"].tolist(),
             "translation": transform["translation"].tolist(),
             "output_size_xyz": list(output_size),
+            "reference_scaling": scaling_meta,
         },
     )
 
@@ -196,6 +215,18 @@ def align_spine_body_to_reference(
         spacing=spacing,
         origin=origin,
         max_points=max_points,
+        sample_mode=str(
+            registration_config.get(
+                "source_landmark_mode",
+                registration_config.get("landmark_mode", "linspace"),
+            )
+        ),
+        sample_offset=int(registration_config.get("source_landmark_offset", 0)),
+    )
+    reference_points, scaling_meta = _scale_reference_points_to_sample(
+        moving_points=body_points,
+        reference_points=reference_points,
+        registration_config=registration_config,
     )
     transform = estimate_rigid_icp(
         moving_points=body_points,
@@ -210,7 +241,7 @@ def align_spine_body_to_reference(
         body_mask_zyx | process_mask_zyx,
         spacing=spacing,
         origin=origin,
-        max_points=max_points,
+        max_points=None,
     )
     output_origin, output_size = _output_grid_for_transform(
         active_points,
@@ -228,7 +259,7 @@ def align_spine_body_to_reference(
         output_size=output_size,
         rotation=transform["rotation"],
         translation=transform["translation"],
-        interpolation="linear",
+        interpolation="bspline",
     )
     body = _resample_with_transform(
         body_mask_zyx.astype(np.uint8),
@@ -267,6 +298,7 @@ def align_spine_body_to_reference(
             "rotation": transform["rotation"].tolist(),
             "translation": transform["translation"].tolist(),
             "output_size_xyz": list(output_size),
+            "reference_scaling": scaling_meta,
         },
     )
 
@@ -300,7 +332,20 @@ def _reference_points_from_config(
         ),
         flips=registration_config.get("reference_flips", (False, False, False)),
     )
-    return _sample_points(points, max_points=max_points)
+    mirror_axis = registration_config.get("mirror_axis")
+    if mirror_axis is not None:
+        points = _mirror_points(points, axis=str(mirror_axis))
+    return _sample_points(
+        points,
+        max_points=max_points,
+        mode=str(
+            registration_config.get(
+                "reference_landmark_mode",
+                registration_config.get("landmark_mode", "linspace"),
+            )
+        ),
+        offset=int(registration_config.get("reference_landmark_offset", 0)),
+    )
 
 
 def orient_reference_points(
@@ -337,6 +382,8 @@ def surface_points_from_mask(
     spacing: tuple[float, float, float],
     origin: tuple[float, float, float],
     max_points: int | None = None,
+    sample_mode: str = "linspace",
+    sample_offset: int = 0,
 ) -> np.ndarray:
     mask = np.asarray(mask_zyx, dtype=bool)
     if not np.any(mask):
@@ -345,7 +392,12 @@ def surface_points_from_mask(
     coords_zyx = np.argwhere(surface if np.any(surface) else mask)
     coords_xyz = coords_zyx[:, [2, 1, 0]].astype(float)
     points = np.asarray(origin, dtype=float) + coords_xyz * np.asarray(spacing)
-    return _sample_points(points, max_points=max_points)
+    return _sample_points(
+        points,
+        max_points=max_points,
+        mode=sample_mode,
+        offset=sample_offset,
+    )
 
 
 def estimate_rigid_icp(
@@ -457,11 +509,124 @@ def _points_array(points: np.ndarray, name: str) -> np.ndarray:
     return array[np.all(np.isfinite(array), axis=1)]
 
 
-def _sample_points(points: np.ndarray, *, max_points: int | None) -> np.ndarray:
+def _sample_points(
+    points: np.ndarray,
+    *,
+    max_points: int | None,
+    mode: str = "linspace",
+    offset: int = 0,
+) -> np.ndarray:
     if max_points is None or max_points <= 0 or points.shape[0] <= max_points:
         return points
-    indices = np.linspace(0, points.shape[0] - 1, int(max_points), dtype=int)
+    token = str(mode).strip().lower()
+    if token == "stride":
+        step = max(1, int(np.ceil(points.shape[0] / int(max_points))))
+        start = int(offset) % max(step, 1)
+        indices = np.arange(start, points.shape[0], step, dtype=int)
+        if indices.size < int(max_points):
+            fallback = np.linspace(0, points.shape[0] - 1, int(max_points), dtype=int)
+            indices = np.unique(np.concatenate([indices, fallback]))
+        indices = indices[: int(max_points)]
+    else:
+        indices = np.linspace(0, points.shape[0] - 1, int(max_points), dtype=int)
     return points[indices]
+
+
+def _scale_reference_points_to_sample(
+    *,
+    moving_points: np.ndarray,
+    reference_points: np.ndarray,
+    registration_config: dict[str, Any],
+) -> tuple[np.ndarray, dict[str, Any]]:
+    scaling_cfg = registration_config.get("reference_scaling", {})
+    if scaling_cfg is False:
+        return reference_points, {"enabled": False}
+    if scaling_cfg is True:
+        scaling_cfg = {}
+    if not isinstance(scaling_cfg, dict):
+        raise ValueError("registration.reference_scaling must be a mapping or boolean")
+    enabled = bool(scaling_cfg) or bool(registration_config.get("scale_reference", False))
+    method = str(registration_config.get("method", "")).strip().lower()
+    if not enabled and method not in {"scaled_icp", "vtk_scaled_icp"}:
+        return reference_points, {"enabled": False}
+
+    sample_lengths = _principal_axis_lengths(moving_points)
+    reference_lengths = _principal_axis_lengths(reference_points)
+    factors = scaling_cfg.get("factors", registration_config.get("registration_scale"))
+    if factors is None or str(factors).strip().lower() == "auto":
+        scale_factors = sample_lengths / np.maximum(reference_lengths, 1.0e-12)
+        min_factors = _scale_triplet(
+            scaling_cfg.get(
+                "min_factors",
+                registration_config.get("registration_min_scale", (0.8, 0.8, 0.75)),
+            ),
+            name="registration.reference_scaling.min_factors",
+        )
+        max_factors = _scale_triplet(
+            scaling_cfg.get(
+                "max_factors",
+                registration_config.get("registration_max_scale", (1.2, 1.2, 1.3)),
+            ),
+            name="registration.reference_scaling.max_factors",
+        )
+        scale_factors = np.minimum(scale_factors, max_factors)
+        scale_factors = np.maximum(scale_factors, min_factors)
+        source = "pca_axis_lengths"
+    else:
+        scale_factors = _scale_triplet(
+            factors,
+            name="registration.reference_scaling.factors",
+        )
+        min_factors = None
+        max_factors = None
+        source = "manual"
+
+    center = reference_points.mean(axis=0)
+    scaled = (reference_points - center) * scale_factors + center
+    return scaled, {
+        "enabled": True,
+        "source": source,
+        "sample_axis_lengths": sample_lengths.tolist(),
+        "reference_axis_lengths": reference_lengths.tolist(),
+        "scale_factors": scale_factors.tolist(),
+        "min_factors": None if min_factors is None else min_factors.tolist(),
+        "max_factors": None if max_factors is None else max_factors.tolist(),
+    }
+
+
+def _principal_axis_lengths(points: np.ndarray) -> np.ndarray:
+    centered = np.asarray(points, dtype=float) - np.mean(points, axis=0)
+    cov = np.cov(centered.T)
+    eigvals = np.linalg.eigvalsh(cov)
+    eigvals = np.maximum(eigvals, 0.0)
+    return np.sqrt(eigvals) * 2.0
+
+
+def _scale_triplet(value: Any, *, name: str) -> np.ndarray:
+    if isinstance(value, str):
+        tokens = [token for token in value.replace(",", " ").split() if token]
+        if len(tokens) == 1:
+            tokens = tokens * 3
+        values = [float(token) for token in tokens]
+    else:
+        values = [float(token) for token in value]
+    if len(values) == 1:
+        values = values * 3
+    if len(values) != 3:
+        raise ValueError(f"{name} must contain one or three numeric values")
+    return np.asarray(values, dtype=float)
+
+
+def _mirror_points(points: np.ndarray, *, axis: str) -> np.ndarray:
+    values = np.asarray(points, dtype=float).copy()
+    axis_token = axis.strip().lower()
+    if axis_token not in {"x", "y", "z"}:
+        raise ValueError("registration.mirror_axis must be one of x, y, z")
+    axis_index = {"x": 0, "y": 1, "z": 2}[axis_token]
+    lo = float(values[:, axis_index].min())
+    hi = float(values[:, axis_index].max())
+    values[:, axis_index] = lo + hi - values[:, axis_index]
+    return values
 
 
 def _binary_erosion_6(mask: np.ndarray) -> np.ndarray:
@@ -604,7 +769,11 @@ def _resample_with_transform(
     resampler.SetOutputDirection((1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
     resampler.SetTransform(inverse)
     resampler.SetInterpolator(
-        sitk.sitkNearestNeighbor if interpolation == "nearest" else sitk.sitkLinear
+        sitk.sitkNearestNeighbor
+        if interpolation == "nearest"
+        else sitk.sitkBSpline
+        if interpolation == "bspline"
+        else sitk.sitkLinear
     )
     resampler.SetDefaultPixelValue(0)
     return sitk.GetArrayFromImage(resampler.Execute(image))

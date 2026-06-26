@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import re
 from pathlib import Path
@@ -115,6 +116,7 @@ def compact_summary_dict(summary: dict[str, Any]) -> dict[str, Any]:
             "stiffness": mechanics.get("stiffness"),
             "applied_displacement": mechanics.get("applied_displacement"),
             "applied_rotation_degrees": mechanics.get("applied_rotation_degrees"),
+            "reference_length_mm": mechanics.get("reference_length_mm"),
             "top_node_count": mechanics.get("top_node_count"),
             "bottom_node_count": mechanics.get("bottom_node_count"),
             "status": mechanics.get("status"),
@@ -152,6 +154,118 @@ def write_summary_json(path: str | Path, data: dict[str, Any]) -> Path:
         json.dumps(_jsonable(data), indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return out
+
+
+def write_results_csv(path: str | Path, summary: dict[str, Any]) -> Path:
+    out = Path(path).expanduser().resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    case = summary.get("case", {})
+    load_case = summary.get("load_case", {})
+    mechanics = summary.get("mechanics", {})
+    failure = summary.get("failure", {})
+    solver = summary.get("solver", {})
+    model = summary.get("model", {}) or {}
+    shaft_standardization = model.get("shaft_standardization", {}) or {}
+    model_warnings = _collect_model_warnings(model)
+
+    generalized_load = mechanics.get("generalized_load", {}) or {}
+    generalized_stiffness = mechanics.get("generalized_stiffness", {}) or {}
+    failure_generalized = failure.get("failure_generalized_load", {}) or {}
+    linear_failure = failure.get("linear_reaction_at_deformation", {}) or {}
+    crawford = failure.get("crawford_stiffness_height", {}) or {}
+
+    row = {
+        "case_name": case.get("name"),
+        "load_case_type": load_case.get("type"),
+        "load_axis": load_case.get("axis"),
+        "load_direction": mechanics.get("load_direction"),
+        "reaction_force_x_N": _axis_value(mechanics.get("reaction_force"), "x"),
+        "reaction_force_y_N": _axis_value(mechanics.get("reaction_force"), "y"),
+        "reaction_force_z_N": _axis_value(mechanics.get("reaction_force"), "z"),
+        "generalized_load_name": generalized_load.get("name"),
+        "generalized_load_value": generalized_load.get("value"),
+        "generalized_load_units": generalized_load.get("units"),
+        "stiffness_x_N_per_mm": _axis_value(mechanics.get("stiffness"), "x"),
+        "stiffness_y_N_per_mm": _axis_value(mechanics.get("stiffness"), "y"),
+        "stiffness_z_N_per_mm": _axis_value(mechanics.get("stiffness"), "z"),
+        "generalized_stiffness_name": generalized_stiffness.get("name"),
+        "generalized_stiffness_value": generalized_stiffness.get("value"),
+        "generalized_stiffness_units": generalized_stiffness.get("units"),
+        "reference_length_mm": mechanics.get("reference_length_mm"),
+        "failure_criterion": failure.get("criterion"),
+        "pistoia_factor": failure.get("factor"),
+        "critical_strain": failure.get("critical_strain"),
+        "critical_volume_percent": failure.get("critical_volume_percent"),
+        "ees_at_critical_volume": failure.get("ees_at_critical_volume"),
+        "failure_load_x_N": _axis_value(failure.get("failure_load"), "x"),
+        "failure_load_y_N": _axis_value(failure.get("failure_load"), "y"),
+        "failure_load_z_N": _axis_value(failure.get("failure_load"), "z"),
+        "failure_generalized_load_name": failure_generalized.get("name"),
+        "failure_generalized_load_value": failure_generalized.get("value"),
+        "failure_generalized_load_units": failure_generalized.get("units"),
+        "linear_reaction_target_deformation": linear_failure.get("deformation"),
+        "linear_reaction_target_height_mm": linear_failure.get("height_mm"),
+        "linear_reaction_failure_load_x_N": _axis_value(
+            linear_failure.get("failure_load"), "x"
+        ),
+        "linear_reaction_failure_load_y_N": _axis_value(
+            linear_failure.get("failure_load"), "y"
+        ),
+        "linear_reaction_failure_load_z_N": _axis_value(
+            linear_failure.get("failure_load"), "z"
+        ),
+        "crawford_coefficient": crawford.get("coefficient"),
+        "crawford_height_mm": crawford.get("height_mm"),
+        "crawford_failure_load_x_N": _axis_value(crawford.get("failure_load"), "x"),
+        "crawford_failure_load_y_N": _axis_value(crawford.get("failure_load"), "y"),
+        "crawford_failure_load_z_N": _axis_value(crawford.get("failure_load"), "z"),
+        "solver_iterations": solver.get("iterations"),
+        "solver_relative_residual": solver.get("relative_residual"),
+        "solver_runtime_seconds": solver.get("runtime_seconds"),
+        "model_type": model.get("type"),
+        "shaft_standardization_mode": shaft_standardization.get("cut_mode"),
+        "shaft_standardization_reference_extent_axis": shaft_standardization.get(
+            "reference_extent_axis"
+        ),
+        "shaft_standardization_retain_multiplier": shaft_standardization.get(
+            "retain_multiplier"
+        ),
+        "shaft_standardization_reference_extent_mm": shaft_standardization.get(
+            "reference_extent_mm"
+        ),
+        "shaft_standardization_retained_length_mm": shaft_standardization.get(
+            "retained_length_mm"
+        ),
+        "shaft_standardization_occupied_length_mm": shaft_standardization.get(
+            "occupied_length_mm"
+        ),
+        "shaft_standardization_cut_coordinate_mm": shaft_standardization.get(
+            "cut_coordinate_mm"
+        ),
+        "model_warning_count": len(model_warnings),
+        "model_warnings": " | ".join(model_warnings) if model_warnings else None,
+    }
+
+    with out.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(row.keys()))
+        writer.writeheader()
+        writer.writerow(_jsonable(row))
+    return out
+
+
+def _collect_model_warnings(model: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    for key in ("warnings",):
+        raw = model.get(key)
+        if isinstance(raw, list):
+            warnings.extend(str(item) for item in raw if item)
+    shaft = model.get("shaft_standardization", {})
+    if isinstance(shaft, dict):
+        raw = shaft.get("warnings")
+        if isinstance(raw, list):
+            warnings.extend(str(item) for item in raw if item)
+    return warnings
 
 
 def write_solve_summary_json(
@@ -317,6 +431,12 @@ def _parse_key_value_table(text: str, title: str) -> dict[str, Any]:
         key, value = line.split(":", 1)
         out[_key(key)] = _to_number(value.strip())
     return out
+
+
+def _axis_value(value: Any, axis: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(axis)
+    return None
 
 
 def _parse_materials(text: str) -> list[dict[str, Any]]:
