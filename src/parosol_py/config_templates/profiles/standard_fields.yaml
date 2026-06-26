@@ -1,8 +1,0 @@
-# Override snippet for routine runs with summary JSON plus SED NIfTI export.
-output_profile: standard_fields
-
-solver:
-  outputs: [sed]
-
-output:
-  export_fields: true

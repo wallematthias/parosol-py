@@ -5,39 +5,21 @@ import json
 import tempfile
 import zipfile
 from datetime import datetime, timezone
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
 from .modeling.io import resolve_path
 from .paths import suffix_text
+from .workflow_registry import (
+    WORKFLOW_BUNDLE_SUFFIX,
+    available_builtin_workflows,
+    builtin_workflow_path,
+)
 
 
 WORKFLOW_FILENAMES = ("workflow.yaml", "workflow.yml", "parosol_slicer_case.yaml")
 WORKFLOW_BUNDLE_FORMAT = "parosol-py-workflow"
-WORKFLOW_BUNDLE_SUFFIX = ".parosol-workflow"
 WORKFLOW_MANIFEST = "manifest.json"
-_BUILTIN_WORKFLOWS = resources.files("parosol_py") / "workflows"
-
-
-def builtin_workflow_path(name: str) -> Path | None:
-    token = name.strip()
-    if not token:
-        return None
-    candidate = _BUILTIN_WORKFLOWS / f"{token}{WORKFLOW_BUNDLE_SUFFIX}"
-    if candidate.is_file():
-        return Path(candidate)
-    return None
-
-
-def available_builtin_workflows() -> tuple[str, ...]:
-    if not _BUILTIN_WORKFLOWS.is_dir():
-        return ()
-    names: list[str] = []
-    for path in _BUILTIN_WORKFLOWS.iterdir():
-        if path.is_file() and path.name.endswith(WORKFLOW_BUNDLE_SUFFIX):
-            names.append(path.name.removesuffix(WORKFLOW_BUNDLE_SUFFIX))
-    return tuple(sorted(names))
 
 
 def load_workflow_template(path: str | Path) -> tuple[dict[str, Any], Path]:

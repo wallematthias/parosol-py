@@ -165,7 +165,7 @@ def test_write_results_csv_includes_model_crop_warnings(tmp_path: Path):
         "failure": {},
         "solver": {},
         "model": {
-            "type": "proximal_femur",
+            "type": "hip-sideways-fall-left",
             "shaft_standardization": {
                 "cut_mode": "proportional_length",
                 "retain_multiplier": 1.35,

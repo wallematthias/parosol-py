@@ -1,8 +1,0 @@
-# Override snippet for a fast coarse exploratory solve.
-preprocessing:
-  coarsen:
-    factor: 2
-    reducer: mean
-
-solver_profile: batch
-output_profile: quick_summary

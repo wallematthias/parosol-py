@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import sys
 from pathlib import Path
@@ -50,7 +49,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="parosol",
         description=(
-            "Run profile-driven ParOSol cases. Shortcut form: "
+            "Run workflow/profile-driven ParOSol cases. Shortcut form: "
             "parosol IMAGE --profile PROFILE [--mask MASK] [--output OUT]."
         ),
     )
@@ -82,12 +81,12 @@ def _build_parser() -> argparse.ArgumentParser:
     batch_parser.add_argument(
         "--profile",
         choices=(*available_config_profiles(), "interactive_custom"),
-        help="Built-in profile to apply when TARGET is a folder",
+        help="Built-in workflow/profile recipe to apply when TARGET is a folder",
     )
     batch_parser.add_argument(
         "--template",
         help=(
-            "Reusable workflow template folder/file or .parosol-workflow to apply when TARGET is a folder. "
+            "Reusable workflow/profile template folder/file or .parosol-workflow to apply when TARGET is a folder. "
             "Use with --profile interactive_custom for Slicer-authored workflows."
         ),
     )
@@ -175,12 +174,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     template_parser = subparsers.add_parser(
         "config-template",
-        help="Print the commented default config and optional profile override",
+        help="Print the commented default case config and optional workflow/profile recipe",
     )
     template_parser.add_argument(
         "--profile",
         choices=available_config_profiles(),
-        help="Append a user-facing profile override snippet",
+        help="Append a built-in workflow/profile recipe",
     )
     template_parser.set_defaults(func=_config_template)
     return parser
@@ -189,18 +188,18 @@ def _build_parser() -> argparse.ArgumentParser:
 def _build_shortcut_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="parosol",
-        description="Run one image with a ParOSol profile",
+        description="Run one image with a ParOSol workflow/profile recipe",
     )
     parser.add_argument("image", help="Input material/density image")
     parser.add_argument(
         "--profile",
         required=True,
         choices=(*available_config_profiles(), "interactive_custom"),
-        help="Built-in profile to apply",
+        help="Built-in workflow/profile recipe to apply",
     )
     parser.add_argument(
         "--mask",
-        help="Optional segmentation/nodeset mask. Model profiles use this as the model mask.",
+        help="Optional segmentation/nodeset mask. Workflow recipes use this as the model mask.",
     )
     parser.add_argument(
         "-o",
@@ -216,7 +215,7 @@ def _build_shortcut_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--side",
         choices=("left", "right"),
-        help="Model side override for profiles that support it, such as proximal femur.",
+        help="Model side override for custom templates that support it.",
     )
     parser.add_argument(
         "--reference-points",
@@ -225,7 +224,7 @@ def _build_shortcut_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--template",
         help=(
-            "Reusable workflow template folder/file or .parosol-workflow. "
+            "Reusable workflow/profile template folder/file or .parosol-workflow. "
             "SlicerParOSol workflows contain workflow.yaml plus optional reference files."
         ),
     )
@@ -473,80 +472,7 @@ def _shortcut_config(args: argparse.Namespace) -> dict[str, Any]:
     if args.profile == "interactive_custom":
         raise ValueError("--profile interactive_custom requires --template")
 
-    config = _load_shortcut_profile(args.profile)
-    is_batch_profile = "batch" in config
-
-    case_cfg = _dict_section(config, "case")
-    case_cfg["name"] = case_name
-    case_cfg["work_dir"] = (
-        str(output_dir / case_name) if is_batch_profile else str(output_dir)
-    )
-    if is_batch_profile:
-        batch_cfg = _dict_section(config, "batch")
-        batch_cfg["work_dir"] = str(output_dir)
-        batch_cfg["summary"] = str(output_dir / "result.json")
-    output_cfg = _dict_section(config, "output")
-    output_cfg["result"] = str(
-        output_dir / case_name / "result.json"
-        if is_batch_profile
-        else output_dir / "result.json"
-    )
-    output_cfg["summary"] = output_cfg["result"]
-    output_cfg["run_summary"] = str(
-        output_dir / case_name / "summary.json"
-        if is_batch_profile
-        else output_dir / "summary.json"
-    )
-    output_cfg.setdefault("fields", ["sed"])
-    output_cfg["fields_dir"] = str(
-        output_dir / case_name / "fields" if is_batch_profile else output_dir / "fields"
-    )
-    output_cfg["visualization"] = str(
-        output_dir / case_name / "overview.png"
-        if is_batch_profile
-        else output_dir / "overview.png"
-    )
-
-    if "model" in config:
-        model_cfg = _dict_section(config, "model")
-        model_cfg["density_image"] = str(image_path)
-        if mask_path is None:
-            raise ValueError(f"profile {args.profile!r} requires --mask")
-        model_cfg["mask_image"] = str(mask_path)
-        if args.side:
-            model_cfg["side"] = args.side
-        if args.reference_points:
-            registration_cfg = _dict_section(model_cfg, "registration")
-            registration_cfg["enabled"] = True
-            registration_cfg.setdefault("method", "lightweight_icp")
-            registration_cfg["reference_points"] = str(
-                Path(args.reference_points).expanduser().resolve()
-            )
-        model_outputs = _dict_section(model_cfg, "outputs")
-        model_dir = output_dir / "model"
-        model_outputs["material_image"] = str(model_dir / "material.nii.gz")
-        model_outputs["nodeset_image"] = str(model_dir / "nodesets.nii.gz")
-        model_outputs["manifest"] = str(model_dir / "model.json")
-        model_outputs["qc_image"] = str(model_dir / "qc.png")
-    else:
-        input_cfg = _dict_section(config, "input")
-        input_cfg["image"] = str(image_path)
-        if _supports_image_metadata(image_path):
-            input_cfg.setdefault("spacing", "auto")
-            input_cfg.setdefault("origin", "auto")
-        if mask_path is not None:
-            input_cfg["mask"] = str(mask_path)
-
-    config["execution"] = {
-        "interface": "shortcut",
-        "command": " ".join(["parosol", *getattr(args, "_argv", [])]),
-        "profile": args.profile,
-        "image": str(image_path),
-        "mask": None if mask_path is None else str(mask_path),
-        "output_dir": str(output_dir),
-        "dry_run": bool(args.dry_run),
-    }
-    return config
+    raise ValueError(f"unknown built-in workflow/profile recipe: {args.profile}")
 
 
 def _discover_batch_images(
@@ -602,33 +528,6 @@ def _folder_case_summary(summary_path: Path) -> dict[str, Any]:
             "status": failure.get("status"),
         },
     }
-
-
-def _load_profile(profile: str) -> dict[str, Any]:
-    try:
-        import yaml
-    except ImportError as exc:
-        raise ImportError("PyYAML is required to run built-in profiles") from exc
-    loaded = yaml.safe_load(read_config_template(profile))
-    return {} if loaded is None else loaded
-
-
-def _load_shortcut_profile(profile: str) -> dict[str, Any]:
-    loaded = _load_profile(profile)
-    if "batch" not in loaded:
-        return loaded
-    config = _load_profile("default")
-    config.pop("nodesets", None)
-    _deep_update(config, loaded)
-    return config
-
-
-def _deep_update(target: dict[str, Any], update: dict[str, Any]) -> None:
-    for key, value in update.items():
-        if isinstance(value, dict) and isinstance(target.get(key), dict):
-            _deep_update(target[key], value)
-        else:
-            target[key] = copy.deepcopy(value)
 
 
 def _write_yaml(path: Path, config: dict[str, Any]) -> None:

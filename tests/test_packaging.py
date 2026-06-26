@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -127,10 +128,39 @@ def test_existing_wheel_artifacts_include_config_templates_when_present():
         if "parosol_py/workflows/XtremeCTII.parosol-workflow" not in names:
             continue
         assert "parosol_py/workflows/XtremeCTII.parosol-workflow" in names
-        assert "parosol_py/workflows/vertebra.parosol-workflow" in names
-        assert "parosol_py/workflows/ct-spine-compression.parosol-workflow" in names
-        assert "parosol_py/workflows/ct-hip-sideways-fall.parosol-workflow" in names
+        assert "parosol_py/workflows/spine-compression.parosol-workflow" in names
         assert (
-            "parosol_py/workflows/ct-hip-sideways-fall-left.parosol-workflow"
+            "parosol_py/workflows/hip-sideways-fall-left.parosol-workflow"
             in names
         )
+        assert (
+            "parosol_py/workflows/hip-sideways-fall-right.parosol-workflow"
+            in names
+        )
+        assert "parosol_py/workflows/vertebra.parosol-workflow" not in names
+        assert "parosol_py/workflows/ct-hip-sideways-fall.parosol-workflow" not in names
+
+
+def test_source_tree_does_not_include_generated_cache_files():
+    forbidden_names = {"__pycache__", ".DS_Store"}
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "src", "tests"], cwd=ROOT, text=True
+    ).splitlines()
+    offenders = [path for path in tracked if Path(path).name in forbidden_names]
+
+    assert offenders == []
+
+
+def test_readme_documents_workflow_case_model():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert ".parosol-workflow" in readme
+    assert "parosol_case.yaml" in readme
+    assert "--profile spine-compression" in readme
+    assert "--profile hip-sideways-fall-left" in readme
+    assert "--profile XtremeCTII" in readme
+    assert "SlicerParOSol creates and edits" in readme
+    assert "ct-spine-compression" not in readme
+    assert "ct-hip-sideways-fall" not in readme
+    assert "spine-batch" not in readme
+    assert "proximal_femur" not in readme

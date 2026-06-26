@@ -45,6 +45,50 @@ python scripts/local_check.py
 Add `--smoke-install` to install the built wheel into a temporary virtual
 environment and import it.
 
+## Workflows And Cases
+
+ParOSol-py separates reusable recipes from concrete runs:
+
+- A workflow/profile recipe is a reusable `.parosol-workflow` or future
+  `.parosol-profile` file. SlicerParOSol creates and edits these recipes.
+- A ParOSol case is one materialized run. Shortcut commands write a
+  `parosol_case.yaml` file with concrete input, output, solver, material,
+  boundary-condition, and postprocessing settings.
+- A `.parosol` bundle is a portable case bundle for solving the same case on
+  another machine.
+
+Built-in reusable workflows are selected by name:
+
+```bash
+parosol distal-radius.AIM --profile XtremeCTII --output outputs/distal-radius
+
+parosol 10001_QCT.nii.gz \
+  --mask 10001_SEG.nii.gz \
+  --profile spine-compression \
+  --output outputs/10001_spine
+
+parosol 10001_QCT.nii.gz \
+  --mask 10001_SEG.nii.gz \
+  --profile hip-sideways-fall-left \
+  --output outputs/10001_hip_left
+```
+
+Slicer-authored workflows can be replayed headlessly:
+
+```bash
+parosol new_scan.nii.gz \
+  --mask new_mask.nii.gz \
+  --profile interactive_custom \
+  --template my_workflow.parosol-workflow \
+  --output outputs/new_scan
+```
+
+To run a fully materialized case directly:
+
+```bash
+parosol run outputs/10001_spine/parosol_case.yaml
+```
+
 ## Python API
 
 ```python

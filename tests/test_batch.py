@@ -600,7 +600,7 @@ def test_cli_batch_folder_uses_mask_pattern_for_model_profile(
                 "batch",
                 str(input_dir),
                 "--profile",
-                "vertebra",
+                "spine-compression",
                 "--mask-dir",
                 str(mask_dir),
                 "--mask-pattern",

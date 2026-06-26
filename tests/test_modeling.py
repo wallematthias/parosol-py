@@ -22,10 +22,6 @@ from parosol_py.modeling.alignment import (
     surface_points_from_mask,
 )
 from parosol_py.modeling.common import displacement_from_load_case
-from parosol_py.modeling.femur import (
-    detect_lesser_trochanter_cut_z,
-    standardize_femur_shaft_length,
-)
 from parosol_py.modeling.workflow_replay import (
     _resolve_bbox_relative_editor,
     _scale_reference_space_editor,
@@ -34,6 +30,27 @@ from parosol_py.modeling.workflow_replay import (
     build_workflow_replay_model,
 )
 
+
+
+def test_legacy_anatomy_builder_modules_are_removed():
+    project_root = Path(__file__).resolve().parents[1]
+    modeling_dir = project_root / "src" / "parosol_py" / "modeling"
+
+    assert not (modeling_dir / "spine.py").exists()
+    assert not (modeling_dir / "femur.py").exists()
+
+
+def test_build_model_requires_workflow_replay_for_modeling(tmp_path: Path):
+    with pytest.raises(NotImplementedError, match="model\\.workflow_replay\\.enabled"):
+        build_model(
+            {
+                "type": "spine_compression",
+                "density_image": "density.npy",
+                "mask_image": "mask.npy",
+            },
+            base_dir=tmp_path,
+            material_config={},
+        )
 
 def test_model_image_reader_canonicalizes_nifti_direction(tmp_path: Path):
     array = np.arange(2 * 3 * 4, dtype=np.float32).reshape((2, 3, 4))
@@ -278,101 +295,6 @@ def test_material_from_density_applies_optional_input_transform():
     assert nu == pytest.approx(0.3)
 
 
-def test_spine_compression_model_generates_pmma_disks_and_bc_sets(tmp_path: Path):
-    density = np.zeros((8, 7, 6), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:6, 2:5, 2:4] = 800.0
-    mask[2:6, 2:5, 2:4] = 2
-    mask[3:5, 3:4, 3:5] = 1
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "spine_compression",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"body": 2, "process": 1},
-            "geometry": {"pmma_thickness_mm": 2, "axis": "z"},
-            "outputs": {
-                "material_image": "model/material.nii.gz",
-                "nodeset_image": "model/nodesets.nii.gz",
-                "manifest": "model/model.json",
-                "qc_image": "model/qc.png",
-            },
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {
-                "equation": "linear",
-                "slope": 10.0,
-                "intercept": 0.0,
-                "mask_threshold": 0.0,
-            },
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "spine_compression", "displacement": -0.2},
-    )
-
-    assert built.material.shape[0] >= density.shape[0] + 4
-    assert set(built.node_sets) >= {"inferior", "superior"}
-    assert len(built.node_sets["inferior"]) > 0
-    assert len(built.node_sets["superior"]) > 0
-    axis_values = np.asarray(built.node_sets["inferior"])[:, 2]
-    assert np.all(axis_values == np.min(axis_values))
-    axis_values = np.asarray(built.node_sets["superior"])[:, 2]
-    assert np.all(axis_values == np.max(axis_values))
-    assert built.boundary_conditions.fixed_coordinates.shape[0] > 0
-    assert built.element_sets["inferior_disk"] > 0
-    assert built.element_sets["superior_disk"] > 0
-    assert built.exported["material_image"].exists()
-    assert built.exported["nodeset_image"].exists()
-    assert built.exported["qc_image"].read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-    manifest = json.loads(built.exported["manifest"].read_text(encoding="utf-8"))
-    assert manifest["model"]["type"] == "spine_compression"
-    assert manifest["materials"]["pmma"]["E"] == pytest.approx(2500.0)
-
-
-def test_spine_pmma_disks_use_flat_outer_faces_not_side_walls(tmp_path: Path):
-    density = np.zeros((10, 8, 8), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:8, 2:6, 2:6] = 800.0
-    mask[2:8, 2:6, 2:6] = 20
-    mask[4:8, 1, 2:6] = 20
-    mask[3:6, 3:5, 6] = 48
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "spine_compression",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"body": 20, "process": 48},
-            "geometry": {
-                "pmma_thickness_voxels": 2,
-                "endplate_depth_voxels": 1,
-                "axis": "z",
-            },
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0, "intercept": 0.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "spine_compression", "displacement": -0.2},
-    )
-
-    inferior_nodes = np.asarray(built.node_sets["inferior"])
-    superior_nodes = np.asarray(built.node_sets["superior"])
-    assert np.ptp(inferior_nodes[:, 2]) == 0
-    assert np.ptp(superior_nodes[:, 2]) == 0
-    assert built.element_sets["inferior_disk"] <= 48
-    assert built.element_sets["superior_disk"] <= 48
-
-
 def test_projected_caps_from_mask_fills_short_internal_footprint_gaps():
     mask = np.zeros((12, 12, 12), dtype=bool)
     mask[5:7, 2:5, 2:10] = True
@@ -412,484 +334,6 @@ def test_projected_caps_from_mask_intrusion_keeps_requested_total_thickness():
     assert not np.any(superior & mask)
     cap_x = np.where(superior)[0]
     assert cap_x.max() - cap_x.min() + 1 <= 6
-
-
-def test_spine_disk_geometry_accepts_explicit_target_thickness_and_intrusion(
-    tmp_path: Path,
-):
-    density = np.zeros((9, 8, 8), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:7, 2:6, 2:5] = 800.0
-    mask[2:7, 2:6, 2:5] = 20
-    mask[4:6, 3:5, 5:7] = 48
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "spine_compression",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"body": 20, "process": 48},
-            "geometry": {
-                "axis": "z",
-                "disk": {
-                    "target_label": 20,
-                    "thickness_voxels": 1,
-                    "intrusion_depth_voxels": 2,
-                },
-            },
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0, "intercept": 0.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "spine_compression", "displacement": -0.2},
-    )
-
-    assert built.metadata["model"]["disk"] == {
-        "target_label": "20",
-        "shape": "anatomy",
-        "thickness_voxels": 1,
-        "intrusion_depth_voxels": 2,
-        "method": "projected_cap",
-    }
-    assert built.element_sets["inferior_disk"] > 0
-    assert built.element_sets["superior_disk"] > 0
-    assert np.all(built.material[built.postprocess_mask] != 2500.0)
-
-
-@pytest.mark.parametrize("shape", ["anatomy", "square", "round", "hex"])
-def test_spine_disk_geometry_supports_contact_shapes(tmp_path: Path, shape: str):
-    density = np.zeros((9, 10, 10), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:7, 2:7, 2:6] = 800.0
-    mask[2:7, 2:7, 2:6] = 20
-    density[2:5, 7:9, 2:4] = 800.0
-    mask[2:5, 7:9, 2:4] = 20
-    mask[4:6, 4:6, 6:8] = 48
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "spine_compression",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"body": 20, "process": 48},
-            "geometry": {
-                "axis": "z",
-                "disk": {
-                    "target_label": 20,
-                    "shape": shape,
-                    "thickness_voxels": 1,
-                    "intrusion_depth_voxels": 2,
-                },
-            },
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0, "intercept": 0.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "spine_compression", "displacement": -0.2},
-    )
-
-    assert built.metadata["model"]["disk"]["shape"] == shape
-    assert built.element_sets["inferior_disk"] > 0
-    assert built.element_sets["superior_disk"] > 0
-
-
-def test_proximal_femur_model_generates_caps_and_sideways_fall_sets(tmp_path: Path):
-    density = np.zeros((7, 8, 9), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[1:6, 2:6, 2:7] = 700.0
-    mask[1:6, 2:6, 2:7] = 2
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "proximal_femur",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "side": "left",
-            "geometry": {"pmma_thickness_mm": 2},
-            "outputs": {
-                "material_image": "model/material.nii.gz",
-                "nodeset_image": "model/nodesets.nii.gz",
-                "manifest": "model/model.json",
-                "qc_image": "model/qc.png",
-            },
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {
-                "equation": "linear",
-                "slope": 12.0,
-                "intercept": 0.0,
-                "mask_threshold": 0.0,
-            },
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "sideways_fall", "displacement": 1.0},
-    )
-
-    assert set(built.node_sets) >= {
-        "femoral_head_pmma",
-        "greater_trochanter_pmma",
-        "distal_femur",
-    }
-    assert all(len(nodes) > 0 for nodes in built.node_sets.values())
-    assert built.element_sets["femoral_head_cap"] > 0
-    assert built.element_sets["greater_trochanter_cap"] > 0
-    assert built.boundary_conditions.fixed_coordinates.shape[0] > 0
-    assert np.max(built.boundary_conditions.fixed_values) > 0.0
-    femoral_head = np.asarray(built.node_sets["femoral_head_pmma"])[:, :3]
-    greater_trochanter = np.asarray(built.node_sets["greater_trochanter_pmma"])[:, :3]
-    fixed_coords = np.asarray(built.boundary_conditions.fixed_coordinates)
-    gt_nodes = {tuple(node) for node in built.node_sets["greater_trochanter_pmma"]}
-    distal_nodes = {tuple(node) for node in built.node_sets["distal_femur"]}
-    gt_dofs = {int(coord[3]) for coord in fixed_coords if tuple(coord[:3]) in gt_nodes}
-    distal_dofs = {
-        int(coord[3]) for coord in fixed_coords if tuple(coord[:3]) in distal_nodes
-    }
-    assert femoral_head[:, 1].mean() < greater_trochanter[:, 1].mean()
-    assert gt_dofs == {1}
-    assert distal_dofs == {0, 2}
-    assert built.metadata["model"]["load_axis"] == "y"
-    assert built.metadata["model"]["load_direction"] == "y"
-    assert built.metadata["model"]["caps"]["target_label"] == "2"
-    assert built.metadata["model"]["caps"]["shape"] == "anatomy"
-    assert built.exported["qc_image"].read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-
-
-def test_model_crop_to_bb_uses_declared_model_labels(tmp_path: Path):
-    density = np.zeros((20, 20, 20), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:6, 2:6, 2:6] = 700.0
-    mask[2:6, 2:6, 2:6] = 2
-    mask[15:18, 15:18, 15:18] = 99
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "proximal_femur",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"femur": 2},
-            "geometry": {"pmma_thickness_voxels": 1, "cap_axis": "y"},
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "sideways_fall", "displacement": 1.0},
-        preprocessing_config={
-            "crop_to_bb": {"enabled": True, "margin_voxels": 1},
-        },
-    )
-
-    assert built.element_sets["bone"] == 4 * 4 * 4
-    active = np.argwhere(built.postprocess_mask)
-    lo = active.min(axis=0)
-    hi = active.max(axis=0)
-    shape = np.asarray(built.postprocess_mask.shape)
-    assert int(lo[0]) >= 3
-    assert int(shape[0] - 1 - hi[0]) >= 3
-    assert int(lo[2]) >= 3
-    assert int(shape[2] - 1 - hi[2]) >= 3
-
-
-def test_proximal_femur_model_pads_foreground_margin_before_caps(tmp_path: Path):
-    density = np.zeros((12, 12, 12), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:10, 2:8, 4:12] = 700.0
-    mask[2:10, 2:8, 4:12] = 2
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "proximal_femur",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"femur": 2},
-            "geometry": {
-                "cap_axis": "y",
-                "cap": {
-                    "thickness_voxels": 2,
-                    "intrusion_depth_voxels": 3,
-                },
-            },
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "sideways_fall", "displacement": 1.0},
-        preprocessing_config={
-            "crop_to_bb": {"enabled": True, "margin_voxels": 0},
-        },
-    )
-
-    active = np.argwhere(built.postprocess_mask)
-    lo = active.min(axis=0)
-    hi = active.max(axis=0)
-    shape = np.asarray(built.postprocess_mask.shape)
-
-    # The builder should keep enough z/x margin for later fixture generation
-    # even when the loaded foreground originally touched the crop boundary.
-    assert int(lo[0]) >= 5
-    assert int(shape[0] - 1 - hi[0]) >= 5
-    assert int(lo[2]) >= 5
-    assert int(shape[2] - 1 - hi[2]) >= 5
-
-
-def test_femur_lesser_trochanter_cut_uses_distal_area_peak():
-    data = np.zeros((60, 80, 90), dtype=bool)
-    x = np.arange(data.shape[0])[:, None]
-    y = np.arange(data.shape[1])[None, :]
-    for z in range(10, 86):
-        radius = 10
-        y_center = 35
-        if 58 <= z <= 64:
-            radius = 19
-        if 73 <= z <= 79:
-            y_center = 50
-            radius = 12
-        section = ((x - 30) ** 2 + (y - y_center) ** 2) <= radius**2
-        data[:, :, z] = section
-
-    meta = detect_lesser_trochanter_cut_z(
-        data,
-        spacing=(1.0, 1.0, 1.0),
-        origin=(0.0, 0.0, 0.0),
-    )
-
-    assert meta["greater_trochanter_z"] == pytest.approx(76.0)
-    assert meta["lesser_trochanter_z"] == pytest.approx(61.0)
-    assert meta["cut_z"] == pytest.approx(61.0)
-
-
-def test_femur_lesser_trochanter_cut_uses_percent_offset_in_z_only():
-    data = np.zeros((80, 90, 100), dtype=bool)
-    x = np.arange(data.shape[0])[:, None]
-    y = np.arange(data.shape[1])[None, :]
-    for z in range(10, 96):
-        radius = 10
-        y_center = 35
-        if 54 <= z <= 62:
-            radius = 20
-        if 78 <= z <= 82:
-            y_center = 58
-            radius = 12
-        section = ((x - 40) ** 2 + (y - y_center) ** 2) <= radius**2
-        data[:, :, z] = section
-
-    meta = detect_lesser_trochanter_cut_z(
-        data,
-        spacing=(1.0, 1.0, 1.0),
-        origin=(0.0, 0.0, 0.0),
-        distal_offset_percent=50.0,
-        max_distal_to_greater_mm=45.0,
-    )
-
-    assert meta["greater_trochanter_z"] == pytest.approx(81.0)
-    assert meta["lesser_trochanter_z"] == pytest.approx(58.0)
-    assert meta["distal_offset_mm"] == pytest.approx(11.5)
-    assert meta["cut_z"] == pytest.approx(46.5)
-
-
-def test_standardize_femur_shaft_length_zeroes_voxels_below_cut():
-    density = np.ones((5, 3, 3), dtype=np.float32)
-    mask = np.ones_like(density, dtype=bool)
-
-    cropped_density, cropped_mask, meta = standardize_femur_shaft_length(
-        density_xyz=np.transpose(density, (2, 1, 0)),
-        mask_xyz=np.transpose(mask, (2, 1, 0)),
-        spacing=(1.0, 1.0, 1.0),
-        origin=(0.0, 0.0, 0.0),
-        cut_mode="fixed_length",
-        retained_length_mm=2.0,
-    )
-
-    out = np.transpose(cropped_mask, (2, 1, 0))
-    assert meta["cut_z"] == pytest.approx(2.0)
-    assert not np.any(out[:2])
-    assert np.all(out[2:])
-    assert np.all(np.transpose(cropped_density, (2, 1, 0))[2:] == 1.0)
-
-
-def test_standardize_femur_shaft_length_supports_proportional_length_mode():
-    density_xyz = np.ones((3, 4, 10), dtype=np.float32)
-    mask_xyz = np.ones_like(density_xyz, dtype=bool)
-
-    cropped_density, cropped_mask, meta = standardize_femur_shaft_length(
-        density_xyz=density_xyz,
-        mask_xyz=mask_xyz,
-        spacing=(1.0, 1.0, 1.0),
-        origin=(0.0, 0.0, 0.0),
-        cut_mode="proportional_length",
-        cut_axis="z",
-        cut_side="low",
-        reference_extent_axis="y",
-        retain_multiplier=1.0,
-    )
-
-    assert meta["cut_mode"] == "proportional_length"
-    assert meta["cut_axis"] == "z"
-    assert meta["cut_side"] == "low"
-    assert meta["reference_extent_axis"] == "y"
-    assert meta["reference_extent_mm"] == pytest.approx(4.0)
-    assert meta["cut_coordinate_mm"] == pytest.approx(5.0)
-    assert meta["cut_z"] == pytest.approx(5.0)
-    out = np.transpose(cropped_mask, (2, 1, 0))
-    assert not np.any(out[:5])
-    assert np.all(out[5:])
-    assert np.all(np.transpose(cropped_density, (2, 1, 0))[5:] == 1.0)
-
-
-def test_proximal_femur_model_standardizes_distal_shaft_with_proportional_length(
-    tmp_path: Path,
-):
-    density_xyz = np.zeros((60, 80, 90), dtype=np.float32)
-    femur_xyz = np.zeros_like(density_xyz, dtype=bool)
-    x = np.arange(density_xyz.shape[0])[:, None]
-    y = np.arange(density_xyz.shape[1])[None, :]
-    for z in range(10, 86):
-        radius = 10
-        y_center = 35
-        if 58 <= z <= 64:
-            radius = 19
-        if 73 <= z <= 79:
-            y_center = 50
-            radius = 12
-        section = ((x - 30) ** 2 + (y - y_center) ** 2) <= radius**2
-        femur_xyz[:, :, z] = section
-        density_xyz[:, :, z][section] = 700.0
-
-    density = np.transpose(density_xyz, (2, 1, 0))
-    mask = np.transpose(femur_xyz.astype(np.uint8) * 2, (2, 1, 0))
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "proximal_femur_sideways_fall",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"femur": 2},
-            "geometry": {
-                "cap_axis": "y",
-                "pmma_thickness_voxels": 2,
-                "shaft_standardization": {
-                    "enabled": True,
-                    "cut_mode": "proportional_length",
-                    "cut_axis": "z",
-                    "cut_side": "low",
-                    "reference_extent_axis": "y",
-                    "retain_multiplier": 1.35,
-                },
-            },
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "sideways_fall", "displacement": 1.0},
-    )
-
-    z = np.argwhere(built.postprocess_mask)[:, 0]
-    assert int(z.min()) > 10
-    assert len(built.node_sets["distal_femur"]) > 0
-    assert built.element_sets["distal_femur"] > 0
-    shaft = built.metadata["model"]["shaft_standardization"]
-    assert shaft["cut_mode"] == "proportional_length"
-    assert shaft["cut_axis"] == "z"
-    assert shaft["cut_side"] == "low"
-    assert shaft["reference_extent_axis"] == "y"
-    assert shaft["retain_multiplier"] == pytest.approx(1.35)
-    assert shaft["reference_extent_mm"] > 0.0
-    assert shaft["cut_z"] == pytest.approx(shaft["cut_coordinate_mm"])
-
-
-def test_spine_model_pads_foreground_margin_before_disk_projection(tmp_path: Path):
-    density = np.zeros((12, 12, 12), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[0:8, 2:10, 4:12] = 800.0
-    mask[0:8, 2:10, 4:12] = 20
-    mask[2:6, 3:5, 10:12] = 48
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "spine_compression",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"body": 20, "process": 48},
-            "geometry": {
-                "axis": "z",
-                "disk": {
-                    "target_label": 20,
-                    "shape": "anatomy",
-                    "thickness_voxels": 2,
-                    "intrusion_depth_voxels": 3,
-                },
-            },
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "spine_compression", "displacement": -0.2},
-        preprocessing_config={
-            "crop_to_bb": {"enabled": True, "margin_voxels": 0},
-        },
-    )
-
-    active = np.argwhere(built.postprocess_mask)
-    lo = active.min(axis=0)
-    hi = active.max(axis=0)
-    shape = np.asarray(built.postprocess_mask.shape)
-
-    assert int(lo[0]) >= 5
-    assert int(shape[0] - 1 - hi[0]) >= 5
-    assert int(lo[2]) >= 5
-    assert int(shape[2] - 1 - hi[2]) >= 5
-
-
-def test_model_builder_rejects_missing_spine_labels(tmp_path: Path):
-    density = np.ones((4, 4, 4), dtype=np.float32)
-    mask = np.full_like(density, 2, dtype=np.uint8)
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    with pytest.raises(ValueError, match="process"):
-        build_model(
-            {
-                "type": "vertebra",
-                "density_image": "density.npy",
-                "mask_image": "mask.npy",
-                "labels": {"body": 2, "process": 1},
-            },
-            base_dir=tmp_path,
-            material_config={"density": {"equation": "linear"}},
-        )
 
 
 def test_lightweight_icp_estimates_translation_and_reads_vtk_points(tmp_path: Path):
@@ -1025,65 +469,6 @@ def test_surface_point_sampling_supports_stride_mode():
     assert not np.allclose(linspace, stride)
 
 
-def test_spine_registration_can_scale_reference_by_pca_axis_lengths(tmp_path: Path):
-    density = np.zeros((10, 8, 6), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:8, 2:6, 2:4] = 800.0
-    mask[2:8, 2:6, 2:4] = 2
-    mask[4:7, 3:5, 4:6] = 1
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    reference_mask = np.zeros((6, 6, 6), dtype=bool)
-    reference_mask[1:5, 1:5, 2:4] = True
-    reference_points = surface_points_from_mask(
-        reference_mask,
-        spacing=(1.0, 1.0, 1.0),
-        origin=(0.0, 0.0, 0.0),
-    )
-    np.savez(tmp_path / "reference_points.npz", points=reference_points)
-
-    built = build_model(
-        {
-            "type": "spine_compression",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"body": 2, "process": 1},
-            "registration": {
-                "enabled": True,
-                "method": "vtk_icp",
-                "reference_points": "reference_points.npz",
-                "initialization": "centroid",
-                "convergence": "delta",
-                "distance_mode": "mean",
-                "max_points": 2000,
-                "iterations": 5,
-                "source_landmark_mode": "stride",
-                "source_landmark_offset": 0,
-                "reference_scaling": {
-                    "enabled": True,
-                    "min_factors": [0.5, 0.5, 0.5],
-                    "max_factors": [2.0, 2.0, 2.0],
-                },
-            },
-            "geometry": {"pmma_thickness_mm": 2, "axis": "z"},
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0, "intercept": 0.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "spine_compression", "target_displacement_percent": -0.68},
-    )
-
-    scaling = built.metadata["model"]["registration"]["reference_scaling"]
-    assert scaling["enabled"] is True
-    assert scaling["source"] == "pca_axis_lengths"
-    assert len(scaling["scale_factors"]) == 3
-    assert all(0.5 <= value <= 2.0 for value in scaling["scale_factors"])
-
-
 def test_model_percent_displacement_uses_padded_full_height():
     displacement = displacement_from_load_case(
         {"target_displacement_percent": -0.68},
@@ -1109,55 +494,6 @@ def test_workflow_replay_uses_body_for_registration_but_full_mask_for_model():
     assert int(np.count_nonzero(registration_mask)) == int(np.count_nonzero(mask == 20))
     assert int(np.count_nonzero(model_mask)) == int(np.count_nonzero(mask > 0))
     assert np.count_nonzero(model_mask) > np.count_nonzero(registration_mask)
-
-
-def test_proximal_femur_model_can_use_reference_registration(tmp_path: Path):
-    density = np.zeros((8, 9, 10), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:6, 2:6, 2:7] = 700.0
-    mask[2:6, 2:6, 2:7] = 2
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-    reference_points = surface_points_from_mask(
-        mask == 2,
-        spacing=(1.0, 1.0, 1.0),
-        origin=(5.0, -2.0, 1.0),
-    )
-    np.savez(tmp_path / "femur_reference.npz", points=reference_points)
-
-    built = build_model(
-        {
-            "type": "proximal_femur_sideways_fall",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"femur": 2},
-            "registration": {
-                "enabled": True,
-                "reference_points": "femur_reference.npz",
-                "max_points": 2000,
-                "iterations": 5,
-            },
-            "geometry": {"pmma_thickness_voxels": 1, "cap_axis": "y"},
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "sideways_fall", "displacement": 1.0},
-    )
-
-    assert built.metadata["model"]["registration"]["enabled"] is True
-    assert built.metadata["model"]["registration"]["method"] == "lightweight_icp"
-    assert built.metadata["model"]["load_axis"] == "y"
-    nonzero = np.abs(built.boundary_conditions.fixed_values) > 1.0e-12
-    assert np.all(built.boundary_conditions.fixed_values[nonzero] > 0.0)
-    assert built.element_sets["femoral_head_cap"] > 0
-    assert built.element_sets["greater_trochanter_cap"] > 0
-    active = np.argwhere(built.postprocess_mask)
-    assert int(active[:, 0].min()) <= 3
-    assert int(built.postprocess_mask.shape[0] - active[:, 0].max()) <= 4
 
 
 def test_mask_alignment_sizes_output_grid_from_full_surface_not_sampled_subset(
@@ -1252,7 +588,7 @@ def test_workflow_replay_model_uses_saved_disk_and_nodeset_labels(tmp_path: Path
 
     built = build_model(
         {
-            "type": "proximal_femur_sideways_fall",
+            "type": "workflow_replay",
             "density_image": "density.nii.gz",
             "mask_image": "mask.nii.gz",
             "labels": {"femur": 2},
@@ -1316,7 +652,7 @@ def test_workflow_replay_model_uses_saved_disk_and_nodeset_labels(tmp_path: Path
         (built.boundary_conditions.fixed_coordinates[:, 3] == 1)
         & (~np.isclose(built.boundary_conditions.fixed_values, 0.0))
     ]
-    assert np.unique(prescribed_y).tolist() == pytest.approx([0.20])
+    assert np.unique(prescribed_y).tolist() == pytest.approx([0.24])
 
 
 def test_workflow_replay_pads_sample_extent_before_resampling_saved_disks(
@@ -1449,7 +785,7 @@ def test_workflow_replay_prefers_plane_driven_geometry_over_saved_labels(
 
     built = build_model(
         {
-            "type": "proximal_femur_sideways_fall",
+            "type": "workflow_replay",
             "density_image": "density.nii.gz",
             "mask_image": "mask.nii.gz",
             "labels": {"femur": 2},
@@ -1857,48 +1193,3 @@ def test_workflow_replay_pads_when_relative_disk_extends_outside_image(
     assert built.material.shape[0] > 8
     assert int(built.element_sets["workflow_disks"]) > 0
     assert len(built.node_sets["superior_disk"]) > 0
-
-
-def test_spine_model_can_use_lightweight_icp_registration(tmp_path: Path):
-    density = np.zeros((8, 7, 6), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:6, 2:5, 2:4] = 800.0
-    mask[2:6, 2:5, 2:4] = 2
-    mask[3:5, 3:4, 3:5] = 1
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-    reference_points = surface_points_from_mask(
-        mask == 2,
-        spacing=(1.0, 1.0, 1.0),
-        origin=(0.0, 0.0, 0.0),
-    )
-    np.savez(tmp_path / "reference_points.npz", points=reference_points)
-
-    built = build_model(
-        {
-            "type": "spine_compression",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"body": 2, "process": 1},
-            "registration": {
-                "enabled": True,
-                "reference_points": "reference_points.npz",
-                "max_points": 2000,
-                "iterations": 5,
-            },
-            "geometry": {"pmma_thickness_mm": 2, "axis": "z"},
-            "outputs": {"manifest": "model/model.json"},
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0, "intercept": 0.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "spine_compression", "displacement": -0.2},
-    )
-
-    assert built.metadata["model"]["registration"]["enabled"] is True
-    assert built.element_sets["inferior_disk"] > 0
-    manifest = json.loads(built.exported["manifest"].read_text(encoding="utf-8"))
-    assert manifest["model"]["registration"]["method"] == "lightweight_icp"
