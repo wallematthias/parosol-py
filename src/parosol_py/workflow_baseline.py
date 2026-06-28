@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import hashlib
+import json
 import subprocess
+import zipfile
 
 from .workflow_contracts import EXPECTED_PUBLIC_PROFILES, validate_builtin_profile
 from .workflow_registry import builtin_profile_path
@@ -19,7 +22,7 @@ def build_builtin_workflow_baseline() -> dict[str, Any]:
         config, _source = load_workflow_template(path)
         workflows[profile] = _workflow_summary(profile, path, config)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "git_sha": _git_sha(),
         "profiles": list(EXPECTED_PUBLIC_PROFILES),
         "workflows": workflows,
@@ -40,6 +43,9 @@ def _workflow_summary(profile: str, path: Path, config: dict[str, Any]) -> dict[
     issues = validate_builtin_profile(profile)
     return {
         "path": str(path),
+        "bundle_members": _bundle_members(path),
+        "bundle_member_sha256": _bundle_member_sha256(path),
+        "config_sha256": _json_sha256(config),
         "workflow_type": template.get("type"),
         "profile": template.get("profile", profile),
         "plane_count": len(planes) if isinstance(planes, list) else 0,
@@ -56,10 +62,42 @@ def _workflow_summary(profile: str, path: Path, config: dict[str, Any]) -> dict[
         "workflow_replay_model_space": replay.get("model_space")
         if isinstance(replay, dict)
         else None,
+        "registration": _public_mapping(registration),
+        "workflow_replay": _public_mapping(replay),
         "solver_tolerance": solver.get("tolerance") if isinstance(solver, dict) else None,
         "contract_issue_count": len(issues),
         "contract_issues": [issue.__dict__ for issue in issues],
     }
+
+
+def _bundle_members(path: Path) -> list[str]:
+    if not path.name.endswith(".parosol-workflow"):
+        return [path.name]
+    with zipfile.ZipFile(path) as archive:
+        return sorted(archive.namelist())
+
+
+def _bundle_member_sha256(path: Path) -> dict[str, str]:
+    if not path.name.endswith(".parosol-workflow"):
+        return {path.name: _bytes_sha256(path.read_bytes())}
+    with zipfile.ZipFile(path) as archive:
+        return {
+            member: _bytes_sha256(archive.read(member))
+            for member in sorted(archive.namelist())
+        }
+
+
+def _json_sha256(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    return _bytes_sha256(encoded.encode("utf-8"))
+
+
+def _bytes_sha256(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _public_mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _git_sha() -> str:

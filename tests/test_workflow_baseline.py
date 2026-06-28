@@ -11,7 +11,7 @@ def test_build_builtin_workflow_baseline_has_public_profiles():
     baseline = build_builtin_workflow_baseline()
 
     assert tuple(sorted(baseline["profiles"])) == EXPECTED_PUBLIC_PROFILES
-    assert baseline["schema_version"] == 1
+    assert baseline["schema_version"] == 2
     assert "git_sha" in baseline
     assert set(baseline["workflows"]) == set(EXPECTED_PUBLIC_PROFILES)
 
@@ -22,6 +22,18 @@ def test_baseline_is_json_serializable():
     encoded = json.dumps(baseline, sort_keys=True)
 
     assert "spine-compression" in encoded
+
+
+def test_baseline_records_workflow_fingerprints():
+    baseline = build_builtin_workflow_baseline()
+    spine = baseline["workflows"]["spine-compression"]
+
+    assert "workflow.yaml" in spine["bundle_members"]
+    assert "workflow.yaml" in spine["bundle_member_sha256"]
+    assert len(spine["bundle_member_sha256"]["workflow.yaml"]) == 64
+    assert len(spine["config_sha256"]) == 64
+    assert spine["workflow_replay"]["enabled"] is True
+    assert spine["workflow_replay"]["model_space"] == "reference"
 
 
 def test_baseline_git_sha_ignores_caller_cwd_git_repo(tmp_path, monkeypatch):
