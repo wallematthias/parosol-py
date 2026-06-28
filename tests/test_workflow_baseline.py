@@ -36,6 +36,17 @@ def test_baseline_records_workflow_fingerprints():
     assert spine["workflow_replay"]["model_space"] == "reference"
 
 
+def test_baseline_config_hashes_are_stable_across_temp_extractions():
+    first = build_builtin_workflow_baseline()
+    second = build_builtin_workflow_baseline()
+
+    for profile in first["profiles"]:
+        assert (
+            first["workflows"][profile]["config_sha256"]
+            == second["workflows"][profile]["config_sha256"]
+        )
+
+
 def test_baseline_git_sha_ignores_caller_cwd_git_repo(tmp_path, monkeypatch):
     unrelated_repo = tmp_path / "unrelated"
     unrelated_repo.mkdir()

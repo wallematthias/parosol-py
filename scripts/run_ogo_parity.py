@@ -35,6 +35,9 @@ def main() -> int:
     parser.add_argument("--summary", required=True)
     args = parser.parse_args()
 
+    if args.check_assets_only and not args.reference_bundle:
+        raise SystemExit("--check-assets-only requires --reference-bundle")
+
     reference_assets = None
     if args.reference_bundle:
         reference_assets = reference_bundle_assets(args.case, root=args.reference_bundle)

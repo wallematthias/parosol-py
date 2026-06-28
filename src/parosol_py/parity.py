@@ -26,7 +26,11 @@ PARITY_CASE_SPECS: dict[str, dict[str, Any]] = {
         "density_image": "spine-sub-001/input/density.nii.gz",
         "segmentation_image": "spine-sub-001/input/segmentation.nii.gz",
         "reference_points": "references/L4_BODY_SPINE_COMPRESSION_REF.vtk",
-        "expected_metrics": {},
+        "expected_metrics": {
+            "reaction_force_N": 0.0,
+            "stiffness_N_per_mm": 0.0,
+        },
+        "expected_metrics_status": "placeholder_requires_update",
         "tolerance_percent": 10.0,
     },
 }
@@ -105,6 +109,8 @@ def compare_case_metrics(
     tolerance_percent: float | None = None,
 ) -> dict[str, Any]:
     expected = default_expected_metrics(case) if expected_metrics is None else expected_metrics
+    if not expected:
+        raise ValueError(f"parity case {case} has no expected metrics")
     tolerance = default_tolerance_percent(case) if tolerance_percent is None else tolerance_percent
     missing = [name for name in expected if name not in observed_metrics]
     if missing:

@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+
+import pytest
+
 from parosol_py.parity import (
+    PARITY_CASE_SPECS,
     compare_case_metrics,
     compare_metric,
     default_expected_metrics,
@@ -48,6 +54,23 @@ def test_compare_case_metrics_uses_versioned_hip_defaults():
     }
 
 
+def test_versioned_parity_cases_do_not_have_empty_expected_metrics():
+    assert {
+        case: spec["expected_metrics"]
+        for case, spec in PARITY_CASE_SPECS.items()
+        if not spec["expected_metrics"]
+    } == {}
+
+
+def test_compare_case_metrics_rejects_empty_expected_metrics():
+    with pytest.raises(ValueError, match="no expected metrics"):
+        compare_case_metrics(
+            "hip_10001",
+            observed_metrics={},
+            expected_metrics={},
+        )
+
+
 def test_reference_bundle_assets_validates_case_files(tmp_path):
     for relative in (
         "hip-sub-RETRO2_10001/input/density.nii.gz",
@@ -62,3 +85,23 @@ def test_reference_bundle_assets_validates_case_files(tmp_path):
 
     assert assets["profile"] == "hip-sideways-fall-left"
     assert assets["assets"]["density_image"].endswith("density.nii.gz")
+
+
+def test_parity_cli_asset_only_requires_reference_bundle(tmp_path):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_ogo_parity.py",
+            "--case",
+            "hip_10001",
+            "--check-assets-only",
+            "--summary",
+            str(tmp_path / "summary.json"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "--reference-bundle" in result.stderr

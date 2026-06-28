@@ -88,7 +88,12 @@ def _bundle_member_sha256(path: Path) -> dict[str, str]:
 
 
 def _json_sha256(value: Any) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    encoded = json.dumps(
+        _canonicalize_loaded_workflow(value),
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
     return _bytes_sha256(encoded.encode("utf-8"))
 
 
@@ -98,6 +103,28 @@ def _bytes_sha256(value: bytes) -> str:
 
 def _public_mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _canonicalize_loaded_workflow(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _canonicalize_loaded_workflow(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_canonicalize_loaded_workflow(item) for item in value]
+    if isinstance(value, str) and "/parosol_workflow_" in value:
+        return _canonical_temp_workflow_path(value)
+    return value
+
+
+def _canonical_temp_workflow_path(value: str) -> str:
+    marker = "/parosol_workflow_"
+    prefix, remainder = value.split(marker, 1)
+    _temp_name, _separator, tail = remainder.partition("/")
+    if not tail:
+        return value
+    return f"{prefix}{marker}<bundle>/{tail}"
 
 
 def _git_sha() -> str:
