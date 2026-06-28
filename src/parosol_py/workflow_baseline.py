@@ -63,11 +63,13 @@ def _workflow_summary(profile: str, path: Path, config: dict[str, Any]) -> dict[
 
 
 def _git_sha() -> str:
+    package_dir = Path(__file__).resolve().parent
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             check=True,
             capture_output=True,
+            cwd=package_dir,
             text=True,
         )
     except Exception:
