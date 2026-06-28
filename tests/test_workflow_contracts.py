@@ -342,7 +342,10 @@ def test_validator_requires_reference_nodeset_replay_workflows(profile):
     issues = validate_workflow_config(
         {
             "solver": {"tolerance": 1.0e-4},
-            "model": {"workflow_replay": {"model_space": "scanner"}},
+            "model": {
+                "type": "proximal_femur_sideways_fall",
+                "workflow_replay": {"model_space": "scanner"},
+            },
             "load_case": {"type": "constrained_axial"},
         },
         profile=profile,
@@ -350,6 +353,8 @@ def test_validator_requires_reference_nodeset_replay_workflows(profile):
     )
 
     assert {issue.code for issue in issues} >= {
+        "invalid_model_type",
+        "invalid_workflow_replay_enabled",
         "invalid_workflow_replay_model_space",
         "invalid_load_case_type",
     }
@@ -417,6 +422,8 @@ solver:
 load_case:
   type: nodeset
 model:
+  type: workflow_replay
   workflow_replay:
+    enabled: true
     model_space: reference
 """

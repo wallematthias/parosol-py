@@ -63,6 +63,58 @@ def test_workflow_templates_are_available_by_profile_name():
     assert "pistoia:" in xtremectii
 
 
+def test_packaged_workflows_use_npy_references_and_intrusion_schema():
+    import zipfile
+
+    from parosol_py.workflow_registry import builtin_profile_path
+
+    for name in ("spine-compression", "hip-sideways-fall-left", "hip-sideways-fall-right"):
+        path = builtin_profile_path(name)
+        assert path is not None
+        with zipfile.ZipFile(path) as archive:
+            members = archive.namelist()
+            assert "reference/slicer_reference_points.npy" in members
+            assert not any(member.lower().endswith(".vtk") for member in members)
+            assert not any(member.lower().endswith(".npz") for member in members)
+
+        text = read_config_template(name)
+        loaded, _source = load_workflow_template(path)
+        replay = loaded["model"]["workflow_replay"]
+        assert loaded["model"]["type"] == "workflow_replay"
+        assert replay["enabled"] is True
+        assert replay["model_space"] == "reference"
+        assert "reference/slicer_reference_points.npy" in text
+        assert "method: vtk_icp" in text
+        assert "initialization: centroid" in text
+        assert "source_landmark_mode: stride" in text
+        assert "intrusion_depth_mm:" in text
+        assert "protrusion_depth_mm" not in text
+
+
+def test_spine_workflow_contract_targets_body_registration_and_full_model():
+    from parosol_py.workflow_registry import builtin_profile_path
+
+    loaded, _source = load_workflow_template(builtin_profile_path("spine-compression"))
+    model = loaded["model"]
+    replay = model["workflow_replay"]
+
+    assert model["type"] == "workflow_replay"
+    assert model["labels"] == {"body": 20, "process": 48}
+    assert model["targets"]["registration"] == "vertebral_body"
+    assert model["targets"]["disk_projection"] == "vertebral_body"
+    assert model["registration"]["reference_scaling"] == {
+        "enabled": True,
+        "min_factors": [0.8, 0.8, 0.75],
+        "max_factors": [1.2, 1.2, 1.3],
+    }
+    assert replay["enabled"] is True
+    assert replay["model_space"] == "reference"
+    assert replay["reference_points"].endswith("reference/slicer_reference_points.npy")
+    assert replay["editor_reference_points"].endswith("reference/slicer_reference_points.npy")
+    assert loaded["slicer_editor"]["planes"][0]["relative_to"] == "model_bbox"
+    assert loaded["slicer_editor"]["planes"][1]["relative_to"] == "model_bbox"
+
+
 def test_load_history_workflows_remain_boundary_condition_recipes():
     assert "load_history_3" in read_config_template("load_history_3")
     assert "postprocess:" in read_config_template("load_history_3")

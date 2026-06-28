@@ -215,6 +215,22 @@ def _validate_family_semantics(
         _require_equal(
             issues,
             profile=profile,
+            code="invalid_model_type",
+            path="model.type",
+            actual=model.get("type"),
+            expected="workflow_replay",
+        )
+        _require_equal(
+            issues,
+            profile=profile,
+            code="invalid_workflow_replay_enabled",
+            path="model.workflow_replay.enabled",
+            actual=replay.get("enabled"),
+            expected=True,
+        )
+        _require_equal(
+            issues,
+            profile=profile,
             code="invalid_workflow_replay_model_space",
             path="model.workflow_replay.model_space",
             actual=replay.get("model_space"),
