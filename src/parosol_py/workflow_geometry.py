@@ -442,9 +442,9 @@ def _generate_projected_disk_mask(
     if len(surface_keys) == 0:
         return np.zeros_like(active_xyz, dtype=bool)
     thickness = float(plane_spec.get("thickness_mm", 3.0))
-    protrusion = float(plane_spec.get("protrusion_depth_mm", 2.0))
+    intrusion = _disk_intrusion_depth_mm(plane_spec, default=2.0)
     if str(plane_spec.get("shape", "anatomy")).strip().lower() == "anatomy":
-        max_surface_distance = first_distance + max(thickness, 0.0) + max(protrusion, 0.0) + tol
+        max_surface_distance = first_distance + max(thickness, 0.0) + max(intrusion, 0.0) + tol
         distance_by_key = {
             key: value
             for key, value in distance_by_key.items()
@@ -453,7 +453,7 @@ def _generate_projected_disk_mask(
         surface_keys = set(distance_by_key)
         if not surface_keys:
             return np.zeros_like(active_xyz, dtype=bool)
-    cap_inner_distance = first_distance + protrusion
+    cap_inner_distance = first_distance + intrusion
     cap_outer_distance = cap_inner_distance - thickness
     full_idx = np.argwhere(np.ones(active_xyz.shape, dtype=bool))
     full_points = _indices_to_ras_xyz(full_idx, spacing=spacing, origin=origin)
@@ -479,10 +479,12 @@ def _generate_projected_disk_mask(
             dtype=float,
         )
         bucket_mask = np.isfinite(local_surface)
-        local_inner = local_surface + protrusion
-        local_outer = local_inner - thickness
-        local_min = np.minimum(local_outer, local_inner)
-        local_max = np.maximum(local_outer, local_inner)
+        flat_outer = cap_outer_distance
+        if flat_outer >= first_distance:
+            flat_outer = first_distance - thickness
+        local_inner = local_surface
+        local_min = np.minimum(flat_outer, local_inner)
+        local_max = np.maximum(flat_outer, local_inner)
         d_ok = (d_all >= local_min - tol) & (d_all <= local_max + tol)
     else:
         bucket_mask = np.ones(full_idx.shape[0], dtype=bool)
@@ -983,3 +985,16 @@ def _projection_mode(value: Any) -> str:
     if mode == "intersect":
         return "intersect"
     return "project_bounded"
+
+
+def _disk_intrusion_depth_mm(plane_spec: dict[str, Any], *, default: float) -> float:
+    value = plane_spec.get(
+        "intrusion_depth_mm", plane_spec.get("protrusion_depth_mm", default)
+    )
+    try:
+        depth = float(value)
+    except (TypeError, ValueError):
+        depth = float(default)
+    if not np.isfinite(depth) or depth < 0.0:
+        return max(float(default), 0.0)
+    return depth
