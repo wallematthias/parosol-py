@@ -305,7 +305,10 @@ def align_spine_body_to_reference(
 
 def read_reference_points(path: str | Path, *, max_points: int | None = None) -> np.ndarray:
     path = Path(path).expanduser().resolve()
-    if "".join(path.suffixes).lower().endswith(".npz"):
+    suffixes = "".join(path.suffixes).lower()
+    if suffixes.endswith(".npy"):
+        points = np.asarray(np.load(path), dtype=float)
+    elif suffixes.endswith(".npz"):
         with np.load(path) as data:
             key = "points" if "points" in data else data.files[0]
             points = np.asarray(data[key], dtype=float)
