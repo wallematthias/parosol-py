@@ -40,6 +40,38 @@ def test_validator_requires_editor_planes_for_single_case_workflows():
     assert any(issue.code == "missing_editor_planes" for issue in issues)
 
 
+def test_validator_accepts_transitional_npz_reference_points_member():
+    issues = validate_workflow_config(
+        {},
+        profile="spine-compression",
+        bundle_members=("reference/slicer_reference_points.npz",),
+    )
+
+    assert not any(issue.code == "missing_reference_points" for issue in issues)
+
+
+def test_validator_handles_non_mapping_workflow_template():
+    config = {
+        "workflow_template": "malformed",
+        "slicer_editor": {
+            "planes": [
+                {
+                    "name": "Support",
+                    "contact": "Material disks",
+                    "protrusion_depth_mm": 4.0,
+                }
+            ]
+        },
+    }
+
+    issues = validate_workflow_config(config, profile="example", bundle_members=())
+
+    assert WorkflowContractIssue(
+        code="forbidden_key",
+        message="Forbidden workflow key protrusion_depth_mm at slicer_editor.planes.0.protrusion_depth_mm",
+    ) in issues
+
+
 def test_expected_public_profiles_are_the_workflow_only_surface():
     assert EXPECTED_PUBLIC_PROFILES == (
         "XtremeCTI",

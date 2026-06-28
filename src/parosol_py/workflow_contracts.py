@@ -20,6 +20,12 @@ EXPECTED_PUBLIC_PROFILES = (
 )
 
 FORBIDDEN_PUBLIC_KEYS = frozenset({"protrusion_depth_mm"})
+REFERENCE_POINT_MEMBERS = frozenset(
+    {
+        "reference/slicer_reference_points.npy",
+        "reference/slicer_reference_points.npz",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -61,6 +67,8 @@ def validate_workflow_config(
     issues: list[WorkflowContractIssue] = []
     members = tuple(bundle_members)
     template = config.get("workflow_template", {})
+    if not isinstance(template, dict):
+        template = {}
     template_type = str(template.get("type", "")).strip()
     slicer_editor = config.get("slicer_editor", {})
     planes = slicer_editor.get("planes") if isinstance(slicer_editor, dict) else None
@@ -93,11 +101,11 @@ def validate_workflow_config(
         "hip-sideways-fall-left",
         "hip-sideways-fall-right",
     }:
-        if not any(member == "reference/slicer_reference_points.npy" for member in members):
+        if not any(member in REFERENCE_POINT_MEMBERS for member in members):
             issues.append(
                 WorkflowContractIssue(
                     code="missing_reference_points",
-                    message=f"Workflow {profile} must include reference/slicer_reference_points.npy",
+                    message=f"Workflow {profile} must include a slicer reference points asset",
                 )
             )
         if any(member.lower().endswith(".vtk") for member in members):
