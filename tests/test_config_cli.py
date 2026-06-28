@@ -2005,7 +2005,7 @@ def test_cli_shortcut_runs_spine_workflow_with_standard_mask_argument(tmp_path: 
     assert summary["execution"]["profile"] == "spine-compression"
     assert summary["execution"]["template"].endswith("spine-compression.parosol-workflow")
     assert summary["execution"]["mask"] == str(mask_path.resolve())
-    assert summary["model"]["type"] == "spine_compression"
+    assert summary["model"]["type"] == "workflow_replay"
     assert summary["model"]["workflow_replay"]["enabled"] is True
     assert (output_dir / "model" / "material.nii.gz").exists()
 
