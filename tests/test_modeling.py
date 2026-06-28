@@ -11,6 +11,7 @@ from parosol_py.modeling.common import (
     _shift_boundary_conditions_for_crop,
     load_density_and_mask,
     material_from_density,
+    occupied_length_mm,
     projected_caps_from_mask,
 )
 from parosol_py.modeling.io import read_image_zyx
@@ -29,6 +30,7 @@ from parosol_py.modeling.workflow_replay import (
     _workflow_model_mask,
     build_workflow_replay_model,
 )
+from parosol_py.nodesets import nodes_from_labeled_voxels
 
 
 
@@ -844,6 +846,142 @@ def test_workflow_replay_prefers_plane_driven_geometry_over_saved_labels(
     assert len(built.node_sets["support_disk"]) > 0
     material_xyz = np.transpose(built.material, (2, 1, 0))
     assert int(np.count_nonzero(material_xyz == 2500.0)) > 0
+
+
+def test_workflow_replay_exports_generated_nodeset_labels_from_planes(tmp_path: Path):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 20
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "outputs": {
+                "material_image": str(tmp_path / "model" / "material.nii.gz"),
+                "nodeset_image": str(tmp_path / "model" / "nodesets.nii.gz"),
+                "manifest": str(tmp_path / "model" / "model.json"),
+            },
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 1.0,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": "-10%"}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "surface_nodes",
+            }
+        },
+    )
+
+    labels_zyx, _spacing, _origin = read_image_zyx(tmp_path / "model" / "nodesets.nii.gz")
+    labels_xyz = np.transpose(labels_zyx, (2, 1, 0))
+    material_xyz = np.transpose(built.material, (2, 1, 0))
+    reconstructed = nodes_from_labeled_voxels(
+        labels_xyz,
+        label=201,
+        selection="surface_nodes",
+        material=material_xyz,
+    )
+    assert built.metadata["model"]["workflow_replay"]["geometry_mode"] == "plane_driven"
+    assert reconstructed == built.node_sets["superior_disk"]
+
+
+def test_workflow_replay_percent_displacement_uses_occupied_model_length_with_disks(
+    tmp_path: Path,
+):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 20
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 0.0,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": "-10%"}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "surface_nodes",
+            }
+        },
+    )
+
+    values = built.boundary_conditions.fixed_values
+    prescribed = values[np.abs(values) > 0.0]
+    material_xyz = np.transpose(built.material, (2, 1, 0))
+    occupied = occupied_length_mm(material_xyz, axis="z", spacing=built.spacing)
+    assert prescribed.size > 0
+    assert float(np.min(prescribed)) == pytest.approx(-0.10 * occupied)
 
 
 def test_workflow_replay_reference_model_space_keeps_reference_plane_axial(

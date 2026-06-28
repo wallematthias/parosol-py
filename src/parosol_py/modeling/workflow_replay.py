@@ -142,6 +142,7 @@ def build_workflow_replay_model(
 
     mask_xyz = np.transpose(model_mask_zyx, (2, 1, 0))
     labels_xyz[mask_xyz] = 1
+    base_labels_xyz = labels_xyz.copy()
 
     geometry_mode = "cached_labelmaps"
     resolved_editor: dict[str, Any] | None = None
@@ -185,6 +186,15 @@ def build_workflow_replay_model(
         labels_xyz[node_label_xyz > 0],
         node_label_xyz[node_label_xyz > 0],
     )
+    artifact_labels_xyz = labels_xyz.copy()
+    for label in np.unique(node_label_xyz):
+        label_int = int(label)
+        if label_int == 0:
+            continue
+        nodeset_mask = node_label_xyz == label_int
+        colliding_disk_mask = (artifact_labels_xyz == label_int) & ~nodeset_mask
+        artifact_labels_xyz[colliding_disk_mask] = base_labels_xyz[colliding_disk_mask]
+    artifact_labels_xyz[node_label_xyz > 0] = node_label_xyz[node_label_xyz > 0]
 
     node_sets = _workflow_node_sets(
         node_label_xyz,
@@ -239,7 +249,7 @@ def build_workflow_replay_model(
     }
     exported = export_model_artifacts(
         material_xyz=material_xyz,
-        labels_xyz=labels_xyz,
+        labels_xyz=artifact_labels_xyz,
         spacing=spacing,
         origin=origin,
         node_sets=node_sets,
