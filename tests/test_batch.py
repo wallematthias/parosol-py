@@ -747,3 +747,31 @@ def test_run_batch_config_dry_run_executes_real_case_expansion(tmp_path: Path):
     assert case_summary.exists()
     assert summary["batch"]["case_count"] == 1
     assert summary["cases"][0]["case"]["name"] == "cube_compression_z"
+
+
+def test_load_history_6_workflow_recipe_keeps_unit_case_order_and_rotational_units():
+    from parosol_py.workflow_registry import builtin_profile_path
+    from parosol_py.workflow_template import load_workflow_template
+
+    config, _source = load_workflow_template(builtin_profile_path("load_history_6"))
+    cases = config["batch"]["cases"]
+
+    assert [case["name_suffix"] for case in cases] == [
+        "compression_z",
+        "shear_zx",
+        "shear_zy",
+        "bending_x",
+        "bending_y",
+        "torsion_z",
+    ]
+    assert cases[3]["load_case"]["type"] == "bending"
+    assert cases[4]["load_case"]["type"] == "bending"
+    assert cases[5]["load_case"]["type"] == "torsion"
+    assert config["postprocess"]["load_history"]["cases"] == [
+        "compression_z",
+        "shear_zx",
+        "shear_zy",
+        "bending_x",
+        "bending_y",
+        "torsion_z",
+    ]
