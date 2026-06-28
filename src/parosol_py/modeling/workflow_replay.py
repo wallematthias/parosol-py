@@ -835,8 +835,8 @@ def _plane_disk_required_bounds(
         return None
     surface_distance = float(np.min(distances[inside]))
     thickness = max(float(plane.get("thickness_mm", 3.0)), 0.0)
-    protrusion = max(float(plane.get("protrusion_depth_mm", 2.0)), 0.0)
-    cap_inner = surface_distance + protrusion
+    intrusion = max(_disk_intrusion_depth_mm(plane, default=2.0), 0.0)
+    cap_inner = surface_distance + intrusion
     cap_outer = cap_inner - thickness
     d_min = min(cap_outer, cap_inner)
     d_max = max(cap_outer, cap_inner)
@@ -1337,3 +1337,9 @@ def _workflow_load_axis(load_case_config: dict[str, Any] | None) -> str:
             if dof in AXIS_TO_INDEX:
                 return dof
     return "z"
+
+
+def _disk_intrusion_depth_mm(plane: dict[str, Any], *, default: float) -> float:
+    if "intrusion_depth_mm" in plane:
+        return float(plane["intrusion_depth_mm"])
+    return float(default)

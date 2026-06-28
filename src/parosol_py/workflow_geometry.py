@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import itertools
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,7 +25,9 @@ def read_reference_points(
 ) -> np.ndarray:
     path = Path(path).expanduser().resolve()
     suffixes = "".join(path.suffixes).lower()
-    if suffixes.endswith(".npz"):
+    if suffixes.endswith(".npy"):
+        points = np.asarray(np.load(path), dtype=float)
+    elif suffixes.endswith(".npz"):
         with np.load(path) as data:
             key = "points" if "points" in data else data.files[0]
             points = np.asarray(data[key], dtype=float)
