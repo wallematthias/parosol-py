@@ -15,9 +15,9 @@ from .paths import image_stem, suffix_text
 from .reports import parse_legacy_analysis_file, parse_pistoia_file, write_summary_json
 from .workflow_template import (
     apply_workflow_template,
-    builtin_workflow_path,
     load_workflow_template,
 )
+from .workflow_registry import builtin_workflow_path
 
 _COMMANDS = {
     "run",

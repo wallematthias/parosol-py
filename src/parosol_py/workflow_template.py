@@ -12,8 +12,6 @@ from .modeling.io import resolve_path
 from .paths import suffix_text
 from .workflow_registry import (
     WORKFLOW_BUNDLE_SUFFIX,
-    available_builtin_workflows,
-    builtin_workflow_path,
 )
 
 
@@ -137,14 +135,19 @@ def apply_workflow_template(
             registration_cfg = model_cfg.get("registration", {})
             if isinstance(registration_cfg, dict) and registration_cfg.get("reference_points"):
                 replay_cfg["reference_points"] = registration_cfg["reference_points"]
-                sibling_editor_reference = (
+                reference_dir = (
                     Path(str(registration_cfg["reference_points"])).resolve().parent
-                    / "slicer_reference_points.npz"
                 )
-                if sibling_editor_reference.is_file():
-                    replay_cfg["editor_reference_points"] = str(
-                        sibling_editor_reference
-                    )
+                for filename in (
+                    "slicer_reference_points.npy",
+                    "slicer_reference_points.npz",
+                ):
+                    sibling_editor_reference = reference_dir / filename
+                    if sibling_editor_reference.is_file():
+                        replay_cfg["editor_reference_points"] = str(
+                            sibling_editor_reference
+                        )
+                        break
             target = registration_cfg.get("target") if isinstance(registration_cfg, dict) else None
             if target:
                 replay_cfg["registration_target"] = target
@@ -244,6 +247,7 @@ def _resolve_paths_in_mapping(value: dict[str, Any], base_dir: Path) -> None:
             "density_image",
             "mask_image",
             "reference_points",
+            "editor_reference_points",
             "disk_labels",
             "nodesets",
         } and isinstance(item, str) and item:

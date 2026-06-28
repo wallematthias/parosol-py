@@ -2259,8 +2259,10 @@ materials: {}
     assert resolved_reference.name == "vertebra_ref.vtk"
 
 
+@pytest.mark.parametrize("reference_suffix", ["npz", "npy"])
 def test_apply_workflow_template_sets_editor_reference_points_when_available(
     tmp_path: Path,
+    reference_suffix: str,
 ):
     template_dir = tmp_path / "template"
     template_dir.mkdir()
@@ -2279,7 +2281,11 @@ def test_apply_workflow_template_sets_editor_reference_points_when_available(
         ),
         encoding="utf-8",
     )
-    np.savez(reference_dir / "slicer_reference_points.npz", points=np.zeros((3, 3)))
+    reference_name = f"slicer_reference_points.{reference_suffix}"
+    if reference_suffix == "npz":
+        np.savez(reference_dir / reference_name, points=np.zeros((3, 3)))
+    else:
+        np.save(reference_dir / reference_name, np.zeros((3, 3)))
     np.save(template_dir / "disk_labels.npy", np.zeros((2, 2, 2), dtype=np.uint8))
     np.save(template_dir / "nodesets.npy", np.zeros((2, 2, 2), dtype=np.uint8))
     (template_dir / "workflow.yaml").write_text(
@@ -2317,4 +2323,4 @@ workflow_template:
 
     replay = applied["model"]["workflow_replay"]
     assert Path(replay["reference_points"]).name == "vertebra_ref.vtk"
-    assert Path(replay["editor_reference_points"]).name == "slicer_reference_points.npz"
+    assert Path(replay["editor_reference_points"]).name == reference_name
