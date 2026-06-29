@@ -486,12 +486,40 @@ def material_from_density(
         maximum_e_mpa=_optional_float(
             e_cfg.get("maximum_e_mpa", density_cfg.get("maximum_e_mpa"))
         ),
+        bin_material=_enabled(
+            density_cfg.get(
+                "bin_material",
+                e_cfg.get("bin_material", e_cfg.get("binned_material", False)),
+            )
+        ),
+        number_bins=int(
+            density_cfg.get(
+                "number_bins",
+                density_cfg.get(
+                    "bins",
+                    e_cfg.get("number_bins", e_cfg.get("bins", 128)),
+                ),
+            )
+        ),
+        bin_value=density_cfg.get(
+            "bin_value",
+            density_cfg.get(
+                "bin_assignment",
+                e_cfg.get("bin_value", e_cfg.get("bin_assignment", "center")),
+            ),
+        ),
         **{
             key: value
             for key, value in e_cfg.items()
             if key
             not in {
                 "equation",
+                "bin_material",
+                "binned_material",
+                "number_bins",
+                "bins",
+                "bin_value",
+                "bin_assignment",
                 "active_threshold",
                 "mask_threshold",
                 "minimum_e_mpa",

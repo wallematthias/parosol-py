@@ -81,6 +81,7 @@ nodesets:
   #   surface_nodes: nodes on the exterior of the labeled voxel region
   #   all_corner_nodes: every node touched by the labeled voxels
   #   interface_nodes: nodes where labeled voxels touch other material voxels
+  #   outer_face_nodes: load-facing face nodes for plane-driven material disks
   load_plate:
     type: label_image
     image: nodesets.nii.gz

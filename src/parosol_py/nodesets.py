@@ -80,6 +80,43 @@ def nodes_from_mask_face(
     return sorted(nodes)
 
 
+def nodes_from_mask_directional_faces(mask, direction) -> list[Node]:
+    values = np.asarray(mask, dtype=bool)
+    if values.ndim != 3:
+        raise ValueError(f"mask must be 3D, got shape {values.shape}")
+    vector = np.asarray(direction, dtype=float)
+    if vector.shape != (3,) or not np.all(np.isfinite(vector)) or not np.any(vector):
+        raise ValueError("direction must be a finite non-zero 3-vector")
+
+    nodes: set[Node] = set()
+    dims = values.shape
+    selected_faces = [
+        (axis, side)
+        for axis in range(3)
+        for side in (-1, 1)
+        if side * float(vector[axis]) > 0.0
+    ]
+    for voxel_array in np.argwhere(values):
+        voxel = tuple(int(v) for v in voxel_array)
+        for axis, side in selected_faces:
+            neighbor = list(voxel)
+            neighbor[axis] += side
+            outside = (
+                neighbor[axis] < 0 or neighbor[axis] >= dims[axis]
+            )
+            if not outside and bool(values[tuple(neighbor)]):
+                continue
+            node_axis_value = voxel[axis] + (1 if side > 0 else 0)
+            lateral_axes = [idx for idx in range(3) if idx != axis]
+            for du, dv in itertools.product((0, 1), repeat=2):
+                node = list(voxel)
+                node[axis] = node_axis_value
+                node[lateral_axes[0]] += du
+                node[lateral_axes[1]] += dv
+                nodes.add(tuple(node))
+    return sorted(nodes)
+
+
 def boundary_conditions_from_nodesets(
     node_sets: dict[str, list[Node]],
     *,
@@ -89,6 +126,7 @@ def boundary_conditions_from_nodesets(
     dimensions_xyz: tuple[int, int, int],
     spacing: tuple[float, float, float],
     percent_reference_lengths_mm: dict[str, float] | None = None,
+    percent_reference_node_sets: dict[str, list[Node]] | None = None,
 ) -> BoundaryConditionSet:
     fixed_constraints: dict[tuple[int, int, int, int], float] = {}
     loaded_constraints: dict[tuple[int, int, int, int], float] = {}
@@ -97,6 +135,7 @@ def boundary_conditions_from_nodesets(
         fixed=fixed,
         prescribed=prescribed,
         spacing=spacing,
+        reference_node_sets=percent_reference_node_sets,
     )
 
     for spec in fixed:
@@ -441,14 +480,20 @@ def _nodeset_percent_reference_lengths(
     fixed: list[dict] | tuple[dict, ...],
     prescribed: list[dict] | tuple[dict, ...],
     spacing: tuple[float, float, float],
+    reference_node_sets: dict[str, list[Node]] | None = None,
 ) -> dict[tuple[str, str], float]:
     fixed_specs = list(fixed)
     if not fixed_specs:
         return {}
 
+    centroid_node_sets = dict(node_sets)
+    if reference_node_sets:
+        centroid_node_sets.update(
+            {name: nodes for name, nodes in reference_node_sets.items() if nodes}
+        )
     centroids = {
         name: _nodeset_centroid(nodes, spacing)
-        for name, nodes in node_sets.items()
+        for name, nodes in centroid_node_sets.items()
         if nodes
     }
     references: dict[tuple[str, str], float] = {}

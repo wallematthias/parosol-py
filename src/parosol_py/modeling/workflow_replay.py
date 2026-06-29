@@ -146,6 +146,8 @@ def build_workflow_replay_model(
 
     geometry_mode = "cached_labelmaps"
     resolved_editor: dict[str, Any] | None = None
+    generated_node_sets: dict[str, list[tuple[int, int, int]]] | None = None
+    generated_reference_node_sets: dict[str, list[tuple[int, int, int]]] | None = None
     if isinstance(editor, dict) and isinstance(editor.get("planes"), list) and editor.get("planes"):
         disk_xyz, node_label_xyz, node_sets, resolved_editor = _workflow_geometry_from_editor(
             editor=editor,
@@ -162,6 +164,12 @@ def build_workflow_replay_model(
         disk_labels_zyx = np.transpose(np.asarray(disk_xyz, dtype=np.uint16), (2, 1, 0))
         nodeset_labels_zyx = np.transpose(np.asarray(node_label_xyz, dtype=np.uint16), (2, 1, 0))
         geometry_mode = "plane_driven"
+        generated_node_sets = node_sets
+        generated_reference_node_sets = _workflow_percent_reference_node_sets(
+            node_label_xyz,
+            material_xyz=material_xyz,
+            nodeset_config=nodeset_config or {},
+        )
         registration_meta["resolved_editor_plane_count"] = int(len(resolved_editor.get("planes", [])))
     else:
         disk_labels_zyx, nodeset_labels_zyx = _load_resampled_replay_labels(
@@ -196,10 +204,14 @@ def build_workflow_replay_model(
         artifact_labels_xyz[colliding_disk_mask] = base_labels_xyz[colliding_disk_mask]
     artifact_labels_xyz[node_label_xyz > 0] = node_label_xyz[node_label_xyz > 0]
 
-    node_sets = _workflow_node_sets(
-        node_label_xyz,
-        material_xyz=material_xyz,
-        nodeset_config=nodeset_config or {},
+    node_sets = (
+        generated_node_sets
+        if generated_node_sets is not None
+        else _workflow_node_sets(
+            node_label_xyz,
+            material_xyz=material_xyz,
+            nodeset_config=nodeset_config or {},
+        )
     )
     require_non_empty(node_sets)
     boundary_conditions = boundary_conditions_from_nodesets(
@@ -213,6 +225,7 @@ def build_workflow_replay_model(
             axis: occupied_length_mm(material_xyz, axis=axis, spacing=spacing)
             for axis in ("x", "y", "z")
         },
+        percent_reference_node_sets=generated_reference_node_sets,
     )
     element_sets = {
         "bone": int(np.count_nonzero(model_mask_zyx)),
@@ -583,6 +596,30 @@ def _workflow_node_sets(
     return node_sets
 
 
+def _workflow_percent_reference_node_sets(
+    labels_xyz: np.ndarray,
+    *,
+    material_xyz: np.ndarray,
+    nodeset_config: dict[str, Any],
+) -> dict[str, list[tuple[int, int, int]]] | None:
+    reference_sets: dict[str, list[tuple[int, int, int]]] = {}
+    for name, spec in nodeset_config.items():
+        if not isinstance(spec, dict):
+            continue
+        selection = str(spec.get("selection", "surface_nodes")).strip().lower()
+        if selection != "outer_face_nodes":
+            continue
+        reference_spec = dict(spec)
+        reference_spec["selection"] = "surface_nodes"
+        reference_sets[str(name)] = nodes_from_labeled_voxels(
+            labels_xyz,
+            label=int(reference_spec["label"]),
+            selection="surface_nodes",
+            material=material_xyz,
+        )
+    return reference_sets or None
+
+
 def _workflow_active_mask(
     mask_zyx: np.ndarray,
     model_config: dict[str, Any],
@@ -614,7 +651,10 @@ def _workflow_active_mask(
 def _workflow_model_mask(mask_zyx: np.ndarray, model_config: dict[str, Any]) -> np.ndarray:
     labels = model_config.get("labels", {})
     if "body" in labels and "process" in labels:
-        return np.asarray(mask_zyx) > 0
+        body_label = int(labels["body"])
+        process_label = int(labels["process"])
+        mask = np.asarray(mask_zyx)
+        return (mask == body_label) | (mask == process_label)
     if "body" in labels or "vertebral_body" in labels:
         body_label = int(labels.get("body", labels.get("vertebral_body", 20)))
         return np.asarray(mask_zyx) == body_label
@@ -1292,11 +1332,13 @@ def _scale_reference_points_preserving_pose(
     min_factors = np.asarray(scaling_cfg.get("min_factors", [0.8, 0.8, 0.75]), dtype=float)
     max_factors = np.asarray(scaling_cfg.get("max_factors", [1.2, 1.2, 1.3]), dtype=float)
     scale = np.clip(sample_lengths / np.maximum(ref_lengths, 1.0e-6), min_factors, max_factors)
+    # Match Ogo/n88's VTK path: vtkTransform.Scale applies scale about the
+    # coordinate origin before rigid ICP, not about the reference centroid.
     center = reference.mean(axis=0)
-    scaled = (reference - center) * scale + center
+    scaled = reference * scale
     return scaled, {
         "enabled": True,
-        "source": "pca_axis_lengths_reference_pose",
+        "source": "ogo_origin_pca_axis_lengths_reference_pose",
         "reference_center": center.tolist(),
         "reference_axis_lengths": ref_lengths.tolist(),
         "sample_axis_lengths": sample_lengths.tolist(),

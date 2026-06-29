@@ -230,6 +230,47 @@ def test_projected_anatomy_disk_has_flat_load_facing_nodeset_on_uneven_bone():
     assert np.unique(nodeset[:, 2]).tolist() == [8]
 
 
+def test_material_disk_outer_face_nodes_select_only_load_facing_node_plane():
+    mask_xyz = np.zeros((8, 8, 10), dtype=bool)
+    mask_xyz[2:4, 3:5, 5:7] = True
+    mask_xyz[5:7, 3:5, 3:5] = True
+    material_xyz = mask_xyz.astype(np.float32) * 1000.0
+    editor = {
+        "planes": [
+            {
+                "name": "Superior disk",
+                "contact": "Material disks",
+                "surface_mode": "project_bounded",
+                "shape": "anatomy",
+                "thickness_mm": 3.0,
+                "intrusion_depth_mm": 1.0,
+                "center_ras": [3.5, 3.5, 9.0],
+                "normal_ras": [0.0, 0.0, -1.0],
+                "u_axis_ras": [1.0, 0.0, 0.0],
+                "v_axis_ras": [0.0, 1.0, 0.0],
+                "size_mm": [8.0, 4.0],
+            }
+        ]
+    }
+
+    geometry = generate_disk_and_nodeset_geometry(
+        editor,
+        mask_xyz=mask_xyz,
+        material_xyz=material_xyz,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        nodeset_specs={"superior_disk": {"selection": "outer_face_nodes"}},
+        nodeset_labels={"superior_disk": 201},
+        nodeset_names={"Superior disk": "superior_disk"},
+        disk_labels={"Superior disk": 22},
+    )
+
+    nodes = np.asarray(geometry.node_sets["superior_disk"], dtype=int)
+
+    assert np.unique(np.argwhere(geometry.nodeset_labels_xyz == 201)[:, 2]).tolist() == [8]
+    assert np.unique(nodes[:, 2]).tolist() == [9]
+
+
 def test_projected_material_disk_never_labels_bone_voxels():
     mask_xyz = np.zeros((7, 7, 7), dtype=bool)
     mask_xyz[2:5, 2:5, 2:5] = True
@@ -314,30 +355,27 @@ def test_larger_intrusion_wraps_more_anatomy_columns_without_entering_bone():
     assert np.count_nonzero(wrapped & mask_xyz) == 0
 
 
-def test_legacy_protrusion_depth_matches_intrusion_depth():
+def test_legacy_protrusion_depth_is_not_geometry_input():
     mask_xyz = np.zeros((9, 9, 9), dtype=bool)
     mask_xyz[3:6, 3:6, 4:6] = True
     mask_xyz[1:3, 3:6, 1:3] = True
     material_xyz = mask_xyz.astype(np.float32) * 1000.0
 
-    def build(depth_key: str):
-        editor = {
-            "planes": [
-                {
-                    "name": "Support disk",
-                    "contact": "Material disks",
-                    "surface_mode": "project_bounded",
-                    "shape": "anatomy",
-                    "thickness_mm": 2.0,
-                    depth_key: 0.0,
-                    "center_ras": [4.0, 4.0, 8.0],
-                    "normal_ras": [0.0, 0.0, -1.0],
-                    "u_axis_ras": [1.0, 0.0, 0.0],
-                    "v_axis_ras": [0.0, 1.0, 0.0],
-                    "size_mm": [6.0, 6.0],
-                }
-            ]
+    def build(extra: dict[str, object]):
+        plane = {
+            "name": "Support disk",
+            "contact": "Material disks",
+            "surface_mode": "project_bounded",
+            "shape": "anatomy",
+            "thickness_mm": 2.0,
+            "center_ras": [4.0, 4.0, 8.0],
+            "normal_ras": [0.0, 0.0, -1.0],
+            "u_axis_ras": [1.0, 0.0, 0.0],
+            "v_axis_ras": [0.0, 1.0, 0.0],
+            "size_mm": [6.0, 6.0],
         }
+        plane.update(extra)
+        editor = {"planes": [plane]}
         return generate_disk_and_nodeset_geometry(
             editor,
             mask_xyz=mask_xyz,
@@ -349,10 +387,12 @@ def test_legacy_protrusion_depth_matches_intrusion_depth():
             disk_labels={"Support disk": 22},
         ).disk_labels_xyz == 22
 
-    intrusion = build("intrusion_depth_mm")
-    legacy_protrusion = build("protrusion_depth_mm")
+    default = build({})
+    intrusion = build({"intrusion_depth_mm": 0.0})
+    legacy_protrusion = build({"protrusion_depth_mm": 0.0})
 
-    assert np.array_equal(legacy_protrusion, intrusion)
+    assert not np.array_equal(default, intrusion)
+    assert np.array_equal(legacy_protrusion, default)
     assert np.count_nonzero(legacy_protrusion & mask_xyz) == 0
 
 

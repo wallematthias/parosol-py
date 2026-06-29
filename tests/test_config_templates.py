@@ -80,9 +80,13 @@ def test_packaged_workflows_use_npy_references_and_intrusion_schema():
         text = read_config_template(name)
         loaded, _source = load_workflow_template(path)
         replay = loaded["model"]["workflow_replay"]
+        density = loaded["materials"]["density"]
         assert loaded["model"]["type"] == "workflow_replay"
         assert replay["enabled"] is True
         assert replay["model_space"] == "reference"
+        assert density["bin_material"] is True
+        assert density["number_bins"] == 128
+        assert density["bin_value"] == "center"
         assert "reference/slicer_reference_points.npy" in text
         assert "method: vtk_icp" in text
         assert "initialization: centroid" in text

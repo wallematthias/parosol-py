@@ -26,6 +26,7 @@ from parosol_py.modeling.common import displacement_from_load_case
 from parosol_py.modeling.workflow_replay import (
     _resolve_bbox_relative_editor,
     _scale_reference_space_editor,
+    _scale_reference_points_preserving_pose,
     _workflow_active_mask,
     _workflow_model_mask,
     build_workflow_replay_model,
@@ -397,6 +398,17 @@ def test_reference_points_reader_supports_binary_vtk(tmp_path: Path):
     np.testing.assert_allclose(read_reference_points(vtk_path), points.astype(float))
 
 
+def test_reference_points_reader_supports_npy_reference_cloud(tmp_path: Path):
+    reference = np.asarray(
+        [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
+        dtype=float,
+    )
+    path = tmp_path / "slicer_reference_points.npy"
+    np.save(path, reference)
+
+    np.testing.assert_allclose(read_reference_points(path), reference)
+
+
 def test_reference_points_orientation_reorders_and_flips_axes():
     stored_zyx = np.asarray(
         [
@@ -485,6 +497,7 @@ def test_model_percent_displacement_uses_padded_full_height():
 
 def test_workflow_replay_uses_body_for_registration_but_full_mask_for_model():
     mask = np.zeros((4, 4, 4), dtype=np.uint8)
+    mask[0:1, 0:1, 0:1] = 2
     mask[1:3, 1:3, 1:3] = 20
     mask[2:4, 0:1, 1:3] = 48
     model_config = {"labels": {"body": 20, "process": 48}}
@@ -494,8 +507,61 @@ def test_workflow_replay_uses_body_for_registration_but_full_mask_for_model():
     model_mask = _workflow_model_mask(mask, model_config)
 
     assert int(np.count_nonzero(registration_mask)) == int(np.count_nonzero(mask == 20))
-    assert int(np.count_nonzero(model_mask)) == int(np.count_nonzero(mask > 0))
+    assert int(np.count_nonzero(model_mask)) == int(
+        np.count_nonzero((mask == 20) | (mask == 48))
+    )
+    assert not np.any(model_mask[mask == 2])
     assert np.count_nonzero(model_mask) > np.count_nonzero(registration_mask)
+
+
+def test_workflow_replay_uses_label_one_for_registration_when_labels_are_remapped():
+    mask = np.zeros((4, 4, 4), dtype=np.uint8)
+    mask[1:3, 1:3, 1:3] = 1
+    mask[2:4, 0:1, 1:3] = 2
+    model_config = {"labels": {"body": 1, "process": 2}}
+    replay_cfg = {"registration_target": "vertebral_body"}
+
+    registration_mask = _workflow_active_mask(mask, model_config, replay_cfg)
+    model_mask = _workflow_model_mask(mask, model_config)
+
+    assert int(np.count_nonzero(registration_mask)) == int(np.count_nonzero(mask == 1))
+    assert not np.any(registration_mask[mask == 2])
+    assert int(np.count_nonzero(model_mask)) == int(np.count_nonzero(mask > 0))
+
+
+def test_reference_space_scaling_matches_ogo_origin_scale():
+    reference = np.asarray(
+        [
+            [10.0, 0.0, 0.0],
+            [12.0, 0.0, 0.0],
+            [10.0, 1.0, 0.0],
+            [10.0, 0.0, 1.0],
+        ]
+    )
+    sample = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [4.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+
+    scaled, meta = _scale_reference_points_preserving_pose(
+        reference_points=reference,
+        sample_points=sample,
+        registration_config={
+            "reference_scaling": {
+                "enabled": True,
+                "min_factors": [0.0, 0.0, 0.0],
+                "max_factors": [10.0, 10.0, 10.0],
+            }
+        },
+    )
+
+    scale = np.asarray(meta["scale_factors"])
+    np.testing.assert_allclose(scaled, reference * scale)
+    assert meta["source"] == "ogo_origin_pca_axis_lengths_reference_pose"
 
 
 def test_mask_alignment_sizes_output_grid_from_full_surface_not_sampled_subset(
@@ -812,7 +878,7 @@ def test_workflow_replay_prefers_plane_driven_geometry_over_saved_labels(
                         "surface_mode": "project_bounded",
                         "shape": "anatomy",
                         "thickness_mm": 2.0,
-                        "protrusion_depth_mm": 1.0,
+                        "intrusion_depth_mm": 1.0,
                         "use_plane_size": True,
                         "center_ras": [3.5, 3.5, 7.0],
                         "normal_ras": [0.0, 0.0, -1.0],
@@ -918,6 +984,155 @@ def test_workflow_replay_exports_generated_nodeset_labels_from_planes(tmp_path: 
     )
     assert built.metadata["model"]["workflow_replay"]["geometry_mode"] == "plane_driven"
     assert reconstructed == built.node_sets["superior_disk"]
+
+
+def test_workflow_replay_keeps_generated_outer_face_node_sets(tmp_path: Path):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 20
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 1.0,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": "-10%"}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "outer_face_nodes",
+            }
+        },
+    )
+
+    nodes = np.asarray(built.node_sets["superior_disk"], dtype=int)
+
+    assert built.metadata["model"]["workflow_replay"]["geometry_mode"] == "plane_driven"
+    assert np.unique(nodes[:, 2]).tolist() == [7]
+
+
+def test_workflow_replay_outer_face_nodes_keep_ogo_style_percent_length(
+    tmp_path: Path,
+):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 20
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 0.0,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    },
+                    {
+                        "name": "Inferior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, -0.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 0.0,
+                        "normal_ras": [0.0, 0.0, 1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    },
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "fixed": [{"nodeset": "inferior_disk", "dofs": ["x", "y", "z"], "value": 0.0}],
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": "-10%"}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "outer_face_nodes",
+            },
+            "inferior_disk": {
+                "type": "label_image",
+                "label": 102,
+                "selection": "outer_face_nodes",
+            },
+        },
+    )
+
+    superior_nodes = np.asarray(built.node_sets["superior_disk"], dtype=int)
+    inferior_nodes = np.asarray(built.node_sets["inferior_disk"], dtype=int)
+    prescribed = built.boundary_conditions.fixed_values[
+        np.abs(built.boundary_conditions.fixed_values) > 0.0
+    ]
+
+    assert np.unique(superior_nodes[:, 2]).tolist() == [9]
+    assert np.unique(inferior_nodes[:, 2]).tolist() == [1]
+    assert built.boundary_conditions.reference_lengths_mm["z"] == pytest.approx(7.0)
+    assert prescribed.size > 0
+    assert np.unique(prescribed).tolist() == pytest.approx([-0.7])
 
 
 def test_workflow_replay_percent_displacement_uses_occupied_model_length_with_disks(
@@ -1034,7 +1249,7 @@ def test_workflow_replay_reference_model_space_keeps_reference_plane_axial(
                         "surface_mode": "project_bounded",
                         "shape": "anatomy",
                         "thickness_mm": 2.0,
-                        "protrusion_depth_mm": 1.0,
+                        "intrusion_depth_mm": 1.0,
                         "use_plane_size": True,
                         "center_ras": [4.5, 4.5, 8.0],
                         "normal_ras": [0.0, 0.0, -1.0],
@@ -1101,7 +1316,7 @@ def test_workflow_replay_without_registration_stays_in_sample_space(tmp_path: Pa
                         "surface_mode": "project_bounded",
                         "shape": "anatomy",
                         "thickness_mm": 2.0,
-                        "protrusion_depth_mm": 1.0,
+                        "intrusion_depth_mm": 1.0,
                         "use_plane_size": True,
                         "center_ras": [3.5, 3.5, 7.0],
                         "normal_ras": [0.0, 0.0, -1.0],
@@ -1229,7 +1444,7 @@ def test_workflow_replay_uses_bbox_relative_plane_for_scaled_model(tmp_path: Pat
                         "surface_mode": "project_bounded",
                         "shape": "anatomy",
                         "thickness_mm": 2.0,
-                        "protrusion_depth_mm": 1.0,
+                        "intrusion_depth_mm": 1.0,
                         "use_plane_size": True,
                         "normal_ras": [0.0, 0.0, -1.0],
                         "u_axis_ras": [1.0, 0.0, 0.0],
@@ -1300,7 +1515,7 @@ def test_workflow_replay_pads_when_relative_disk_extends_outside_image(
                         "surface_mode": "project_bounded",
                         "shape": "anatomy",
                         "thickness_mm": 2.0,
-                        "protrusion_depth_mm": 0.0,
+                        "intrusion_depth_mm": 0.0,
                         "use_plane_size": True,
                         "normal_ras": [0.0, 0.0, -1.0],
                         "u_axis_ras": [1.0, 0.0, 0.0],

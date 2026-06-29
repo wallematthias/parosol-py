@@ -93,6 +93,9 @@ def density_to_material_map(
     density_for_material = density_array
     bin_metadata: dict[str, Any] = {"bin_material": False}
     if _truthy(parameters.get("bin_material", parameters.get("binned_material", False))):
+        bin_value = str(parameters.get("bin_value", parameters.get("bin_assignment", "center"))).strip().lower()
+        if bin_value not in {"center", "bin_center", "bin-centre", "bin_centre"}:
+            raise ValueError("density binning currently supports bin_value='center' only")
         density_for_material, bin_edges, bin_centers = _ogo_binned_density_values(
             density_array,
             active=active,
@@ -102,6 +105,7 @@ def density_to_material_map(
             "bin_material": True,
             "number_bins": int(parameters.get("number_bins", parameters.get("bins", 128))),
             "binning": "ogo_global_nonzero_active_density",
+            "bin_value": "center",
             "bin_edges": [float(value) for value in bin_edges],
             "bin_centers": [float(value) for value in bin_centers],
         }

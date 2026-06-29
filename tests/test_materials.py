@@ -161,8 +161,21 @@ def test_density_to_material_map_can_use_ogo_compatible_global_bins():
     assert mapped.youngs_modulus_mpa.tolist() == [[[0.0, 36.0, 36.0, 66.0, 66.0]]]
     assert mapped.metadata["bin_material"] is True
     assert mapped.metadata["number_bins"] == 2
+    assert mapped.metadata["bin_value"] == "center"
     np.testing.assert_allclose(mapped.metadata["bin_centers"], [17.5, 32.5])
     np.testing.assert_allclose(mapped.metadata["bin_edges"], [10.0, 25.0, 40.0])
+
+
+def test_density_to_material_map_rejects_non_center_binning():
+    density = np.array([[[0.0, 10.0, 20.0]]])
+
+    with pytest.raises(ValueError, match="bin_value='center'"):
+        density_to_material_map(
+            density,
+            equation="linear",
+            bin_material=True,
+            bin_value="lower",
+        )
 
 
 def test_poisson_ratio_from_spec_can_reduce_continuous_field():

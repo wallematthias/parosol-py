@@ -63,11 +63,10 @@ def test_pyproject_declares_native_wheel_build_settings():
     )
     assert pyproject["tool"]["scikit-build"]["wheel"]["packages"] == [
         "src/parosol_py",
-        "src/parosol_torch",
     ]
     assert pyproject["tool"]["cibuildwheel"]["build"] == "cp311-* cp312-* cp313-*"
     assert pyproject["tool"]["scikit-build"]["cmake"]["version"] == ">=3.18"
-    assert pyproject["project"]["optional-dependencies"]["torch"] == ["torch>=2.3"]
+    assert "torch" not in pyproject["project"].get("optional-dependencies", {})
     assert "PAROSOL_MPI_RUNTIME openmpi msmpi" in cmake
     assert "DESTINATION parosol_py/bin" in cmake
     assert "install(PROGRAMS ${PAROSOL_MPI_RUNTIME_PROGRAMS}" in cmake

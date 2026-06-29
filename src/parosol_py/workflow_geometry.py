@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from .nodesets import nodes_from_labeled_voxels
+from .nodesets import nodes_from_labeled_voxels, nodes_from_mask_directional_faces
 
 
 @dataclass(slots=True)
@@ -160,8 +160,11 @@ def generate_disk_and_nodeset_geometry(
                     plane_spec=plane,
                 )
                 nodeset_label_array[face_mask] = np.uint16(nodeset_label)
-                node_sets[nodeset_name] = _node_set_from_mask(
-                    face_mask, selection=selection, material_xyz=material
+                node_sets[nodeset_name] = _node_set_from_disk_face(
+                    face_mask,
+                    selection=selection,
+                    material_xyz=material,
+                    plane_spec=plane,
                 )
         elif contact == "bone surface" and nodeset_label > 0:
             if surface_mode == "intersect":
@@ -648,6 +651,21 @@ def _node_set_from_mask(
     )
 
 
+def _node_set_from_disk_face(
+    mask_xyz: np.ndarray,
+    *,
+    selection: str,
+    material_xyz: np.ndarray,
+    plane_spec: dict[str, Any],
+) -> list[tuple[int, int, int]]:
+    if selection.strip().lower() == "outer_face_nodes":
+        _center, normal, _u_axis, _v_axis, _half_u, _half_v = _plane_geometry(plane_spec)
+        return nodes_from_mask_directional_faces(mask_xyz, -normal)
+    return _node_set_from_mask(
+        mask_xyz, selection=selection, material_xyz=material_xyz
+    )
+
+
 def _plane_geometry(
     plane_spec: dict[str, Any]
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, float]:
@@ -989,9 +1007,7 @@ def _projection_mode(value: Any) -> str:
 
 
 def _disk_intrusion_depth_mm(plane_spec: dict[str, Any], *, default: float) -> float:
-    value = plane_spec.get(
-        "intrusion_depth_mm", plane_spec.get("protrusion_depth_mm", default)
-    )
+    value = plane_spec.get("intrusion_depth_mm", default)
     try:
         depth = float(value)
     except (TypeError, ValueError):

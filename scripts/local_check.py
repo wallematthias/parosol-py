@@ -15,8 +15,8 @@ DEFAULT_OUTDIR = ROOT / "dist-local-check"
 REQUIRED_WHEEL_MEMBERS = (
     "parosol_py/bin/parosol",
     "parosol_py/config_templates/default.yaml",
-    "parosol_py/config_templates/profiles/xtremectii.yaml",
-    "parosol_py/config_templates/profiles/vertebra.yaml",
+    "parosol_py/workflows/XtremeCTII.parosol-workflow",
+    "parosol_py/workflows/spine-compression.parosol-workflow",
     "parosol_py/licenses/parosol_native_LICENSE.txt",
 )
 
@@ -118,12 +118,13 @@ def _inspect_wheel(wheel: Path) -> None:
     missing = [name for name in REQUIRED_WHEEL_MEMBERS if name not in names]
     if missing:
         raise SystemExit("wheel is missing required member(s): " + ", ".join(missing))
-    template_count = sum(
-        name.startswith("parosol_py/config_templates/") and name.endswith(".yaml")
+    recipe_count = sum(
+        name.startswith("parosol_py/workflows/")
+        and (name.endswith(".parosol-workflow") or name.endswith(".parosol-profile"))
         for name in names
     )
-    if template_count < 3:
-        raise SystemExit(f"wheel has too few config templates: {template_count}")
+    if recipe_count < 7:
+        raise SystemExit(f"wheel has too few workflow/profile recipes: {recipe_count}")
 
 
 def _smoke_install(wheel: Path) -> None:
