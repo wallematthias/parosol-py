@@ -119,6 +119,20 @@ def test_spine_workflow_contract_targets_body_registration_and_full_model():
     assert loaded["slicer_editor"]["planes"][1]["relative_to"] == "model_bbox"
 
 
+def test_spine_workflow_cap_geometry_matches_locked_parity_settings():
+    from parosol_py.workflow_registry import builtin_profile_path
+
+    loaded, _source = load_workflow_template(builtin_profile_path("spine-compression"))
+    disk = loaded["model"]["geometry"]["disk"]
+
+    assert disk["thickness_mm"] == 10.0
+    assert disk["intrusion_depth_mm"] == 6.0
+    for plane in loaded["slicer_editor"]["planes"]:
+        if plane["contact"] == "Material disks":
+            assert plane["thickness_mm"] == 10.0
+            assert plane["intrusion_depth_mm"] == 6.0
+
+
 def test_load_history_workflows_remain_boundary_condition_recipes():
     assert "load_history_3" in read_config_template("load_history_3")
     assert "postprocess:" in read_config_template("load_history_3")
