@@ -120,11 +120,11 @@ def _canonicalize_loaded_workflow(value: Any) -> Any:
 
 def _canonical_temp_workflow_path(value: str) -> str:
     marker = "/parosol_workflow_"
-    prefix, remainder = value.split(marker, 1)
+    _prefix, remainder = value.split(marker, 1)
     _temp_name, _separator, tail = remainder.partition("/")
     if not tail:
-        return value
-    return f"{prefix}{marker}<bundle>/{tail}"
+        return "<workflow_bundle>"
+    return f"<workflow_bundle>/{tail}"
 
 
 def _git_sha() -> str:

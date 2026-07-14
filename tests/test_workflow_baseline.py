@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 
 from parosol_py.workflow_baseline import build_builtin_workflow_baseline
+from parosol_py.workflow_baseline import _canonicalize_loaded_workflow
 from parosol_py.workflow_contracts import EXPECTED_PUBLIC_PROFILES
 
 
@@ -46,6 +47,20 @@ def test_baseline_config_hashes_are_stable_across_temp_extractions():
             first["workflows"][profile]["config_sha256"]
             == second["workflows"][profile]["config_sha256"]
         )
+
+
+def test_baseline_canonicalizes_workflow_bundle_temp_roots():
+    paths = {
+        "linux": "/tmp/parosol_workflow_abc123/reference/slicer_reference_points.npy",
+        "mac": "/var/folders/zz/parosol_workflow_def456/reference/slicer_reference_points.npy",
+    }
+
+    canonical = _canonicalize_loaded_workflow(paths)
+
+    assert canonical == {
+        "linux": "<workflow_bundle>/reference/slicer_reference_points.npy",
+        "mac": "<workflow_bundle>/reference/slicer_reference_points.npy",
+    }
 
 
 def test_baseline_git_sha_ignores_caller_cwd_git_repo(tmp_path, monkeypatch):
