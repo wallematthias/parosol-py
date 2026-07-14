@@ -19,6 +19,7 @@ dependencies = [
   "aimio-py>=0.1.1",
   "PyYAML>=6",
   "matplotlib>=3.8",
+  "scipy>=1.11",
 ]
 
 [project.scripts]
@@ -36,13 +37,10 @@ dev = [
   "cibuildwheel>=2.19",
   "twine>=5",
 ]
-torch = [
-  "torch>=2.3",
-]
 
 [tool.scikit-build]
 cmake.version = ">=3.18"
-wheel.packages = ["src/parosol_py", "src/parosol_torch"]
+wheel.packages = ["src/parosol_py"]
 
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-*"

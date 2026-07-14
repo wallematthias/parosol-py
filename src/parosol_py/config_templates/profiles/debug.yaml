@@ -1,9 +1,0 @@
-# Override snippet for debugging fields and visual inspection.
-solver_profile: debug
-output_profile: debug
-
-solver:
-  outputs: [sed, effective_strain, von_mises]
-
-output:
-  export_fields: true

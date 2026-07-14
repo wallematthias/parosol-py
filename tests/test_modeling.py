@@ -1,23 +1,64 @@
-import json
 from pathlib import Path
 
 import numpy as np
 import pytest
 import SimpleITK as sitk
 
+from parosol_py.core import BoundaryConditionSet
+from parosol_py.config import _image_metadata, _read_image_array_zyx
 from parosol_py.modeling import build_model
-from parosol_py.modeling.common import load_density_and_mask, material_from_density
+from parosol_py.modeling.common import (
+    _shift_boundary_conditions_for_crop,
+    load_density_and_mask,
+    material_from_density,
+    occupied_length_mm,
+    projected_caps_from_mask,
+)
 from parosol_py.modeling.io import read_image_zyx
 from parosol_py.modeling.alignment import (
+    align_mask_to_reference,
     estimate_rigid_icp,
     orient_reference_points,
     read_reference_points,
     surface_points_from_mask,
 )
 from parosol_py.modeling.common import displacement_from_load_case
+from parosol_py.modeling.workflow_replay import (
+    _crop_workflow_model_to_material_bbox,
+    _invert_rigid_transform,
+    _reference_model_space_icp_direction,
+    _resolve_bbox_relative_editor,
+    _scale_reference_space_editor,
+    _scale_reference_points_preserving_pose,
+    _workflow_active_mask,
+    _workflow_model_mask,
+    build_workflow_replay_model,
+)
+from parosol_py.nodesets import nodes_from_labeled_voxels
 
 
-def test_model_image_reader_canonicalizes_nifti_direction(tmp_path: Path):
+
+def test_legacy_anatomy_builder_modules_are_removed():
+    project_root = Path(__file__).resolve().parents[1]
+    modeling_dir = project_root / "src" / "parosol_py" / "modeling"
+
+    assert not (modeling_dir / "spine.py").exists()
+    assert not (modeling_dir / "femur.py").exists()
+
+
+def test_build_model_requires_workflow_replay_for_modeling(tmp_path: Path):
+    with pytest.raises(NotImplementedError, match="model\\.workflow_replay\\.enabled"):
+        build_model(
+            {
+                "type": "spine_compression",
+                "density_image": "density.npy",
+                "mask_image": "mask.npy",
+            },
+            base_dir=tmp_path,
+            material_config={},
+        )
+
+def test_model_image_reader_canonicalizes_nifti_direction_to_slicer_ras(tmp_path: Path):
     array = np.arange(2 * 3 * 4, dtype=np.float32).reshape((2, 3, 4))
     image = sitk.GetImageFromArray(array)
     image.SetSpacing((1.0, 2.0, 3.0))
@@ -28,10 +69,56 @@ def test_model_image_reader_canonicalizes_nifti_direction(tmp_path: Path):
 
     data, spacing, origin = read_image_zyx(path)
 
-    expected = sitk.GetArrayFromImage(sitk.DICOMOrient(sitk.ReadImage(str(path)), "LPS"))
+    expected_image = sitk.DICOMOrient(sitk.ReadImage(str(path)), "RAS")
+    expected = sitk.GetArrayFromImage(expected_image)
     np.testing.assert_array_equal(data, expected)
     assert spacing == pytest.approx((1.0, 2.0, 3.0))
-    assert origin == pytest.approx((10.0, 16.0, 30.0))
+    assert origin == pytest.approx((-13.0, -20.0, 30.0))
+
+    direct_data = _read_image_array_zyx(path)
+    direct_spacing, direct_origin = _image_metadata(path)
+    np.testing.assert_array_equal(direct_data, expected)
+    assert direct_spacing == pytest.approx(expected_image.GetSpacing())
+    assert direct_origin == pytest.approx(origin)
+
+
+def _canonical_surface_points_from_mask_image(path: Path, label: int):
+    labels_zyx, spacing, origin = read_image_zyx(path)
+    return surface_points_from_mask(
+        labels_zyx == label,
+        spacing=spacing,
+        origin=origin,
+    )
+
+
+def test_qc_crop_shifts_boundary_condition_coordinates():
+    bc = BoundaryConditionSet(
+        fixed_coordinates=np.asarray(
+            [
+                [10, 20, 30, 2],
+                [2, 20, 30, 2],
+            ],
+            dtype=np.uint16,
+        ),
+        fixed_values=np.asarray([1.0, 2.0], dtype=np.float32),
+        loaded_coordinates=np.asarray([[11, 21, 31, 0]], dtype=np.uint16),
+        loaded_values=np.asarray([3.0], dtype=np.float32),
+        node_sets={"top": [(10, 20, 30), (2, 20, 30)]},
+    )
+
+    shifted = _shift_boundary_conditions_for_crop(bc, offset_xyz=(4, 5, 6))
+
+    np.testing.assert_array_equal(
+        shifted.fixed_coordinates,
+        np.asarray([[6, 15, 24, 2]], dtype=np.uint16),
+    )
+    np.testing.assert_array_equal(
+        shifted.loaded_coordinates,
+        np.asarray([[7, 16, 25, 0]], dtype=np.uint16),
+    )
+    assert shifted.fixed_values.tolist() == [1.0]
+    assert shifted.loaded_values.tolist() == [3.0]
+    assert shifted.node_sets["top"] == [(6, 15, 24)]
 
 
 def test_model_geometry_numeric_isotropic_spacing_resamples_to_target(
@@ -60,6 +147,68 @@ def test_model_geometry_numeric_isotropic_spacing_resamples_to_target(
     assert resampled_mask.shape == resampled_density.shape
 
 
+def test_model_preprocessing_resample_isotropic_targets_requested_spacing(
+    tmp_path: Path,
+):
+    density = np.ones((5, 6, 7), dtype=np.float32)
+    mask = np.ones_like(density, dtype=np.uint8)
+    density_image = sitk.GetImageFromArray(density)
+    mask_image = sitk.GetImageFromArray(mask)
+    density_image.SetSpacing((0.8, 0.8, 0.8))
+    mask_image.SetSpacing((0.8, 0.8, 0.8))
+    sitk.WriteImage(density_image, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_image, str(tmp_path / "mask.nii.gz"))
+
+    resampled_density, resampled_mask, spacing, _origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "resample_isotropic": {
+                "enabled": True,
+                "mode": "auto",
+                "target_spacing_mm": 1.0,
+            }
+        },
+    )
+
+    assert spacing == pytest.approx((1.0, 1.0, 1.0))
+    assert resampled_density.shape != density.shape
+    assert resampled_mask.shape == resampled_density.shape
+
+
+def test_model_preprocessing_crop_to_bb_margin_mm_uses_image_spacing(
+    tmp_path: Path,
+):
+    density = np.zeros((10, 10, 10), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[4:6, 4:6, 4:6] = 700.0
+    mask[4:6, 4:6, 4:6] = 2
+    density_image = sitk.GetImageFromArray(density)
+    mask_image = sitk.GetImageFromArray(mask)
+    density_image.SetSpacing((0.5, 1.0, 2.0))
+    mask_image.SetSpacing((0.5, 1.0, 2.0))
+    sitk.WriteImage(density_image, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_image, str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+            "geometry": {"isotropic_spacing": False},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={"crop_to_bb": {"enabled": True, "margin_mm": 2.0}},
+    )
+
+    assert cropped_density.shape == (4, 6, 10)
+    assert cropped_mask.shape == (4, 6, 10)
+    assert origin == pytest.approx((-4.5, -7.0, 6.0))
+
+
 def test_model_geometry_spacing_tolerance_skips_unnecessary_resampling(
     tmp_path: Path,
 ):
@@ -86,6 +235,128 @@ def test_model_geometry_spacing_tolerance_skips_unnecessary_resampling(
 
     assert spacing == pytest.approx((0.6069, 0.6069, 0.6069))
     assert resampled_density.shape == density.shape
+
+
+def test_model_preprocessing_normalizes_mask_bbox_aspect_ratio(tmp_path: Path):
+    density = np.zeros((24, 20, 24), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:18, 4:14, 2:22] = 700.0
+    mask[2:18, 4:14, 2:22] = 2
+    density_image = sitk.GetImageFromArray(density)
+    mask_image = sitk.GetImageFromArray(mask)
+    density_image.SetSpacing((1.0, 1.0, 1.0))
+    mask_image.SetSpacing((1.0, 1.0, 1.0))
+    sitk.WriteImage(density_image, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_image, str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "normalize_aspect_ratio": {
+                "enabled": True,
+                "ratio": [1.2, 1.0, None],
+            }
+        },
+    )
+
+    assert cropped_density.shape == (12, 10, 20)
+    assert cropped_mask.shape == (12, 10, 20)
+    assert origin == pytest.approx((-21.0, -13.0, 4.0))
+    assert int(np.count_nonzero(cropped_mask == 2)) == 12 * 10 * 20
+
+    alias_density, alias_mask, _spacing, _origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={"aspect-ratio": [1.2, 1.0, None]},
+    )
+
+    assert alias_density.shape == (12, 10, 20)
+    assert alias_mask.shape == (12, 10, 20)
+
+
+def test_model_preprocessing_accepts_bbox_ratio_recipe_order(tmp_path: Path):
+    density = np.zeros((24, 20, 24), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:18, 4:14, 2:22] = 700.0
+    mask[2:18, 4:14, 2:22] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={"bbox_ratio": [1.0, 1.2, None]},
+    )
+
+    assert cropped_density.shape == (12, 10, 20)
+    assert cropped_mask.shape == (12, 10, 20)
+    assert origin == pytest.approx((-21.0, -13.0, 4.0))
+
+
+def test_model_preprocessing_bbox_ratio_can_crop_from_constrained_min_end(
+    tmp_path: Path,
+):
+    density = np.zeros((24, 20, 24), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:18, 4:14, 2:22] = 700.0
+    mask[2:18, 4:14, 2:22] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "bbox_ratio": [1.0, 1.2, None],
+            "bbox_crop_from": [None, "min", None],
+        },
+    )
+
+    assert cropped_density.shape == (12, 10, 20)
+    assert cropped_mask.shape == (12, 10, 20)
+    assert origin == pytest.approx((-21.0, -13.0, 6.0))
+
+
+def test_model_preprocessing_bbox_ratio_uses_shortest_one_axis_as_reference(
+    tmp_path: Path,
+):
+    density = np.zeros((24, 20, 24), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:18, 4:14, 2:22] = 700.0
+    mask[2:18, 4:14, 2:22] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={"bbox_ratio": [1.0, 1.0, 1.0]},
+    )
+
+    assert cropped_density.shape == (10, 10, 10)
+    assert cropped_mask.shape == (10, 10, 10)
+    assert origin == pytest.approx((-16.0, -13.0, 5.0))
 
 
 def test_model_preprocessing_smooths_density_and_labels_together(tmp_path: Path):
@@ -120,6 +391,48 @@ def test_model_preprocessing_smooths_density_and_labels_together(tmp_path: Path)
     assert 0.0 < smoothed_density[4, 4, 3] < 100.0
     assert smoothed_density[4, 4, 4] < 100.0
     assert np.count_nonzero(smoothed_mask == 2) > 1
+
+
+def test_model_preprocessing_smooth_spacing_guard(tmp_path: Path):
+    density = np.zeros((9, 9, 9), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[4, 4, 4] = 100.0
+    mask[4, 4, 4] = 2
+
+    for spacing, folder in (((1.0, 1.0, 1.0), "fine"), ((3.0, 3.0, 3.0), "coarse")):
+        case_dir = tmp_path / folder
+        case_dir.mkdir()
+        image = sitk.GetImageFromArray(density)
+        labels = sitk.GetImageFromArray(mask)
+        image.SetSpacing(spacing)
+        labels.SetSpacing(spacing)
+        sitk.WriteImage(image, str(case_dir / "density.nii.gz"))
+        sitk.WriteImage(labels, str(case_dir / "mask.nii.gz"))
+
+    smooth_cfg = {
+        "enabled": True,
+        "when_spacing_above_mm": 2.0,
+        "sigma_mm": 3.0,
+        "density": True,
+        "labels": True,
+        "label_threshold": 0.02,
+    }
+
+    fine_density, fine_mask, _spacing, _origin = load_density_and_mask(
+        {"density_image": "density.nii.gz", "mask_image": "mask.nii.gz"},
+        base_dir=tmp_path / "fine",
+        preprocessing_config={"smooth": smooth_cfg},
+    )
+    coarse_density, coarse_mask, _spacing, _origin = load_density_and_mask(
+        {"density_image": "density.nii.gz", "mask_image": "mask.nii.gz"},
+        base_dir=tmp_path / "coarse",
+        preprocessing_config={"smooth": smooth_cfg},
+    )
+
+    assert fine_density[4, 4, 4] == pytest.approx(100.0)
+    assert np.count_nonzero(fine_mask == 2) == 1
+    assert coarse_density[4, 4, 4] < 100.0
+    assert np.count_nonzero(coarse_mask == 2) > 1
 
 
 def test_material_from_density_uses_nested_mulder_law_inside_active_contour():
@@ -159,297 +472,74 @@ def test_material_from_density_uses_nested_mulder_law_inside_active_contour():
     assert nu == pytest.approx(0.29)
 
 
-def test_spine_compression_model_generates_pmma_disks_and_bc_sets(tmp_path: Path):
-    density = np.zeros((8, 7, 6), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:6, 2:5, 2:4] = 800.0
-    mask[2:6, 2:5, 2:4] = 2
-    mask[3:5, 3:4, 3:5] = 1
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
+def test_material_from_density_applies_optional_input_transform():
+    density = np.array([[[1000.0]]], dtype=np.float64)
+    active = np.array([[[True]]], dtype=bool)
 
-    built = build_model(
-        {
-            "type": "spine_compression",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"body": 2, "process": 1},
-            "geometry": {"pmma_thickness_mm": 2, "axis": "z"},
-            "outputs": {
-                "material_image": "model/material.nii.gz",
-                "nodeset_image": "model/nodesets.nii.gz",
-                "manifest": "model/model.json",
-                "qc_image": "model/qc.png",
-            },
-        },
-        base_dir=tmp_path,
+    material, nu = material_from_density(
+        density,
+        active,
         material_config={
             "density": {
-                "equation": "linear",
-                "slope": 10.0,
-                "intercept": 0.0,
-                "mask_threshold": 0.0,
-            },
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "spine_compression", "displacement": -0.2},
-    )
-
-    assert built.material.shape[0] == density.shape[0] + 4
-    assert set(built.node_sets) >= {"inferior", "superior"}
-    assert len(built.node_sets["inferior"]) > 0
-    assert len(built.node_sets["superior"]) > 0
-    axis_values = np.asarray(built.node_sets["inferior"])[:, 2]
-    assert np.all(axis_values == np.min(axis_values))
-    axis_values = np.asarray(built.node_sets["superior"])[:, 2]
-    assert np.all(axis_values == np.max(axis_values))
-    assert built.boundary_conditions.fixed_coordinates.shape[0] > 0
-    assert built.element_sets["inferior_disk"] > 0
-    assert built.element_sets["superior_disk"] > 0
-    assert built.exported["material_image"].exists()
-    assert built.exported["nodeset_image"].exists()
-    assert built.exported["qc_image"].read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-    manifest = json.loads(built.exported["manifest"].read_text(encoding="utf-8"))
-    assert manifest["model"]["type"] == "spine_compression"
-    assert manifest["materials"]["pmma"]["E"] == pytest.approx(2500.0)
-
-
-def test_spine_pmma_disks_use_flat_outer_faces_not_side_walls(tmp_path: Path):
-    density = np.zeros((10, 8, 8), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:8, 2:6, 2:6] = 800.0
-    mask[2:8, 2:6, 2:6] = 20
-    mask[4:8, 1, 2:6] = 20
-    mask[3:6, 3:5, 6] = 48
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "spine_compression",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"body": 20, "process": 48},
-            "geometry": {
-                "pmma_thickness_voxels": 2,
-                "endplate_depth_voxels": 1,
-                "axis": "z",
-            },
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0, "intercept": 0.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "spine_compression", "displacement": -0.2},
-    )
-
-    inferior_nodes = np.asarray(built.node_sets["inferior"])
-    superior_nodes = np.asarray(built.node_sets["superior"])
-    assert np.ptp(inferior_nodes[:, 2]) == 0
-    assert np.ptp(superior_nodes[:, 2]) == 0
-    assert built.element_sets["inferior_disk"] <= 48
-    assert built.element_sets["superior_disk"] <= 48
-
-
-def test_spine_disk_geometry_accepts_explicit_target_thickness_and_intrusion(
-    tmp_path: Path,
-):
-    density = np.zeros((9, 8, 8), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:7, 2:6, 2:5] = 800.0
-    mask[2:7, 2:6, 2:5] = 20
-    mask[4:6, 3:5, 5:7] = 48
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "spine_compression",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"body": 20, "process": 48},
-            "geometry": {
-                "axis": "z",
-                "disk": {
-                    "target_label": 20,
-                    "thickness_voxels": 1,
-                    "intrusion_depth_voxels": 2,
+                "input_transform": {
+                    "equation": "linear",
+                    "slope": 1.06,
+                    "intercept": 38.9,
                 },
-            },
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0, "intercept": 0.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "spine_compression", "displacement": -0.2},
-    )
-
-    assert built.metadata["model"]["disk"] == {
-        "target_label": "20",
-        "shape": "anatomy",
-        "thickness_voxels": 1,
-        "intrusion_depth_voxels": 2,
-        "method": "projected_cap",
-    }
-    assert built.element_sets["inferior_disk"] > 0
-    assert built.element_sets["superior_disk"] > 0
-    assert np.all(built.material[built.postprocess_mask] != 2500.0)
-
-
-@pytest.mark.parametrize("shape", ["anatomy", "square", "round", "hex"])
-def test_spine_disk_geometry_supports_contact_shapes(tmp_path: Path, shape: str):
-    density = np.zeros((9, 10, 10), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:7, 2:7, 2:6] = 800.0
-    mask[2:7, 2:7, 2:6] = 20
-    density[2:5, 7:9, 2:4] = 800.0
-    mask[2:5, 7:9, 2:4] = 20
-    mask[4:6, 4:6, 6:8] = 48
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "spine_compression",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"body": 20, "process": 48},
-            "geometry": {
-                "axis": "z",
-                "disk": {
-                    "target_label": 20,
-                    "shape": shape,
-                    "thickness_voxels": 1,
-                    "intrusion_depth_voxels": 2,
+                "E": {
+                    "equation": "power",
+                    "coefficient": 10500.0,
+                    "exponent": 2.29,
+                    "reference_density": 1000.0,
                 },
+                "nu": 0.3,
             },
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0, "intercept": 0.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "spine_compression", "displacement": -0.2},
-    )
-
-    assert built.metadata["model"]["disk"]["shape"] == shape
-    assert built.element_sets["inferior_disk"] > 0
-    assert built.element_sets["superior_disk"] > 0
-
-
-def test_proximal_femur_model_generates_caps_and_sideways_fall_sets(tmp_path: Path):
-    density = np.zeros((7, 8, 9), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[1:6, 2:6, 2:7] = 700.0
-    mask[1:6, 2:6, 2:7] = 2
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "proximal_femur",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "side": "left",
-            "geometry": {"pmma_thickness_mm": 2},
-            "outputs": {
-                "material_image": "model/material.nii.gz",
-                "nodeset_image": "model/nodesets.nii.gz",
-                "manifest": "model/model.json",
-                "qc_image": "model/qc.png",
-            },
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {
-                "equation": "linear",
-                "slope": 12.0,
-                "intercept": 0.0,
-                "mask_threshold": 0.0,
-            },
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "sideways_fall", "displacement": 1.0},
-    )
-
-    assert set(built.node_sets) >= {
-        "femoral_head_pmma",
-        "greater_trochanter_pmma",
-        "distal_femur",
-    }
-    assert all(len(nodes) > 0 for nodes in built.node_sets.values())
-    assert built.element_sets["femoral_head_cap"] > 0
-    assert built.element_sets["greater_trochanter_cap"] > 0
-    assert built.boundary_conditions.fixed_coordinates.shape[0] > 0
-    assert np.max(built.boundary_conditions.fixed_values) > 0.0
-    femoral_head = np.asarray(built.node_sets["femoral_head_pmma"])[:, :3]
-    greater_trochanter = np.asarray(built.node_sets["greater_trochanter_pmma"])[:, :3]
-    assert femoral_head[:, 1].mean() < greater_trochanter[:, 1].mean()
-    assert built.metadata["model"]["load_axis"] == "y"
-    assert built.metadata["model"]["load_direction"] == "y"
-    assert built.metadata["model"]["caps"]["target_label"] == "2"
-    assert built.metadata["model"]["caps"]["shape"] == "anatomy"
-    assert built.exported["qc_image"].read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-
-
-def test_model_crop_to_bb_uses_declared_model_labels(tmp_path: Path):
-    density = np.zeros((20, 20, 20), dtype=np.float32)
-    mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:6, 2:6, 2:6] = 700.0
-    mask[2:6, 2:6, 2:6] = 2
-    mask[15:18, 15:18, 15:18] = 99
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-
-    built = build_model(
-        {
-            "type": "proximal_femur",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"femur": 2},
-            "geometry": {"pmma_thickness_voxels": 1, "cap_axis": "y"},
-        },
-        base_dir=tmp_path,
-        material_config={
-            "density": {"equation": "linear", "slope": 10.0},
-            "poisson_ratio": 0.3,
-            "pmma": {"E": 2500, "nu": 0.3},
-        },
-        load_case_config={"type": "sideways_fall", "displacement": 1.0},
-        preprocessing_config={
-            "crop_to_bb": {"enabled": True, "margin_voxels": 1},
         },
     )
 
-    assert built.material.shape == (6, 8, 6)
-    assert built.origin == pytest.approx((1.0, 0.0, 1.0))
-    assert built.element_sets["bone"] == 4 * 4 * 4
+    assert material[0, 0, 0] > 10500.0
+    assert nu == pytest.approx(0.3)
 
 
-def test_model_builder_rejects_missing_spine_labels(tmp_path: Path):
-    density = np.ones((4, 4, 4), dtype=np.float32)
-    mask = np.full_like(density, 2, dtype=np.uint8)
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
+def test_projected_caps_from_mask_fills_short_internal_footprint_gaps():
+    mask = np.zeros((12, 12, 12), dtype=bool)
+    mask[5:7, 2:5, 2:10] = True
+    mask[5:7, 7:10, 2:10] = True
 
-    with pytest.raises(ValueError, match="process"):
-        build_model(
-            {
-                "type": "vertebra",
-                "density_image": "density.npy",
-                "mask_image": "mask.npy",
-                "labels": {"body": 2, "process": 1},
-            },
-            base_dir=tmp_path,
-            material_config={"density": {"equation": "linear"}},
-        )
+    inferior, superior = projected_caps_from_mask(
+        mask,
+        axis="x",
+        thickness_voxels=4,
+        intrusion_depth_voxels=2,
+        shape="anatomy",
+    )
+
+    assert inferior.any()
+    assert superior.any()
+    assert not np.any(inferior & mask)
+    assert not np.any(superior & mask)
+    assert np.all(superior[7:9, 5:7, 2:10])
+    cap_x = np.where(superior)[0]
+    assert cap_x.max() - cap_x.min() + 1 <= 4
+
+
+def test_projected_caps_from_mask_intrusion_keeps_requested_total_thickness():
+    mask = np.zeros((24, 12, 12), dtype=bool)
+    mask[8:10, 2:10, 2:10] = True
+    mask[14:16, 5:7, 5:7] = True
+
+    _inferior, superior = projected_caps_from_mask(
+        mask,
+        axis="x",
+        thickness_voxels=6,
+        intrusion_depth_voxels=5,
+        shape="anatomy",
+    )
+
+    assert superior.any()
+    assert not np.any(superior & mask)
+    cap_x = np.where(superior)[0]
+    assert cap_x.max() - cap_x.min() + 1 <= 6
 
 
 def test_lightweight_icp_estimates_translation_and_reads_vtk_points(tmp_path: Path):
@@ -511,6 +601,17 @@ def test_reference_points_reader_supports_binary_vtk(tmp_path: Path):
     np.testing.assert_allclose(read_reference_points(vtk_path), points.astype(float))
 
 
+def test_reference_points_reader_supports_npy_reference_cloud(tmp_path: Path):
+    reference = np.asarray(
+        [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
+        dtype=float,
+    )
+    path = tmp_path / "slicer_reference_points.npy"
+    np.save(path, reference)
+
+    np.testing.assert_allclose(read_reference_points(path), reference)
+
+
 def test_reference_points_orientation_reorders_and_flips_axes():
     stored_zyx = np.asarray(
         [
@@ -561,6 +662,30 @@ def test_icp_supports_vtk_like_centroid_initialization():
     np.testing.assert_allclose(transform["translation"], [-3.0, 2.0, -1.0], atol=1e-6)
 
 
+def test_surface_point_sampling_supports_stride_mode():
+    mask = np.ones((4, 4, 4), dtype=bool)
+
+    linspace = surface_points_from_mask(
+        mask,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        max_points=5,
+        sample_mode="linspace",
+    )
+    stride = surface_points_from_mask(
+        mask,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        max_points=5,
+        sample_mode="stride",
+        sample_offset=1,
+    )
+
+    assert linspace.shape == (5, 3)
+    assert stride.shape == (5, 3)
+    assert not np.allclose(linspace, stride)
+
+
 def test_model_percent_displacement_uses_padded_full_height():
     displacement = displacement_from_load_case(
         {"target_displacement_percent": -0.68},
@@ -573,33 +698,293 @@ def test_model_percent_displacement_uses_padded_full_height():
     assert displacement == pytest.approx(-0.2856)
 
 
-def test_proximal_femur_model_can_use_reference_registration(tmp_path: Path):
-    density = np.zeros((8, 9, 10), dtype=np.float32)
+def test_workflow_replay_uses_body_for_registration_but_full_mask_for_model():
+    mask = np.zeros((4, 4, 4), dtype=np.uint8)
+    mask[0:1, 0:1, 0:1] = 2
+    mask[1:3, 1:3, 1:3] = 20
+    mask[2:4, 0:1, 1:3] = 48
+    model_config = {
+        "labels": {"body": 20, "process": 48},
+        "targets": {"registration": "body", "model": ["body", "process"]},
+    }
+    replay_cfg = {}
+
+    registration_mask = _workflow_active_mask(mask, model_config, replay_cfg)
+    model_mask = _workflow_model_mask(mask, model_config)
+
+    assert int(np.count_nonzero(registration_mask)) == int(np.count_nonzero(mask == 20))
+    assert int(np.count_nonzero(model_mask)) == int(
+        np.count_nonzero((mask == 20) | (mask == 48))
+    )
+    assert not np.any(model_mask[mask == 2])
+    assert np.count_nonzero(model_mask) > np.count_nonzero(registration_mask)
+
+
+def test_workflow_replay_uses_label_one_for_registration_when_labels_are_remapped():
+    mask = np.zeros((4, 4, 4), dtype=np.uint8)
+    mask[1:3, 1:3, 1:3] = 1
+    mask[2:4, 0:1, 1:3] = 2
+    model_config = {
+        "labels": {"body": 1, "process": 2},
+        "targets": {"registration": "body", "model": ["body", "process"]},
+    }
+    replay_cfg = {}
+
+    registration_mask = _workflow_active_mask(mask, model_config, replay_cfg)
+    model_mask = _workflow_model_mask(mask, model_config)
+
+    assert int(np.count_nonzero(registration_mask)) == int(np.count_nonzero(mask == 1))
+    assert not np.any(registration_mask[mask == 2])
+    assert int(np.count_nonzero(model_mask)) == int(np.count_nonzero(mask > 0))
+
+
+def test_workflow_replay_target_masks_are_selected_by_declared_label_keys():
+    mask = np.zeros((4, 4, 4), dtype=np.uint8)
+    mask[1:3, 1:3, 1:3] = 7
+    mask[2:4, 0:1, 1:3] = 9
+    model_config = {
+        "labels": {"core": 7, "appendage": 9},
+        "targets": {
+            "registration": "core",
+            "model": ["core", "appendage"],
+        },
+    }
+
+    registration_mask = _workflow_active_mask(mask, model_config, {})
+    model_mask = _workflow_model_mask(mask, model_config)
+
+    assert int(np.count_nonzero(registration_mask)) == int(np.count_nonzero(mask == 7))
+    assert not np.any(registration_mask[mask == 9])
+    assert int(np.count_nonzero(model_mask)) == int(np.count_nonzero(mask > 0))
+
+
+def test_reference_space_scaling_preserves_reference_pose_about_origin():
+    reference = np.asarray(
+        [
+            [10.0, 0.0, 0.0],
+            [12.0, 0.0, 0.0],
+            [10.0, 1.0, 0.0],
+            [10.0, 0.0, 1.0],
+        ]
+    )
+    sample = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [4.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+
+    scaled, meta = _scale_reference_points_preserving_pose(
+        reference_points=reference,
+        sample_points=sample,
+        registration_config={
+            "reference_scaling": {
+                "enabled": True,
+                "min_factors": [0.0, 0.0, 0.0],
+                "max_factors": [10.0, 10.0, 10.0],
+            }
+        },
+    )
+
+    scale = np.asarray(meta["scale_factors"])
+    np.testing.assert_allclose(scaled, reference * scale)
+    assert meta["source"] == "origin_covariance_axis_lengths_reference_pose"
+
+
+def test_reference_space_scaling_uses_covariance_axis_lengths():
+    reference = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [12.0, 0.0, 0.0],
+            [0.0, 24.0, 0.0],
+            [12.0, 24.0, 0.0],
+            [0.0, 0.0, 36.0],
+            [12.0, 0.0, 36.0],
+            [0.0, 24.0, 36.0],
+            [12.0, 24.0, 36.0],
+            [30.0, 0.0, 0.0],
+        ]
+    )
+    sample = reference * np.asarray([1.5, 0.75, 1.25])
+
+    _scaled, meta = _scale_reference_points_preserving_pose(
+        reference_points=reference,
+        sample_points=sample,
+        registration_config={
+            "reference_scaling": {
+                "enabled": True,
+                "min_factors": [0.0, 0.0, 0.0],
+                "max_factors": [10.0, 10.0, 10.0],
+            }
+        },
+    )
+
+    def covariance_principal_axis_lengths(points: np.ndarray) -> np.ndarray:
+        centered = points - points.mean(axis=0)
+        eigvals = np.linalg.eigvalsh(np.cov(centered.T))
+        return np.sqrt(np.maximum(eigvals, 0.0)) * 2.0
+
+    reference_lengths = covariance_principal_axis_lengths(reference)
+    sample_lengths = covariance_principal_axis_lengths(sample)
+    np.testing.assert_allclose(meta["reference_axis_lengths"], reference_lengths)
+    np.testing.assert_allclose(meta["sample_axis_lengths"], sample_lengths)
+    np.testing.assert_allclose(
+        meta["scale_factors"],
+        sample_lengths / np.maximum(reference_lengths, 1.0e-6),
+    )
+
+
+def test_reference_model_space_icp_direction_defaults_to_reference_to_sample():
+    assert _reference_model_space_icp_direction({}) == "reference_to_sample"
+    assert (
+        _reference_model_space_icp_direction({"icp_direction": "reference-to-sample"})
+        == "reference_to_sample"
+    )
+
+    with pytest.raises(ValueError, match="no longer selectable"):
+        _reference_model_space_icp_direction({"icp_direction": "sample_to_reference"})
+    with pytest.raises(ValueError, match="registration\\.icp_direction"):
+        _reference_model_space_icp_direction({"icp_direction": "sideways"})
+
+
+def test_invert_rigid_transform_uses_row_vector_point_convention():
+    angle = np.deg2rad(20.0)
+    rotation = np.asarray(
+        [
+            [np.cos(angle), -np.sin(angle), 0.0],
+            [np.sin(angle), np.cos(angle), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    translation = np.asarray([3.0, -2.0, 5.0])
+    points = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 2.0, 3.0],
+            [-4.0, 5.0, -6.0],
+        ]
+    )
+
+    transformed = points @ rotation.T + translation
+    inverse_rotation, inverse_translation = _invert_rigid_transform(
+        rotation,
+        translation,
+    )
+
+    recovered = transformed @ inverse_rotation.T + inverse_translation
+    np.testing.assert_allclose(recovered, points)
+
+
+def test_mask_alignment_sizes_output_grid_from_full_surface_not_sampled_subset(
+    tmp_path: Path,
+):
+    density = np.zeros((18, 18, 18), dtype=np.float32)
     mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:6, 2:6, 2:7] = 700.0
-    mask[2:6, 2:6, 2:7] = 2
+    mask[2:16, 2:12, 2:12] = 1
+    mask[16:18, 8:10, 8:10] = 1
+    density[mask > 0] = 100.0
     np.save(tmp_path / "density.npy", density)
     np.save(tmp_path / "mask.npy", mask)
-    reference_points = surface_points_from_mask(
-        mask == 2,
+
+    full_surface = surface_points_from_mask(
+        mask > 0,
         spacing=(1.0, 1.0, 1.0),
-        origin=(5.0, -2.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        max_points=None,
     )
-    np.savez(tmp_path / "femur_reference.npz", points=reference_points)
+    sampled_surface = surface_points_from_mask(
+        mask > 0,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        max_points=40,
+        sample_mode="stride",
+        sample_offset=0,
+    )
+    assert float(full_surface[:, 2].max()) > float(sampled_surface[:, 2].max())
+    np.savez(tmp_path / "reference_points.npz", points=full_surface)
+
+    aligned = align_mask_to_reference(
+        density_zyx=density,
+        mask_zyx=mask > 0,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        registration_config={
+            "enabled": True,
+            "reference_points": "reference_points.npz",
+            "method": "vtk_icp",
+            "initialization": "centroid",
+            "convergence": "delta",
+            "distance_mode": "mean",
+            "max_points": 40,
+            "iterations": 5,
+            "source_landmark_mode": "stride",
+            "source_landmark_offset": 0,
+            "margin_voxels": 4,
+            "crop_to_bbox": False,
+        },
+        base_dir=tmp_path,
+    )
+
+    coords = np.argwhere(aligned.mask_zyx)
+    high_margin = np.asarray(aligned.mask_zyx.shape) - 1 - coords.max(axis=0)
+    assert int(high_margin[0]) >= 4
+
+
+def test_workflow_replay_model_uses_saved_disk_and_nodeset_labels(tmp_path: Path):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 2
+
+    disk_labels = np.zeros_like(mask, dtype=np.uint16)
+    disk_labels[2:6, 1:2, 2:6] = 201
+    disk_labels[2:6, 6:7, 2:6] = 202
+
+    nodeset_labels = np.zeros_like(mask, dtype=np.uint16)
+    nodeset_labels[2:6, 1:2, 2:6] = 101
+    nodeset_labels[2:6, 6:7, 2:6] = 202
+    nodeset_labels[2:6, 2:6, 2:3] = 103
+
+    density_img = sitk.GetImageFromArray(density)
+    mask_img = sitk.GetImageFromArray(mask)
+    disk_img = sitk.GetImageFromArray(disk_labels)
+    nodeset_img = sitk.GetImageFromArray(nodeset_labels)
+    for image in (density_img, mask_img, disk_img, nodeset_img):
+        image.SetSpacing((1.0, 1.0, 1.0))
+        image.SetOrigin((0.0, 0.0, 0.0))
+
+    sitk.WriteImage(density_img, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_img, str(tmp_path / "mask.nii.gz"))
+    sitk.WriteImage(disk_img, str(tmp_path / "disk_labels.nii.gz"))
+    sitk.WriteImage(nodeset_img, str(tmp_path / "nodesets.nii.gz"))
+
+    reference_points = _canonical_surface_points_from_mask_image(
+        tmp_path / "mask.nii.gz",
+        2,
+    )
+    np.savez(tmp_path / "reference_points.npz", points=reference_points)
 
     built = build_model(
         {
-            "type": "proximal_femur_sideways_fall",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
             "labels": {"femur": 2},
             "registration": {
                 "enabled": True,
-                "reference_points": "femur_reference.npz",
+                "reference_points": "reference_points.npz",
                 "max_points": 2000,
                 "iterations": 5,
+                "initialization": "centroid",
             },
-            "geometry": {"pmma_thickness_voxels": 1, "cap_axis": "y"},
+            "workflow_replay": {
+                "enabled": True,
+                "disk_labels": "disk_labels.nii.gz",
+                "nodesets": "nodesets.nii.gz",
+                "reference_points": "reference_points.npz",
+            },
         },
         base_dir=tmp_path,
         material_config={
@@ -607,61 +992,975 @@ def test_proximal_femur_model_can_use_reference_registration(tmp_path: Path):
             "poisson_ratio": 0.3,
             "pmma": {"E": 2500, "nu": 0.3},
         },
-        load_case_config={"type": "sideways_fall", "displacement": 1.0},
+        load_case_config={
+            "type": "nodeset",
+            "fixed": [
+                {"nodeset": "impact_disk", "dofs": ["x", "y", "z"], "value": 0.0},
+                {"nodeset": "distal_shaft_fixation", "dofs": ["x", "y", "z"], "value": 0.0},
+            ],
+            "prescribed": [
+                {"nodeset": "support_disk", "dof": "y", "value": "4.0%", "units": "%"}
+            ],
+        },
+        nodeset_config={
+            "impact_disk": {
+                "type": "label_image",
+                "label": 101,
+                "selection": "surface_nodes",
+            },
+            "support_disk": {
+                "type": "label_image",
+                "label": 202,
+                "selection": "surface_nodes",
+            },
+            "distal_shaft_fixation": {
+                "type": "label_image",
+                "label": 103,
+                "selection": "interface_nodes",
+            },
+        },
     )
 
+    material_xyz = np.transpose(built.material, (2, 1, 0))
+    assert np.count_nonzero(material_xyz == 2500.0) > 0
+    assert built.metadata["model"]["workflow_replay"]["enabled"] is True
     assert built.metadata["model"]["registration"]["enabled"] is True
-    assert built.metadata["model"]["registration"]["method"] == "lightweight_icp"
-    assert built.metadata["model"]["load_axis"] == "y"
-    nonzero = np.abs(built.boundary_conditions.fixed_values) > 1.0e-12
-    assert np.all(built.boundary_conditions.fixed_values[nonzero] > 0.0)
-    assert built.element_sets["femoral_head_cap"] > 0
-    assert built.element_sets["greater_trochanter_cap"] > 0
-    active = np.argwhere(built.postprocess_mask)
-    assert int(active[:, 0].min()) <= 3
-    assert int(built.postprocess_mask.shape[0] - active[:, 0].max()) <= 4
+    assert set(built.node_sets) == {"impact_disk", "support_disk", "distal_shaft_fixation"}
+    assert all(len(nodes) > 0 for nodes in built.node_sets.values())
+    assert np.any(np.abs(built.boundary_conditions.fixed_values) > 0.0)
+    prescribed_y = built.boundary_conditions.fixed_values[
+        (built.boundary_conditions.fixed_coordinates[:, 3] == 1)
+        & (~np.isclose(built.boundary_conditions.fixed_values, 0.0))
+    ]
+    assert np.unique(prescribed_y).tolist() == pytest.approx([0.20])
 
 
-def test_spine_model_can_use_lightweight_icp_registration(tmp_path: Path):
-    density = np.zeros((8, 7, 6), dtype=np.float32)
+def test_workflow_replay_pads_sample_extent_before_resampling_saved_disks(
+    tmp_path: Path,
+):
+    density = np.zeros((4, 4, 4), dtype=np.float32)
+    mask = np.full_like(density, 2, dtype=np.uint8)
+
+    disk_labels = np.zeros((6, 6, 6), dtype=np.uint16)
+    disk_labels[1:5, 0:1, 1:5] = 201
+    disk_labels[1:5, 5:6, 1:5] = 202
+
+    nodeset_labels = np.zeros((6, 6, 6), dtype=np.uint16)
+    nodeset_labels[1:5, 0:1, 1:5] = 101
+    nodeset_labels[1:5, 5:6, 1:5] = 202
+    nodeset_labels[1:5, 1:2, 1:5] = 103
+
+    density_img = sitk.GetImageFromArray(density)
+    mask_img = sitk.GetImageFromArray(mask)
+    density_img.SetSpacing((1.0, 1.0, 1.0))
+    mask_img.SetSpacing((1.0, 1.0, 1.0))
+    density_img.SetOrigin((0.0, 0.0, 0.0))
+    mask_img.SetOrigin((0.0, 0.0, 0.0))
+    sitk.WriteImage(density_img, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_img, str(tmp_path / "mask.nii.gz"))
+
+    disk_img = sitk.GetImageFromArray(disk_labels)
+    node_img = sitk.GetImageFromArray(nodeset_labels)
+    disk_img.SetSpacing((1.0, 1.0, 1.0))
+    node_img.SetSpacing((1.0, 1.0, 1.0))
+    disk_img.SetOrigin((-1.0, -1.0, -1.0))
+    node_img.SetOrigin((-1.0, -1.0, -1.0))
+    sitk.WriteImage(disk_img, str(tmp_path / "disk_labels.nii.gz"))
+    sitk.WriteImage(node_img, str(tmp_path / "nodesets.nii.gz"))
+
+    reference_points = _canonical_surface_points_from_mask_image(
+        tmp_path / "mask.nii.gz",
+        2,
+    )
+    np.savez(tmp_path / "reference_points.npz", points=reference_points)
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+            "geometry": {
+                "cap_axis": "y",
+                "cap": {
+                    "thickness_voxels": 1,
+                    "intrusion_depth_voxels": 1,
+                },
+            },
+            "workflow_replay": {
+                "enabled": True,
+                "disk_labels": "disk_labels.nii.gz",
+                "nodesets": "nodesets.nii.gz",
+                "reference_points": "reference_points.npz",
+            },
+            "registration": {
+                "enabled": True,
+                "reference_points": "reference_points.npz",
+                "initialization": "centroid",
+                "max_points": 2000,
+                "iterations": 5,
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "fixed": [
+                {"nodeset": "impact_disk", "dofs": ["x", "y", "z"], "value": 0.0},
+                {"nodeset": "shaft_fixation", "dofs": ["x", "y", "z"], "value": 0.0},
+            ],
+            "prescribed": [
+                {"nodeset": "support_disk", "dof": "y", "value": 1.0},
+            ],
+        },
+        nodeset_config={
+            "impact_disk": {"type": "label_image", "label": 101, "selection": "surface_nodes"},
+            "support_disk": {"type": "label_image", "label": 202, "selection": "surface_nodes"},
+            "shaft_fixation": {"type": "label_image", "label": 103, "selection": "interface_nodes"},
+        },
+        preprocessing_config={
+            "crop_to_bb": {"enabled": True, "margin_voxels": 0},
+        },
+    )
+
+    material_xyz = np.transpose(built.material, (2, 1, 0))
+    assert int(np.count_nonzero(material_xyz == 2500.0)) == 32
+
+
+def test_workflow_replay_prefers_plane_driven_geometry_over_saved_labels(
+    tmp_path: Path,
+):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
     mask = np.zeros_like(density, dtype=np.uint8)
-    density[2:6, 2:5, 2:4] = 800.0
-    mask[2:6, 2:5, 2:4] = 2
-    mask[3:5, 3:4, 3:5] = 1
-    np.save(tmp_path / "density.npy", density)
-    np.save(tmp_path / "mask.npy", mask)
-    reference_points = surface_points_from_mask(
-        mask == 2,
-        spacing=(1.0, 1.0, 1.0),
-        origin=(0.0, 0.0, 0.0),
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 2
+
+    wrong_disk_labels = np.zeros_like(mask, dtype=np.uint16)
+    wrong_nodeset_labels = np.zeros_like(mask, dtype=np.uint16)
+    wrong_nodeset_labels[0:1, :, :] = 101
+
+    density_img = sitk.GetImageFromArray(density)
+    mask_img = sitk.GetImageFromArray(mask)
+    disk_img = sitk.GetImageFromArray(wrong_disk_labels)
+    nodes_img = sitk.GetImageFromArray(wrong_nodeset_labels)
+    for image in (density_img, mask_img, disk_img, nodes_img):
+        image.SetSpacing((1.0, 1.0, 1.0))
+        image.SetOrigin((0.0, 0.0, 0.0))
+    sitk.WriteImage(density_img, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_img, str(tmp_path / "mask.nii.gz"))
+    sitk.WriteImage(disk_img, str(tmp_path / "disk_labels.nii.gz"))
+    sitk.WriteImage(nodes_img, str(tmp_path / "nodesets.nii.gz"))
+
+    reference_points = _canonical_surface_points_from_mask_image(
+        tmp_path / "mask.nii.gz",
+        2,
     )
     np.savez(tmp_path / "reference_points.npz", points=reference_points)
 
     built = build_model(
         {
-            "type": "spine_compression",
-            "density_image": "density.npy",
-            "mask_image": "mask.npy",
-            "labels": {"body": 2, "process": 1},
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
             "registration": {
                 "enabled": True,
                 "reference_points": "reference_points.npz",
                 "max_points": 2000,
                 "iterations": 5,
+                "initialization": "centroid",
             },
-            "geometry": {"pmma_thickness_mm": 2, "axis": "z"},
-            "outputs": {"manifest": "model/model.json"},
+            "workflow_replay": {
+                "enabled": True,
+                "disk_labels": "disk_labels.nii.gz",
+                "nodesets": "nodesets.nii.gz",
+                "reference_points": "reference_points.npz",
+            },
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Support disk",
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 1.0,
+                        "use_plane_size": True,
+                        "center_ras": [-3.5, -3.5, 7.0],
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                        "size_mm": [4.0, 4.0],
+                    }
+                ]
+            },
         },
         base_dir=tmp_path,
         material_config={
-            "density": {"equation": "linear", "slope": 10.0, "intercept": 0.0},
+            "density": {"equation": "linear", "slope": 10.0},
             "poisson_ratio": 0.3,
             "pmma": {"E": 2500, "nu": 0.3},
         },
-        load_case_config={"type": "spine_compression", "displacement": -0.2},
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "support_disk", "dof": "z", "value": -1.0}],
+        },
+        nodeset_config={
+            "support_disk": {
+                "type": "label_image",
+                "label": 202,
+                "selection": "surface_nodes",
+            }
+        },
     )
 
-    assert built.metadata["model"]["registration"]["enabled"] is True
-    assert built.element_sets["inferior_disk"] > 0
-    manifest = json.loads(built.exported["manifest"].read_text(encoding="utf-8"))
-    assert manifest["model"]["registration"]["method"] == "lightweight_icp"
+    assert "support_disk" in built.node_sets
+    assert len(built.node_sets["support_disk"]) > 0
+    material_xyz = np.transpose(built.material, (2, 1, 0))
+    assert int(np.count_nonzero(material_xyz == 2500.0)) > 0
+
+
+def test_workflow_replay_exports_generated_nodeset_labels_from_planes(tmp_path: Path):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 20
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "outputs": {
+                "material_image": str(tmp_path / "model" / "material.nii.gz"),
+                "nodeset_image": str(tmp_path / "model" / "nodesets.nii.gz"),
+                "manifest": str(tmp_path / "model" / "model.json"),
+            },
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 1.0,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": "-10%"}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "surface_nodes",
+            }
+        },
+    )
+
+    labels_zyx, _spacing, _origin = read_image_zyx(tmp_path / "model" / "nodesets.nii.gz")
+    labels_xyz = np.transpose(labels_zyx, (2, 1, 0))
+    material_xyz = np.transpose(built.material, (2, 1, 0))
+    reconstructed = nodes_from_labeled_voxels(
+        labels_xyz,
+        label=201,
+        selection="surface_nodes",
+        material=material_xyz,
+    )
+    assert built.metadata["model"]["workflow_replay"]["geometry_mode"] == "plane_driven"
+    assert reconstructed == built.node_sets["superior_disk"]
+
+
+def test_workflow_replay_honors_explicit_plane_disk_labels_without_cached_labelmap(
+    tmp_path: Path,
+):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 20
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "outputs": {
+                "material_image": str(tmp_path / "model" / "material.nii.gz"),
+                "nodeset_image": str(tmp_path / "model" / "nodesets.nii.gz"),
+                "manifest": str(tmp_path / "model" / "model.json"),
+            },
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 1.0,
+                        "disk_label": 222,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": "-10%"}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "surface_nodes",
+            }
+        },
+    )
+
+    assert built.metadata["model"]["workflow_replay"]["disk_labels"] is None
+    assert built.element_sets["disk_label_222"] > 0
+    assert "disk_label_201" not in built.element_sets
+
+
+def test_workflow_replay_final_crop_removes_empty_canvas_and_shifts_nodes():
+    material_xyz = np.zeros((5, 6, 9), dtype=np.float32)
+    material_xyz[1:4, 2:5, 2:6] = 1000.0
+    labels_xyz = np.zeros_like(material_xyz, dtype=np.uint16)
+    labels_xyz[1:4, 2:5, 2:6] = 1
+    node_label_xyz = np.zeros_like(labels_xyz)
+    node_label_xyz[1:4, 2:5, 5:6] = 201
+
+    cropped = _crop_workflow_model_to_material_bbox(
+        material_xyz=material_xyz,
+        labels_xyz=labels_xyz,
+        node_label_xyz=node_label_xyz,
+        spacing=(1.0, 2.0, 3.0),
+        origin=(10.0, 20.0, 30.0),
+        node_sets={
+            "support": [
+                (1, 2, 5),
+                (4, 5, 6),
+            ]
+        },
+        percent_reference_node_sets={
+            "support": [
+                (1, 2, 5),
+                (4, 5, 6),
+            ]
+        },
+    )
+
+    assert cropped.material_xyz.shape == (3, 3, 4)
+    assert cropped.labels_xyz.shape == (3, 3, 4)
+    assert cropped.node_label_xyz.shape == (3, 3, 4)
+    assert cropped.origin == pytest.approx((11.0, 24.0, 36.0))
+    assert cropped.crop["lower_index_xyz"] == [1, 2, 2]
+    assert cropped.crop["upper_index_xyz"] == [4, 5, 6]
+    assert cropped.node_sets["support"] == [(0, 0, 3), (3, 3, 4)]
+    assert cropped.percent_reference_node_sets["support"] == [(0, 0, 3), (3, 3, 4)]
+    assert np.count_nonzero(cropped.material_xyz) == np.count_nonzero(material_xyz)
+
+
+def test_workflow_replay_keeps_generated_outer_face_node_sets(tmp_path: Path):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 20
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 1.0,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": "-10%"}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "outer_face_nodes",
+            }
+        },
+    )
+
+    nodes = np.asarray(built.node_sets["superior_disk"], dtype=int)
+
+    assert built.metadata["model"]["workflow_replay"]["geometry_mode"] == "plane_driven"
+    assert np.unique(nodes[:, 2]).tolist() == [built.material.shape[0]]
+
+
+def test_workflow_replay_outer_face_nodes_keep_surface_percent_length(
+    tmp_path: Path,
+):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 20
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 0.0,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    },
+                    {
+                        "name": "Inferior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, -0.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 0.0,
+                        "normal_ras": [0.0, 0.0, 1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    },
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "fixed": [{"nodeset": "inferior_disk", "dofs": ["x", "y", "z"], "value": 0.0}],
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": "-10%"}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "outer_face_nodes",
+            },
+            "inferior_disk": {
+                "type": "label_image",
+                "label": 102,
+                "selection": "outer_face_nodes",
+            },
+        },
+    )
+
+    superior_nodes = np.asarray(built.node_sets["superior_disk"], dtype=int)
+    inferior_nodes = np.asarray(built.node_sets["inferior_disk"], dtype=int)
+    prescribed = built.boundary_conditions.fixed_values[
+        np.abs(built.boundary_conditions.fixed_values) > 0.0
+    ]
+
+    assert np.unique(superior_nodes[:, 2]).tolist() == [built.material.shape[0]]
+    assert np.unique(inferior_nodes[:, 2]).tolist() == [0]
+    assert built.boundary_conditions.reference_lengths_mm["z"] == pytest.approx(8.0)
+    assert prescribed.size > 0
+    assert np.unique(prescribed).tolist() == pytest.approx([-0.8])
+
+
+def test_workflow_replay_percent_displacement_uses_occupied_model_length_with_disks(
+    tmp_path: Path,
+):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 20
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 0.0,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": "-10%"}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "surface_nodes",
+            }
+        },
+    )
+
+    values = built.boundary_conditions.fixed_values
+    prescribed = values[np.abs(values) > 0.0]
+    material_xyz = np.transpose(built.material, (2, 1, 0))
+    occupied = occupied_length_mm(material_xyz, axis="z", spacing=built.spacing)
+    assert prescribed.size > 0
+    assert float(np.min(prescribed)) == pytest.approx(-0.10 * occupied)
+
+
+def test_workflow_replay_reference_model_space_keeps_reference_plane_axial(
+    tmp_path: Path,
+):
+    density = np.zeros((10, 10, 10), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[3:7, 3:7, 3:7] = 700.0
+    mask[3:7, 3:7, 3:7] = 20
+
+    density_img = sitk.GetImageFromArray(density)
+    mask_img = sitk.GetImageFromArray(mask)
+    for image in (density_img, mask_img):
+        image.SetSpacing((1.0, 1.0, 1.0))
+        image.SetOrigin((0.0, 0.0, 0.0))
+    sitk.WriteImage(density_img, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_img, str(tmp_path / "mask.nii.gz"))
+
+    reference_points = _canonical_surface_points_from_mask_image(
+        tmp_path / "mask.nii.gz",
+        20,
+    )
+    np.savez(tmp_path / "reference_points.npz", points=reference_points)
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "workflow_replay": {
+                "enabled": True,
+                "model_space": "reference",
+                "reference_points": "reference_points.npz",
+            },
+            "registration": {
+                "enabled": True,
+                "reference_points": "reference_points.npz",
+                "initialization": "centroid",
+                "max_points": 2000,
+                "iterations": 5,
+            },
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "reference_space": True,
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 1.0,
+                        "use_plane_size": True,
+                        "center_ras": [-4.5, -4.5, 8.0],
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                        "size_mm": [4.0, 4.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": -1.0}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "surface_nodes",
+            }
+        },
+    )
+
+    assert built.metadata["model"]["workflow_replay"]["model_space"] == "reference"
+    assert built.metadata["model"]["workflow_replay"]["geometry_mode"] == "plane_driven"
+    assert built.metadata["model"]["registration"]["applied_to_model_grid"] is True
+    z_values = [node[2] for node in built.node_sets["superior_disk"]]
+    assert max(z_values) - min(z_values) <= 2
+
+
+def test_workflow_replay_without_registration_stays_in_sample_space(tmp_path: Path):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 20
+
+    density_img = sitk.GetImageFromArray(density)
+    mask_img = sitk.GetImageFromArray(mask)
+    for image in (density_img, mask_img):
+        image.SetSpacing((1.0, 1.0, 1.0))
+        image.SetOrigin((0.0, 0.0, 0.0))
+    sitk.WriteImage(density_img, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_img, str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 1.0,
+                        "use_plane_size": True,
+                        "center_ras": [-3.5, -3.5, 7.0],
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                        "size_mm": [4.0, 4.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": -1.0}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "surface_nodes",
+            }
+        },
+    )
+
+    assert built.metadata["model"]["registration"]["enabled"] is False
+    assert built.metadata["model"]["workflow_replay"]["model_space"] == "sample"
+    assert "superior_disk" in built.node_sets
+
+
+def test_reference_space_editor_scales_bc_planes_with_reference_size():
+    editor = {
+        "planes": [
+            {
+                "name": "Superior disk",
+                "center_ras": [10.0, 20.0, 30.0],
+                "normal_ras": [0.0, 0.0, -1.0],
+                "u_axis_ras": [1.0, 0.0, 0.0],
+                "v_axis_ras": [0.0, 1.0, 0.0],
+                "size_mm": [12.0, 14.0],
+            }
+        ]
+    }
+
+    scaled = _scale_reference_space_editor(
+        editor,
+        scaling_meta={
+            "enabled": True,
+            "reference_center": [0.0, 0.0, 0.0],
+            "scale_factors": [2.0, 3.0, 4.0],
+        },
+    )
+
+    plane = scaled["planes"][0]
+    assert plane["center_ras"] == pytest.approx([20.0, 60.0, 120.0])
+    assert plane["size_mm"] == pytest.approx([24.0, 42.0])
+    assert plane["normal_ras"] == [0.0, 0.0, -1.0]
+
+
+def test_bbox_relative_editor_resolves_planes_from_model_bounds():
+    mask = np.zeros((8, 12, 16), dtype=bool)
+    mask[2:6, 3:9, 4:14] = True
+    editor = {
+        "planes": [
+            {
+                "name": "Superior disk",
+                "relative_to": "model_bbox",
+                "center_fraction": [0.5, 0.5, 1.25],
+                "size_fraction": [1.5, 2.0],
+                "normal_ras": [0.0, 0.0, -1.0],
+                "u_axis_ras": [1.0, 0.0, 0.0],
+                "v_axis_ras": [0.0, 1.0, 0.0],
+            }
+        ]
+    }
+
+    resolved = _resolve_bbox_relative_editor(
+        editor,
+        model_mask_zyx=mask,
+        spacing=(0.5, 2.0, 3.0),
+        origin=(10.0, 20.0, 30.0),
+    )
+
+    plane = resolved["planes"][0]
+    assert plane["center_ras"] == pytest.approx([14.25, 31.0, 47.25])
+    assert plane["size_mm"] == pytest.approx([6.75, 20.0])
+    assert plane["relative_to"] == "resolved_model_bbox"
+    assert plane["relative_definition"]["relative_to"] == "model_bbox"
+
+
+def test_workflow_replay_uses_bbox_relative_plane_for_scaled_model(tmp_path: Path):
+    density = np.zeros((12, 14, 16), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[3:9, 4:10, 5:13] = 700.0
+    mask[3:9, 4:10, 5:13] = 20
+
+    density_img = sitk.GetImageFromArray(density)
+    mask_img = sitk.GetImageFromArray(mask)
+    for image in (density_img, mask_img):
+        image.SetSpacing((1.0, 1.0, 1.0))
+        image.SetOrigin((0.0, 0.0, 0.0))
+    sitk.WriteImage(density_img, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_img, str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 1.0,
+                        "use_plane_size": True,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": -1.0}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "surface_nodes",
+            }
+        },
+    )
+
+    assert "superior_disk" in built.node_sets
+    z_values = [node[2] for node in built.node_sets["superior_disk"]]
+    assert max(z_values) - min(z_values) <= 2
+    resolved_plane = built.metadata["model"]["workflow_replay"]["resolved_planes"][0]
+    assert resolved_plane["relative_to"] == "resolved_model_bbox"
+    assert resolved_plane["relative_definition"]["center_fraction"] == [0.5, 0.5, 1.25]
+
+
+def test_workflow_replay_pads_when_relative_disk_extends_outside_image(
+    tmp_path: Path,
+):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[4:8, 2:6, 2:6] = 700.0
+    mask[4:8, 2:6, 2:6] = 20
+
+    density_img = sitk.GetImageFromArray(density)
+    mask_img = sitk.GetImageFromArray(mask)
+    for image in (density_img, mask_img):
+        image.SetSpacing((1.0, 1.0, 1.0))
+        image.SetOrigin((0.0, 0.0, 0.0))
+    sitk.WriteImage(density_img, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_img, str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.5],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 0.0,
+                        "use_plane_size": True,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": -1.0}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "surface_nodes",
+            }
+        },
+    )
+
+    crop = built.metadata["model"]["workflow_replay"]["final_material_crop"]
+    assert crop["enabled"] is True
+    assert crop["original_shape_xyz"][2] > crop["cropped_shape_xyz"][2]
+    assert built.material.shape[0] == crop["cropped_shape_xyz"][2]
+    assert int(built.element_sets["workflow_disks"]) > 0
+    assert len(built.node_sets["superior_disk"]) > 0

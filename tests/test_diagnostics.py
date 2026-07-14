@@ -237,6 +237,57 @@ def test_explicit_analysis_dimensions_control_linear_strength_height():
     ] == pytest.approx(3.4)
 
 
+def test_linear_strength_estimates_prefer_boundary_reference_length():
+    stiffness = np.ones((1, 1, 6), dtype=np.float32)
+    node_coords = sorted(
+        [(x, y, z) for x in (0, 1) for y in (0, 1) for z in range(7)],
+        key=lambda coord: _morton_key(*coord),
+    )
+    forces = np.zeros((len(node_coords), 3), dtype=np.float32)
+    loaded_nodes = [coord for coord in node_coords if coord[2] == 5]
+    fixed_nodes = [coord for coord in node_coords if coord[2] == 1]
+    for index, coord in enumerate(node_coords):
+        if coord in loaded_nodes:
+            forces[index, 2] = -2.0
+    fixed_coordinates = []
+    fixed_values = []
+    for node in fixed_nodes:
+        fixed_coordinates.append((*node, 2))
+        fixed_values.append(0.0)
+    for node in loaded_nodes:
+        fixed_coordinates.append((*node, 2))
+        fixed_values.append(-0.0272)
+
+    diagnostics = build_fea_diagnostics(
+        fields={"forces": forces, "sed": np.full((6,), 0.001, dtype=np.float32)},
+        stiffness_gpa_xyz=stiffness,
+        axis="z",
+        strain=-0.01,
+        load_case_type="nodeset",
+        critical_strain=0.02,
+        critical_volume_percent=100,
+        boundary_conditions=BoundaryConditionSet(
+            fixed_coordinates=np.asarray(fixed_coordinates, dtype=np.uint16),
+            fixed_values=np.asarray(fixed_values, dtype=np.float32),
+            node_sets={"top": loaded_nodes, "bottom": fixed_nodes},
+            reference_lengths_mm={"z": 4.0},
+        ),
+        analysis_dimensions_xyz=(1, 1, 6),
+        linear_failure_estimates=True,
+    )
+
+    assert diagnostics["mechanics"]["reference_length_mm"] == pytest.approx(4.0)
+    assert diagnostics["failure"]["linear_reaction_at_deformation"][
+        "height_mm"
+    ] == pytest.approx(4.0)
+    assert diagnostics["failure"]["linear_reaction_at_deformation"][
+        "displacement_mm"
+    ] == pytest.approx(0.008)
+    assert diagnostics["failure"]["crawford_stiffness_height"]["failure_load"][
+        "z"
+    ] == pytest.approx(-8.0)
+
+
 def test_interface_stiffness_uses_displacement_jump_across_analysis_mask():
     stiffness = np.ones((1, 1, 4), dtype=np.float32)
     node_coords = sorted(

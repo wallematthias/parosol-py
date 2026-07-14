@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -26,7 +27,7 @@ def test_pyproject_declares_native_wheel_build_settings():
     assert "cibuildwheel" in pyproject["tool"]
     assert (
         pyproject["tool"]["cibuildwheel"]["before-build"]
-        == "python scripts/stage_mpi_runtime.py"
+        == "python scripts/stage_mpi_runtime.py && python scripts/verify_packaged_mpi.py"
     )
     assert (
         pyproject["tool"]["cibuildwheel"]["test-command"]
@@ -62,11 +63,10 @@ def test_pyproject_declares_native_wheel_build_settings():
     )
     assert pyproject["tool"]["scikit-build"]["wheel"]["packages"] == [
         "src/parosol_py",
-        "src/parosol_torch",
     ]
     assert pyproject["tool"]["cibuildwheel"]["build"] == "cp311-* cp312-* cp313-*"
     assert pyproject["tool"]["scikit-build"]["cmake"]["version"] == ">=3.18"
-    assert pyproject["project"]["optional-dependencies"]["torch"] == ["torch>=2.3"]
+    assert "torch" not in pyproject["project"].get("optional-dependencies", {})
     assert "PAROSOL_MPI_RUNTIME openmpi msmpi" in cmake
     assert "DESTINATION parosol_py/bin" in cmake
     assert "install(PROGRAMS ${PAROSOL_MPI_RUNTIME_PROGRAMS}" in cmake
@@ -124,5 +124,42 @@ def test_existing_wheel_artifacts_include_config_templates_when_present():
         with ZipFile(wheel) as zf:
             names = set(zf.namelist())
         assert "parosol_py/config_templates/default.yaml" in names
-        assert "parosol_py/config_templates/profiles/xtremectii.yaml" in names
-        assert "parosol_py/config_templates/profiles/vertebra.yaml" in names
+        if "parosol_py/workflows/XtremeCTII.parosol-workflow" not in names:
+            continue
+        assert "parosol_py/workflows/XtremeCTII.parosol-workflow" in names
+        assert "parosol_py/workflows/spine-compression.parosol-workflow" in names
+        assert (
+            "parosol_py/workflows/hip-sideways-fall-left.parosol-workflow"
+            in names
+        )
+        assert (
+            "parosol_py/workflows/hip-sideways-fall-right.parosol-workflow"
+            in names
+        )
+        assert "parosol_py/workflows/vertebra.parosol-workflow" not in names
+        assert "parosol_py/workflows/ct-hip-sideways-fall.parosol-workflow" not in names
+
+
+def test_source_tree_does_not_include_generated_cache_files():
+    forbidden_names = {"__pycache__", ".DS_Store"}
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "src", "tests"], cwd=ROOT, text=True
+    ).splitlines()
+    offenders = [path for path in tracked if Path(path).name in forbidden_names]
+
+    assert offenders == []
+
+
+def test_readme_documents_workflow_case_model():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert ".parosol-workflow" in readme
+    assert "parosol_case.yaml" in readme
+    assert "--profile spine-compression" in readme
+    assert "--profile hip-sideways-fall-left" in readme
+    assert "--profile XtremeCTII" in readme
+    assert "SlicerParOSol creates and edits" in readme
+    assert "ct-spine-compression" not in readme
+    assert "ct-hip-sideways-fall" not in readme
+    assert "spine-batch" not in readme
+    assert "proximal_femur" not in readme

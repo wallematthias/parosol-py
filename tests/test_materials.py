@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from parosol_py.materials import (
+    apply_density_input_transform,
     density_to_material_map,
     labels_to_material_map,
     LinearIsotropicMaterials,
@@ -143,6 +144,81 @@ def test_density_to_material_map_keeps_zero_density_background_without_active_ma
     )
 
     assert mapped.youngs_modulus_mpa.tolist() == [[[0.0, 6670.0, 12920.0]]]
+
+
+def test_density_to_material_map_can_use_global_nonzero_density_bins():
+    density = np.array([[[0.0, 10.0, 20.0, 30.0, 40.0]]])
+
+    mapped = density_to_material_map(
+        density,
+        equation="linear",
+        slope=2.0,
+        intercept=1.0,
+        mask_threshold=0.0,
+        bin_material=True,
+        number_bins=2,
+    )
+
+    assert mapped.youngs_modulus_mpa.tolist() == [[[0.0, 36.0, 36.0, 66.0, 66.0]]]
+    assert mapped.metadata["bin_material"] is True
+    assert mapped.metadata["number_bins"] == 2
+    assert mapped.metadata["bin_value"] == "center"
+    np.testing.assert_allclose(mapped.metadata["bin_centers"], [17.5, 32.5])
+    np.testing.assert_allclose(mapped.metadata["bin_edges"], [10.0, 25.0, 40.0])
+
+
+def test_global_bins_use_full_nonzero_density_before_active_mask():
+    density = np.array([[[0.0, 10.0, 20.0, 30.0, 40.0]]])
+    active = np.array([[[False, False, True, True, False]]])
+
+    mapped = density_to_material_map(
+        density,
+        equation="linear",
+        slope=2.0,
+        intercept=1.0,
+        active_mask=active,
+        bin_material=True,
+        number_bins=2,
+    )
+
+    assert mapped.youngs_modulus_mpa.tolist() == [[[0.0, 0.0, 36.0, 66.0, 0.0]]]
+    assert mapped.metadata["binning"] == "global_nonzero_density"
+    np.testing.assert_allclose(mapped.metadata["bin_centers"], [17.5, 32.5])
+    np.testing.assert_allclose(mapped.metadata["bin_edges"], [10.0, 25.0, 40.0])
+
+
+def test_density_to_material_map_rejects_non_center_binning():
+    density = np.array([[[0.0, 10.0, 20.0]]])
+
+    with pytest.raises(ValueError, match="bin_value='center'"):
+        density_to_material_map(
+            density,
+            equation="linear",
+            bin_material=True,
+            bin_value="lower",
+        )
+
+
+def test_keyak_density_transform_clamps_k2hpo4_and_returns_ash_density():
+    density = np.array([[[-100.0, -31.0, 1000.0]]], dtype=np.float64)
+
+    transformed = apply_density_input_transform(
+        density,
+        {"equation": "keyak1994_k2hpo4_to_ash"},
+    )
+
+    np.testing.assert_allclose(transformed, [[[6.04, 6.04, 1098.9]]])
+
+
+def test_linear_density_transform_can_clamp_input_density():
+    density = np.array([[[-100.0, -20.0, 40.0]]], dtype=np.float64)
+
+    transformed = apply_density_input_transform(
+        density,
+        {"equation": "linear", "clamp_min": -31.0},
+    )
+
+    np.testing.assert_allclose(transformed, [[[-31.0, -20.0, 40.0]]])
 
 
 def test_poisson_ratio_from_spec_can_reduce_continuous_field():

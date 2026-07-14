@@ -262,14 +262,11 @@ def _copy_openmpi_libraries(prefix: Path, dest: Path) -> None:
         "libhwloc*",
     )
     copied = _copy_matching_libraries(lib, dest, patterns)
-    copied += _copy_matching_libraries(
-        prefix.parent,
-        dest,
-        (
-            "libpmix*",
-            "libprrte*",
-        ),
-    )
+    # Linux distro/OpenMPI packages commonly use a prefix such as
+    # /usr/lib64/openmpi while dependencies like libhwloc and libevent live in
+    # /usr/lib64. Stage those beside the bundled launcher too; otherwise the
+    # wheel works only on machines that happen to expose the same system libs.
+    copied += _copy_matching_libraries(prefix.parent, dest, patterns)
     _copy_optional_tree(lib / "openmpi", dest / "openmpi")
     for child in ("pmix", "prte"):
         _copy_first_existing_tree(
