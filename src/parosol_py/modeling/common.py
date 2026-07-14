@@ -16,6 +16,7 @@ from parosol_py.nodesets import (
     boundary_conditions_from_nodesets,
     nodes_from_labeled_voxels,
 )
+from parosol_py.paths import suffix_text
 from parosol_py.visualization import write_case_overview
 
 from .io import read_image_zyx, resolve_path
@@ -83,11 +84,15 @@ def load_density_and_mask(
     if _enabled(aspect_spec):
         crop_labels = _crop_labels(model_config, aspect_spec)
         crop_from_zyx = (
-            _bbox_crop_from_to_zyx(
-                preprocessing.get(
-                    "bbox_crop_from",
-                    preprocessing.get("bbox_crop-from", {}),
-                )
+            _workflow_replay_slicer_crop_from_to_ras_zyx(
+                _bbox_crop_from_to_zyx(
+                    preprocessing.get(
+                        "bbox_crop_from",
+                        preprocessing.get("bbox_crop-from", {}),
+                    )
+                ),
+                model_config,
+                density_path,
             )
             if bbox_ratio_spec is not None
             else None
@@ -151,6 +156,46 @@ def load_density_and_mask(
         spacing,
         origin,
     )
+
+
+def _workflow_replay_slicer_crop_from_to_ras_zyx(
+    crop_from_zyx: tuple[str | None, str | None, str | None],
+    model_config: dict[str, Any],
+    image_path: Path,
+) -> tuple[str | None, str | None, str | None]:
+    """Convert workflow crop ends from Slicer IJK to canonical RAS arrays.
+
+    Workflow replay recipes are authored in Slicer. Plane geometry is stored in
+    RAS, but crop-from min/max choices refer to the Slicer IJK grid. Medical
+    image inputs are reoriented into a canonical RAS array for headless model
+    building, where x/z index ends can be reversed relative to Slicer's IJK.
+    """
+    is_replay_type = str(model_config.get("type", "")).strip().lower() == "workflow_replay"
+    replay_spec = model_config.get("workflow_replay")
+    is_replay_enabled = isinstance(replay_spec, dict) and _enabled(
+        replay_spec.get("enabled", False)
+    )
+    if not is_replay_type and not is_replay_enabled:
+        return crop_from_zyx
+    if not _uses_slicer_ijk_crop_convention(image_path):
+        return crop_from_zyx
+    return (
+        _opposite_crop_end(crop_from_zyx[0]),
+        crop_from_zyx[1],
+        _opposite_crop_end(crop_from_zyx[2]),
+    )
+
+
+def _uses_slicer_ijk_crop_convention(path: Path) -> bool:
+    return suffix_text(path).endswith((".nii", ".nii.gz", ".mha", ".mhd"))
+
+
+def _opposite_crop_end(value: str | None) -> str | None:
+    if value == "min":
+        return "max"
+    if value == "max":
+        return "min"
+    return value
 
 
 def _largest_connected_label_component(mask_zyx: np.ndarray) -> np.ndarray:

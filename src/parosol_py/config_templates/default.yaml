@@ -75,7 +75,8 @@ preprocessing:
   # bbox_ratio: [1, 1.2, null]
   # Optional crop anchor in the same recipe order. "min" removes the low-index
   # end of that dimension, "max" removes the high-index end, and null/center
-  # crops around the bbox center.
+  # crops around the bbox center. Workflow replay uses Slicer's IJK index
+  # convention for these anchors; authored plane geometry remains in RAS.
   # bbox_crop_from: [null, max, null]
   # Optional downsampled solve. This changes the solve grid and scales spacing.
   # Use for exploratory coarse passes before full-resolution batches.

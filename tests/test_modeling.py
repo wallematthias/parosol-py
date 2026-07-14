@@ -361,6 +361,68 @@ def test_model_preprocessing_bbox_ratio_can_crop_from_constrained_min_end(
     assert origin == pytest.approx((-21.0, -13.0, 6.0))
 
 
+def test_workflow_replay_bbox_crop_from_uses_slicer_ijk_z_direction(
+    tmp_path: Path,
+):
+    density = np.zeros((10, 6, 6), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[0:8, 1:5, 1:5] = 700.0
+    mask[0:8, 1:5, 1:5] = 1
+    for name, array in (("density", density), ("mask", mask)):
+        image = sitk.GetImageFromArray(array)
+        image.SetSpacing((1.0, 1.0, 1.0))
+        image.SetOrigin((0.0, 0.0, 0.0))
+        image.SetDirection((1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0))
+        sitk.WriteImage(image, str(tmp_path / f"{name}.nii.gz"))
+
+    _cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 1},
+            "workflow_replay": {"enabled": True},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "bbox_ratio": [1.0, 1.0, None],
+            "bbox_crop_from": [None, "max", None],
+        },
+    )
+
+    assert cropped_mask.shape == (4, 4, 4)
+    assert origin == pytest.approx((-4.0, 1.0, 4.0))
+
+
+def test_workflow_replay_bbox_crop_from_keeps_npy_array_direction(
+    tmp_path: Path,
+):
+    density = np.zeros((10, 6, 6), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[0:8, 1:5, 1:5] = 700.0
+    mask[0:8, 1:5, 1:5] = 1
+    np.save(tmp_path / "density.npy", density)
+    np.save(tmp_path / "mask.npy", mask)
+
+    _cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.npy",
+            "mask_image": "mask.npy",
+            "labels": {"femur": 1},
+            "workflow_replay": {"enabled": True},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "bbox_ratio": [1.0, 1.0, None],
+            "bbox_crop_from": [None, "max", None],
+        },
+    )
+
+    assert cropped_mask.shape == (4, 4, 4)
+    assert origin == pytest.approx((1.0, 1.0, 0.0))
+
+
 def test_model_preprocessing_bbox_ratio_warns_when_target_axis_is_too_short(
     tmp_path: Path,
 ):
