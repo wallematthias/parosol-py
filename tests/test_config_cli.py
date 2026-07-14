@@ -751,6 +751,48 @@ def test_run_case_config_rejects_nodesets_without_active_material(tmp_path: Path
         run_case_config(config_path)
 
 
+def test_run_case_config_rejects_empty_nodeset_label(tmp_path: Path):
+    material = np.ones((4, 4, 4), dtype=np.float64) * 1000.0
+    nodesets = np.zeros((4, 4, 4), dtype=np.uint8)
+    nodesets[1, 1, 1] = 102
+    np.save(tmp_path / "material.npy", material)
+    np.save(tmp_path / "nodesets.npy", nodesets)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {"image": "material.npy", "spacing": [1, 1, 1]},
+                "nodesets": {
+                    "distal_shaft_fixation": {
+                        "type": "label_image",
+                        "image": "nodesets.npy",
+                        "label": 103,
+                        "selection": "interface_nodes",
+                    },
+                },
+                "load_case": {
+                    "type": "nodeset",
+                    "fixed": [
+                        {
+                            "nodeset": "distal_shaft_fixation",
+                            "dofs": ["x", "z"],
+                            "value": 0,
+                        }
+                    ],
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="nodeset 'distal_shaft_fixation'.*label 103.*contains no nodes",
+    ):
+        run_case_config(config_path)
+
+
 def test_run_case_config_builds_nodeset_linear_bending_field(
     monkeypatch, tmp_path: Path
 ):

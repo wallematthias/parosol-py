@@ -25,6 +25,7 @@ from parosol_py.modeling.alignment import (
 from parosol_py.modeling.common import displacement_from_load_case
 from parosol_py.modeling.workflow_replay import (
     _crop_workflow_model_to_material_bbox,
+    _editor_disk_labels,
     _invert_rigid_transform,
     _reference_model_space_icp_direction,
     _resolve_bbox_relative_editor,
@@ -306,6 +307,32 @@ def test_model_preprocessing_accepts_bbox_ratio_recipe_order(tmp_path: Path):
     assert origin == pytest.approx((-21.0, -13.0, 4.0))
 
 
+def test_model_preprocessing_single_label_mask_can_replace_declared_label(
+    tmp_path: Path,
+):
+    density = np.zeros((12, 14, 16), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:8, 3:9, 4:12] = 700.0
+    mask[2:8, 3:9, 4:12] = 1
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    with pytest.warns(RuntimeWarning, match="using single foreground label 1"):
+        cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+            {
+                "density_image": "density.nii.gz",
+                "mask_image": "mask.nii.gz",
+                "labels": {"femur": 2},
+            },
+            base_dir=tmp_path,
+            preprocessing_config={"crop_to_bb": {"enabled": True, "margin_voxels": 0}},
+        )
+
+    assert cropped_density.shape == (6, 6, 8)
+    assert cropped_mask.shape == (6, 6, 8)
+    assert origin == pytest.approx((-11.0, -8.0, 2.0))
+
+
 def test_model_preprocessing_bbox_ratio_can_crop_from_constrained_min_end(
     tmp_path: Path,
 ):
@@ -332,6 +359,35 @@ def test_model_preprocessing_bbox_ratio_can_crop_from_constrained_min_end(
     assert cropped_density.shape == (12, 10, 20)
     assert cropped_mask.shape == (12, 10, 20)
     assert origin == pytest.approx((-21.0, -13.0, 6.0))
+
+
+def test_model_preprocessing_bbox_ratio_warns_when_target_axis_is_too_short(
+    tmp_path: Path,
+):
+    density = np.zeros((18, 20, 24), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:10, 4:14, 2:22] = 700.0
+    mask[2:10, 4:14, 2:22] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    with pytest.warns(RuntimeWarning, match="cannot reach requested bbox_ratio"):
+        cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+            {
+                "density_image": "density.nii.gz",
+                "mask_image": "mask.nii.gz",
+                "labels": {"femur": 2},
+            },
+            base_dir=tmp_path,
+            preprocessing_config={
+                "bbox_ratio": [1.0, 1.2, None],
+                "bbox_crop_from": [None, "min", None],
+            },
+        )
+
+    assert cropped_density.shape == (8, 10, 20)
+    assert cropped_mask.shape == (8, 10, 20)
+    assert origin == pytest.approx((-21.0, -13.0, 2.0))
 
 
 def test_model_preprocessing_bbox_ratio_uses_shortest_one_axis_as_reference(
@@ -736,6 +792,39 @@ def test_workflow_replay_uses_label_one_for_registration_when_labels_are_remappe
     assert int(np.count_nonzero(registration_mask)) == int(np.count_nonzero(mask == 1))
     assert not np.any(registration_mask[mask == 2])
     assert int(np.count_nonzero(model_mask)) == int(np.count_nonzero(mask > 0))
+
+
+def test_workflow_replay_single_label_mask_can_replace_declared_target_label():
+    mask = np.zeros((4, 4, 4), dtype=np.uint8)
+    mask[1:3, 1:3, 1:3] = 1
+    model_config = {
+        "labels": {"femur": 2},
+        "targets": {"registration": "femur", "model": ["femur"]},
+    }
+    replay_cfg = {}
+
+    with pytest.warns(RuntimeWarning, match="using single foreground label 1"):
+        registration_mask = _workflow_active_mask(mask, model_config, replay_cfg)
+    with pytest.warns(RuntimeWarning, match="using single foreground label 1"):
+        model_mask = _workflow_model_mask(mask, model_config)
+
+    assert int(np.count_nonzero(registration_mask)) == int(np.count_nonzero(mask == 1))
+    assert int(np.count_nonzero(model_mask)) == int(np.count_nonzero(mask == 1))
+
+
+def test_workflow_replay_single_label_mask_can_replace_implicit_declared_label():
+    mask = np.zeros((4, 4, 4), dtype=np.uint8)
+    mask[1:3, 1:3, 1:3] = 1
+    model_config = {"labels": {"femur": 2}}
+    replay_cfg = {}
+
+    with pytest.warns(RuntimeWarning, match="using single foreground label 1"):
+        registration_mask = _workflow_active_mask(mask, model_config, replay_cfg)
+    with pytest.warns(RuntimeWarning, match="using single foreground label 1"):
+        model_mask = _workflow_model_mask(mask, model_config)
+
+    assert int(np.count_nonzero(registration_mask)) == int(np.count_nonzero(mask == 1))
+    assert int(np.count_nonzero(model_mask)) == int(np.count_nonzero(mask == 1))
 
 
 def test_workflow_replay_target_masks_are_selected_by_declared_label_keys():
@@ -1296,6 +1385,22 @@ def test_workflow_replay_exports_generated_nodeset_labels_from_planes(tmp_path: 
     assert reconstructed == built.node_sets["superior_disk"]
 
 
+def test_editor_disk_labels_default_to_reserved_range(tmp_path: Path):
+    labels = _editor_disk_labels(
+        resolved_editor={
+            "planes": [
+                {"name": "Top disk", "contact": "Material disks"},
+                {"name": "Bottom disk", "contact": "PMMA caps"},
+                {"name": "Bone surface", "contact": "Bone surface"},
+            ],
+        },
+        replay_cfg={},
+        base_dir=tmp_path,
+    )
+
+    assert labels == {"Top disk": 10001, "Bottom disk": 10002}
+
+
 def test_workflow_replay_honors_explicit_plane_disk_labels_without_cached_labelmap(
     tmp_path: Path,
 ):
@@ -1460,6 +1565,122 @@ def test_workflow_replay_keeps_generated_outer_face_node_sets(tmp_path: Path):
 
     assert built.metadata["model"]["workflow_replay"]["geometry_mode"] == "plane_driven"
     assert np.unique(nodes[:, 2]).tolist() == [built.material.shape[0]]
+
+
+def test_workflow_replay_resolves_editor_plane_normal_displacement_sign(
+    tmp_path: Path,
+):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Greater trochanter disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, -0.25, 0.5],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "rectangle",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 0.0,
+                        "normal_ras": [0.0, 1.0, 0.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 0.0, 1.0],
+                        "disk_label": 101,
+                    },
+                    {
+                        "name": "Femoral head disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 1.25, 0.5],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "rectangle",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 0.0,
+                        "normal_ras": [0.0, -1.0, 0.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 0.0, 1.0],
+                        "disk_label": 202,
+                    },
+                ],
+                "loads": [
+                    {
+                        "nodeset": "Greater trochanter disk",
+                        "mode": "Fixed",
+                        "direction": "Plane normal",
+                        "value": 0.0,
+                        "units": "",
+                        "fixed_dofs": ["y"],
+                    },
+                    {
+                        "nodeset": "Femoral head disk",
+                        "mode": "Displacement",
+                        "direction": "Plane normal",
+                        "value": 10.0,
+                        "units": "%",
+                    },
+                ],
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "fixed": [{"nodeset": "greater_trochanter_disk", "dofs": ["y"], "value": 0.0}],
+            "prescribed": [{"nodeset": "femoral_head_disk", "dof": "y", "value": "10%"}],
+        },
+        nodeset_config={
+            "greater_trochanter_disk": {
+                "type": "label_image",
+                "label": 101,
+                "selection": "outer_face_nodes",
+            },
+            "femoral_head_disk": {
+                "type": "label_image",
+                "label": 202,
+                "selection": "outer_face_nodes",
+            },
+        },
+    )
+
+    head_nodes = set(built.node_sets["femoral_head_disk"])
+    coords = built.boundary_conditions.fixed_coordinates
+    values = built.boundary_conditions.fixed_values
+    head_y_values = [
+        float(value)
+        for coord, value in zip(coords, values, strict=True)
+        if tuple(int(item) for item in coord[:3]) in head_nodes and int(coord[3]) == 1
+    ]
+
+    assert head_y_values
+    assert all(value < 0.0 for value in head_y_values)
+    assert built.metadata["model"]["effective_load_case"]["prescribed"] == [
+        {
+            "nodeset": "femoral_head_disk",
+            "dof": "y",
+            "value": "-10%",
+            "units": "%",
+        }
+    ]
 
 
 def test_workflow_replay_outer_face_nodes_keep_surface_percent_length(
@@ -1824,6 +2045,45 @@ def test_bbox_relative_editor_resolves_planes_from_model_bounds():
     assert plane["size_mm"] == pytest.approx([6.75, 20.0])
     assert plane["relative_to"] == "resolved_model_bbox"
     assert plane["relative_definition"]["relative_to"] == "model_bbox"
+
+
+def test_bbox_relative_editor_resolves_planes_from_fraction_bounds():
+    mask = np.zeros((8, 12, 16), dtype=bool)
+    mask[2:6, 3:9, 4:14] = True
+    editor = {
+        "planes": [
+            {
+                "name": "Greater trochanter disk",
+                "relative_to": "model_bbox",
+                "bbox_fraction_bounds": {
+                    "x": [0.0, 1.0],
+                    "y": [-0.1, -0.1],
+                    "z": [0.0, 1.0],
+                },
+                "normal_ras": [0.0, 1.0, 0.0],
+                "u_axis_ras": [0.0, 0.0, -1.0],
+                "v_axis_ras": [-1.0, 0.0, 0.0],
+            }
+        ]
+    }
+
+    resolved = _resolve_bbox_relative_editor(
+        editor,
+        model_mask_zyx=mask,
+        spacing=(0.5, 2.0, 3.0),
+        origin=(10.0, 20.0, 30.0),
+    )
+
+    plane = resolved["planes"][0]
+    assert "center_fraction" not in plane
+    assert "size_fraction" not in plane
+    assert plane["center_ras"] == pytest.approx([14.25, 25.0, 40.5])
+    assert plane["size_mm"] == pytest.approx([9.0, 4.5])
+    assert plane["relative_definition"]["bbox_fraction_bounds"] == {
+        "x": [0.0, 1.0],
+        "y": [-0.1, -0.1],
+        "z": [0.0, 1.0],
+    }
 
 
 def test_workflow_replay_uses_bbox_relative_plane_for_scaled_model(tmp_path: Path):

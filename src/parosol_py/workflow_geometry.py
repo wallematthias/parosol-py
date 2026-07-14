@@ -254,6 +254,44 @@ def estimate_reference_to_sample_transform(
     }
 
 
+def invert_rigid_transform(transform: dict[str, Any]) -> dict[str, Any]:
+    rotation = np.asarray(transform["rotation"], dtype=float)
+    translation = np.asarray(transform["translation"], dtype=float)
+    scale = float(transform.get("scale", 1.0))
+    inverse_rotation = rotation.T
+    inverse_translation = -(inverse_rotation @ np.asarray(translation, dtype=float)) / scale
+    return {
+        "rotation": inverse_rotation,
+        "translation": inverse_translation,
+        "scale": 1.0 / scale,
+        "iterations": int(transform.get("iterations", 0)),
+        "mean_distance": float(transform.get("mean_distance", 0.0)),
+    }
+
+
+def output_grid_for_transformed_points(
+    points: np.ndarray,
+    transform: dict[str, Any],
+    *,
+    spacing: tuple[float, float, float],
+    margin_voxels: int = 4,
+) -> tuple[tuple[float, float, float], tuple[int, int, int]]:
+    transformed = transform_points(
+        points_array(points, "points"),
+        transform["rotation"],
+        transform["translation"],
+        scale=float(transform.get("scale", 1.0)),
+    )
+    spacing_arr = np.asarray(spacing, dtype=float)
+    if spacing_arr.shape != (3,) or np.any(spacing_arr <= 0):
+        raise ValueError("spacing must contain three positive values")
+    margin = max(0, int(margin_voxels))
+    lo = transformed.min(axis=0) - margin * spacing_arr
+    hi = transformed.max(axis=0) + margin * spacing_arr
+    size = np.maximum(1, np.ceil((hi - lo) / spacing_arr).astype(int) + 1)
+    return tuple(float(value) for value in lo), tuple(int(value) for value in size)
+
+
 def prealign_reference_points_to_sample(
     reference_points: np.ndarray,
     sample_points: np.ndarray,
@@ -279,6 +317,83 @@ def prealign_reference_points_to_sample(
         "sample_lengths": sample_lengths.tolist(),
         "prealign_scale": scale.tolist(),
     }
+
+
+def scale_reference_points_preserving_pose(
+    *,
+    reference_points: np.ndarray,
+    sample_points: np.ndarray,
+    registration_config: dict[str, Any],
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Scale reference points to the sample size without changing reference pose."""
+
+    scaling_cfg = registration_config.get("reference_scaling", {})
+    if scaling_cfg is False:
+        return reference_points, {"enabled": False}
+    if scaling_cfg is True:
+        scaling_cfg = {}
+    if not isinstance(scaling_cfg, dict) or not scaling_cfg.get("enabled", False):
+        return reference_points, {"enabled": False}
+
+    reference = points_array(reference_points, "reference_points")
+    sample = points_array(sample_points, "sample_points")
+    ref_lengths = _covariance_principal_axis_lengths(reference)
+    sample_lengths = _covariance_principal_axis_lengths(sample)
+    min_factors = np.asarray(
+        scaling_cfg.get("min_factors", [0.8, 0.8, 0.75]),
+        dtype=float,
+    )
+    max_factors = np.asarray(
+        scaling_cfg.get("max_factors", [1.2, 1.2, 1.3]),
+        dtype=float,
+    )
+    scale = np.clip(sample_lengths / np.maximum(ref_lengths, 1.0e-6), min_factors, max_factors)
+    center = reference.mean(axis=0)
+    scaled = reference * scale
+    return scaled, {
+        "enabled": True,
+        "source": "origin_covariance_axis_lengths_reference_pose",
+        "reference_center": center.tolist(),
+        "reference_axis_lengths": ref_lengths.tolist(),
+        "sample_axis_lengths": sample_lengths.tolist(),
+        "scale_factors": scale.tolist(),
+        "min_factors": min_factors.tolist(),
+        "max_factors": max_factors.tolist(),
+    }
+
+
+def scale_reference_space_editor(
+    editor: dict[str, Any],
+    *,
+    scaling_meta: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply reference point scaling metadata to authored reference-space planes."""
+
+    if not scaling_meta.get("enabled", False):
+        return editor
+    center = np.asarray(scaling_meta.get("reference_center"), dtype=float)
+    scale = np.asarray(scaling_meta.get("scale_factors"), dtype=float)
+    if center.shape != (3,) or scale.shape != (3,):
+        return editor
+
+    resolved = copy.deepcopy(editor)
+    for plane in resolved.get("planes", []):
+        if not isinstance(plane, dict):
+            continue
+        plane_center = plane.get("center_ras")
+        if isinstance(plane_center, (list, tuple)) and len(plane_center) == 3:
+            value = np.asarray(plane_center, dtype=float)
+            plane["center_ras"] = (center + (value - center) * scale).tolist()
+        sizes = plane.get("size_mm")
+        if isinstance(sizes, (list, tuple)) and len(sizes) >= 2:
+            u_axis = np.asarray(plane.get("u_axis_ras", [1.0, 0.0, 0.0]), dtype=float)
+            v_axis = np.asarray(plane.get("v_axis_ras", [0.0, 1.0, 0.0]), dtype=float)
+            u_scale = float(np.linalg.norm(u_axis * scale))
+            v_scale = float(np.linalg.norm(v_axis * scale))
+            plane["size_mm"] = [float(sizes[0]) * u_scale, float(sizes[1]) * v_scale]
+        plane["reference_scaled"] = True
+    resolved.setdefault("registration", {})["reference_scaling"] = scaling_meta
+    return resolved
 
 
 def transform_plane_spec(plane_spec: dict[str, Any], transform: dict[str, Any]) -> dict[str, Any]:
@@ -1037,6 +1152,15 @@ def _pca_axes_and_lengths(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, n
     )
     lengths = np.maximum(lengths, 1.0e-6)
     return axes, lengths, center
+
+
+def _covariance_principal_axis_lengths(points: np.ndarray) -> np.ndarray:
+    array = np.asarray(points, dtype=float)
+    centered = array - array.mean(axis=0)
+    covariance = np.cov(centered.T)
+    eigvals = np.linalg.eigvalsh(covariance)
+    lengths = np.sqrt(np.maximum(eigvals, 0.0)) * 2.0
+    return np.maximum(lengths, 1.0e-6)
 
 
 def _slug(text: str) -> str:

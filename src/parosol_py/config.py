@@ -212,6 +212,12 @@ def run_case_config(
         common["origin"] = origin
         common["poisson_ratio"] = built_model.poisson_ratio
         model_meta = built_model.metadata.get("model", {})
+        effective_load_case_cfg = model_meta.get("effective_load_case")
+        if isinstance(effective_load_case_cfg, dict):
+            load_case_cfg = effective_load_case_cfg
+            common["load_case_type"] = _effective_load_case_type(load_case_cfg)
+            common["rotation_degrees"] = _load_case_rotation_degrees(load_case_cfg)
+            common["load_case_center"] = _effective_load_case_center(load_case_cfg)
         common["test_axis"] = str(model_meta.get("load_axis", common["test_axis"]))
         common["load_direction"] = model_meta.get(
             "load_direction", common["load_direction"]
@@ -1189,6 +1195,12 @@ def _load_node_sets(
             selection=str(spec.get("selection", "surface_nodes")),
             material=material_xyz,
         )
+        if not nodes:
+            raise ValueError(
+                f"nodeset '{name}' label {int(spec['label'])} contains no nodes. "
+                "Check that the requested label exists in the nodeset image and "
+                "that the selected nodeset mode reaches active material."
+            )
         invalid_count = _count_nodes_without_active_material(nodes, material_xyz)
         if invalid_count:
             raise ValueError(

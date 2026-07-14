@@ -76,7 +76,7 @@ preprocessing:
   # Optional crop anchor in the same recipe order. "min" removes the low-index
   # end of that dimension, "max" removes the high-index end, and null/center
   # crops around the bbox center.
-  # bbox_crop_from: [null, min, null]
+  # bbox_crop_from: [null, max, null]
   # Optional downsampled solve. This changes the solve grid and scales spacing.
   # Use for exploratory coarse passes before full-resolution batches.
   # coarsen:

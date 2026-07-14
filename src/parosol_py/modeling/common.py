@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -173,10 +174,10 @@ def _crop_to_mask_bbox(
     labels: set[int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, tuple[float, float, float]]:
     labels_array = np.asarray(mask_zyx)
-    active = (
-        np.isin(labels_array, sorted(labels))
-        if labels
-        else labels_array > 0
+    active = target_mask_from_labels(
+        labels_array,
+        labels,
+        context="crop target labels",
     )
     if not np.any(active):
         raise ValueError("model mask has no foreground voxels")
@@ -268,6 +269,31 @@ def _crop_labels(
     return parsed or None
 
 
+def target_mask_from_labels(
+    mask: np.ndarray,
+    labels: set[int] | list[int] | tuple[int, ...] | None,
+    *,
+    context: str = "target labels",
+) -> np.ndarray:
+    array = np.asarray(mask)
+    if not labels:
+        return array > 0
+    requested = sorted({int(label) for label in labels})
+    selected = np.isin(array, requested)
+    if np.any(selected):
+        return selected
+    foreground = sorted(int(value) for value in np.unique(array) if int(value) != 0)
+    if len(requested) == 1 and len(foreground) == 1:
+        warnings.warn(
+            f"{context} {requested} not present in mask; "
+            f"using single foreground label {foreground[0]}.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return array == foreground[0]
+    return selected
+
+
 def _crop_to_mask_aspect_ratio(
     density_zyx: np.ndarray,
     mask_zyx: np.ndarray,
@@ -279,7 +305,11 @@ def _crop_to_mask_aspect_ratio(
     labels: set[int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, tuple[float, float, float]]:
     mask = np.asarray(mask_zyx)
-    active = np.isin(mask, sorted(labels)) if labels else mask > 0
+    active = target_mask_from_labels(
+        mask,
+        labels,
+        context="aspect-ratio crop target labels",
+    )
     if not np.any(active):
         raise ValueError("model mask has no foreground voxels")
 
@@ -311,8 +341,20 @@ def _crop_to_mask_aspect_ratio(
         if axis_ratio is None:
             continue
         target_mm = reference_length_mm * float(axis_ratio)
-        target_voxels = max(1, int(round(target_mm / float(spacing_zyx[axis]))))
-        target_voxels = min(int(size_zyx[axis]), target_voxels)
+        requested_voxels = max(1, int(round(target_mm / float(spacing_zyx[axis]))))
+        available_voxels = int(size_zyx[axis])
+        if requested_voxels > available_voxels:
+            axis_name = ("z", "y", "x")[axis]
+            warnings.warn(
+                "bbox_ratio cannot reach requested bbox_ratio on "
+                f"{axis_name} axis: requested {target_mm:g} mm "
+                f"({requested_voxels} voxels) exceeds foreground extent "
+                f"{float(physical_size_zyx[axis]):g} mm ({available_voxels} voxels); "
+                f"using the full available {axis_name} extent.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        target_voxels = min(available_voxels, requested_voxels)
         mode = crop_from[axis]
         if mode == "min":
             start = int(hi_zyx[axis]) - target_voxels

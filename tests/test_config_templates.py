@@ -94,6 +94,8 @@ def test_packaged_workflows_use_npy_references_and_intrusion_schema():
         assert density["bin_material"] is True
         assert density["number_bins"] == 128
         assert density["bin_value"] == "center"
+        for spec in loaded.get("nodesets", {}).values():
+            assert spec["label"] >= 10001
         assert "reference/slicer_reference_points.npy" in text
         assert "method: vtk_icp" in text
         assert "initialization: centroid" in text
@@ -218,24 +220,24 @@ def test_hip_workflow_cap_geometry_matches_maintained_sideways_fall_settings():
             "reference_density": 1000.0,
             "floor_e_mpa": 0.0,
         }
-        assert loaded["preprocessing"]["bbox_ratio"] == [1.0, 1.2, None]
-        assert loaded["preprocessing"]["bbox_crop_from"] == [None, "min", None]
+        assert loaded["preprocessing"]["bbox_ratio"] == [1.0, 1.3, None]
+        assert loaded["preprocessing"]["bbox_crop_from"] == [None, "max", None]
         assert "normalize_aspect_ratio" not in loaded["preprocessing"]
         assert "icp_direction" not in loaded["model"]["registration"]
         assert loaded["nodesets"] == {
             "greater_trochanter_disk": {
                 "type": "label_image",
-                "label": 101,
+                "label": 10001,
                 "selection": "outer_face_nodes",
             },
             "femoral_head_disk": {
                 "type": "label_image",
-                "label": 202,
+                "label": 10002,
                 "selection": "outer_face_nodes",
             },
             "distal_shaft_fixation": {
                 "type": "label_image",
-                "label": 103,
+                "label": 10003,
                 "selection": "interface_nodes",
             },
         }
@@ -254,27 +256,37 @@ def test_hip_workflow_cap_geometry_matches_maintained_sideways_fall_settings():
         }
         expected_geometry = {
             "Greater trochanter disk": {
-                "center_fraction": [0.5, 0.0151983839, 0.6551527108],
-                "size_fraction": [1.1, 1.1],
-                "disk_label": 101,
+                "bbox_fraction_bounds": {
+                    "x": [0.0, 1.0],
+                    "y": [-0.1, -0.1],
+                    "z": [0.0, 1.0],
+                },
+                "disk_label": 10001,
             },
             "Femoral head disk": {
-                "center_fraction": [0.5, 1.0278767152, 0.9650933279],
-                "size_fraction": [1.1, 1.1],
-                "disk_label": 202,
+                "bbox_fraction_bounds": {
+                    "x": [0.0, 1.0],
+                    "y": [1.1, 1.1],
+                    "z": [0.0, 1.0],
+                },
+                "disk_label": 10002,
             },
             "Distal shaft fixation": {
-                "center_fraction": [0.1958514895, 0.5708725889, 0.0601674635],
-                "size_fraction": [0.3640088821, 0.6351022953],
+                "bbox_fraction_bounds": {
+                    "x": [0.0, 1.0],
+                    "y": [0.0, 1.0],
+                    "z": [-0.1, -0.1],
+                },
             },
         }
         for name, expected in expected_geometry.items():
             plane = planes_by_name[name]
-            assert plane["center_fraction"] == pytest.approx(expected["center_fraction"])
-            assert plane["size_fraction"] == pytest.approx(expected["size_fraction"])
+            assert plane["bbox_fraction_bounds"] == expected["bbox_fraction_bounds"]
+            assert "center_fraction" not in plane
+            assert "size_fraction" not in plane
             if "disk_label" in expected:
                 assert plane["disk_label"] == expected["disk_label"]
-                assert plane["shape"] == "rectangle"
+                assert plane["shape"] == "anatomy"
                 assert plane["anatomy_constrained"] is True
 
 

@@ -6,11 +6,16 @@ import pytest
 from parosol_py.nodesets import nodes_from_labeled_voxels
 from parosol_py.workflow_geometry import (
     derive_reference_plane,
+    estimate_reference_to_sample_transform,
     generate_disk_and_nodeset_geometry,
     _inside_shape_vectorized,
     _node_set_from_disk_face,
     _plane_geometry,
+    invert_rigid_transform,
+    output_grid_for_transformed_points,
     resolve_reference_space_editor,
+    scale_reference_points_preserving_pose,
+    transform_points,
 )
 
 
@@ -51,6 +56,79 @@ def test_resolve_reference_space_editor_maps_reference_plane_to_sample_space():
     assert plane["reference_space"] is False
     assert plane["resolved_from_reference_space"] is True
     assert np.allclose(plane["center_ras"], [5.0, -2.0, 3.0], atol=1.0e-3)
+
+
+def test_reference_scaling_helper_is_shared_by_workflow_geometry():
+    reference = np.asarray(
+        [
+            [10.0, 0.0, 0.0],
+            [12.0, 0.0, 0.0],
+            [10.0, 1.0, 0.0],
+            [10.0, 0.0, 1.0],
+        ],
+        dtype=float,
+    )
+    sample = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [4.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=float,
+    )
+
+    scaled, meta = scale_reference_points_preserving_pose(
+        reference_points=reference,
+        sample_points=sample,
+        registration_config={
+            "reference_scaling": {
+                "enabled": True,
+                "min_factors": [0.0, 0.0, 0.0],
+                "max_factors": [10.0, 10.0, 10.0],
+            }
+        },
+    )
+
+    scale = np.asarray(meta["scale_factors"])
+    np.testing.assert_allclose(scaled, reference * scale)
+    assert meta["source"] == "origin_covariance_axis_lengths_reference_pose"
+
+
+def test_workflow_geometry_exposes_slicer_transform_utilities():
+    reference = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [5.0, 0.0, 0.0],
+            [0.0, 7.0, 0.0],
+            [0.0, 0.0, 9.0],
+        ],
+        dtype=float,
+    )
+    sample = reference + np.asarray([10.0, -3.0, 2.0], dtype=float)
+
+    reference_to_sample = estimate_reference_to_sample_transform(
+        reference,
+        sample,
+        iterations=20,
+        tolerance=1.0e-9,
+    )
+    sample_to_reference = invert_rigid_transform(reference_to_sample)
+    replayed = transform_points(
+        sample,
+        sample_to_reference["rotation"],
+        sample_to_reference["translation"],
+    )
+    origin, size = output_grid_for_transformed_points(
+        sample,
+        sample_to_reference,
+        spacing=(1.0, 1.0, 1.0),
+        margin_voxels=1,
+    )
+
+    assert np.max(np.linalg.norm(replayed - reference, axis=1)) < 1.0e-5
+    assert all(isinstance(value, float) for value in origin)
+    assert all(value > 1 for value in size)
 
 
 def test_derive_reference_plane_defaults_missing_axis_to_z_independent_of_name():

@@ -222,6 +222,32 @@ def test_mpi_runtime_environment_prepends_packaged_openmpi_lib(monkeypatch, tmp_
     )
 
 
+def test_mpi_runtime_environment_recognizes_installed_openmpi_when_running_from_source(
+    monkeypatch, tmp_path
+):
+    source_bin = tmp_path / "checkout" / "src" / "parosol_py" / "bin"
+    installed_bin = tmp_path / "site-packages" / "parosol_py" / "bin"
+    env_prefix = tmp_path / "env"
+    launcher = installed_bin / "openmpi" / "bin" / "mpirun"
+    launcher.parent.mkdir(parents=True)
+    (installed_bin / "openmpi" / "lib").mkdir(parents=True)
+    (env_prefix / "lib").mkdir(parents=True)
+    launcher.write_text("fake launcher", encoding="utf-8")
+    monkeypatch.setattr("parosol_py.runner._package_bin_dir", lambda: source_bin)
+    monkeypatch.setattr(runner.sys, "prefix", str(env_prefix))
+
+    env = mpi_runtime_environment([str(launcher), "-np", "2"], base_env={})
+
+    assert env is not None
+    assert env["OPAL_PREFIX"] == str(installed_bin / "openmpi")
+    assert env["PRTE_PREFIX"] == str(installed_bin / "openmpi")
+    assert env["PMIX_PREFIX"] == str(installed_bin / "openmpi")
+    assert env["PATH"] == str(installed_bin / "openmpi" / "bin")
+    assert env["LD_LIBRARY_PATH"] == (
+        f"{installed_bin / 'openmpi' / 'lib'}{os.pathsep}{env_prefix / 'lib'}"
+    )
+
+
 def test_mpi_runtime_environment_allows_packaged_openmpi_as_root(monkeypatch, tmp_path):
     package_bin = tmp_path / "bin"
     env_prefix = tmp_path / "env"

@@ -10,6 +10,8 @@ from parosol_py.nodesets import boundary_conditions_from_nodesets, nodes_from_la
 from parosol_py.workflow_geometry import (
     generate_disk_and_nodeset_geometry,
     resolve_reference_space_editor,
+    scale_reference_points_preserving_pose as _scale_reference_points_preserving_pose,
+    scale_reference_space_editor as _scale_reference_space_editor,
 )
 
 from .alignment import (
@@ -28,10 +30,14 @@ from .common import (
     occupied_length_mm,
     pad_arrays_to_foreground_margin,
     require_non_empty,
+    target_mask_from_labels,
     to_zyx,
 )
 from .io import read_image_zyx, resolve_path
 from .types import BuiltModel
+
+
+GENERATED_BOUNDARY_LABEL_BASE = 10001
 
 
 @dataclass(slots=True)
@@ -258,11 +264,15 @@ def build_workflow_replay_model(
     generated_reference_node_sets = cropped.percent_reference_node_sets
 
     require_non_empty(node_sets)
+    effective_load_case_config = _workflow_effective_load_case_config(
+        load_case_config,
+        resolved_editor=resolved_editor,
+    )
     boundary_conditions = boundary_conditions_from_nodesets(
         node_sets,
-        fixed=list((load_case_config or {}).get("fixed", ())),
-        prescribed=list((load_case_config or {}).get("prescribed", ())),
-        loaded=list((load_case_config or {}).get("loaded", ())),
+        fixed=list(effective_load_case_config.get("fixed", ())),
+        prescribed=list(effective_load_case_config.get("prescribed", ())),
+        loaded=list(effective_load_case_config.get("loaded", ())),
         dimensions_xyz=tuple(int(v) for v in material_xyz.shape),
         spacing=spacing,
         percent_reference_lengths_mm={
@@ -283,8 +293,9 @@ def build_workflow_replay_model(
     metadata = {
         "model": {
             "type": str(model_config.get("type", "workflow_replay")),
-            "load_axis": _workflow_load_axis(load_case_config),
-            "load_direction": _workflow_load_axis(load_case_config),
+            "load_axis": _workflow_load_axis(effective_load_case_config),
+            "load_direction": _workflow_load_axis(effective_load_case_config),
+            "effective_load_case": effective_load_case_config,
             "workflow_replay": {
                 "enabled": True,
                 "geometry_mode": geometry_mode,
@@ -605,7 +616,7 @@ def _editor_disk_labels(
         elif index < len(preserved_labels):
             label = preserved_labels[index]
         else:
-            label = 201 + index
+            label = GENERATED_BOUNDARY_LABEL_BASE + index
         labels[name] = int(label)
     return labels
 
@@ -754,9 +765,17 @@ def _workflow_target_mask(
     labels = _workflow_label_values(model_config)
     if selector is None:
         if default == "all_declared_labels" and labels:
-            return np.isin(mask, list(labels.values()))
+            return target_mask_from_labels(
+                mask,
+                list(labels.values()),
+                context="workflow target labels",
+            )
         if default == "first_declared_label" and labels:
-            return mask == next(iter(labels.values()))
+            return target_mask_from_labels(
+                mask,
+                [next(iter(labels.values()))],
+                context="workflow target labels",
+            )
         return mask > 0
 
     values = _workflow_selector_values(selector, labels)
@@ -764,7 +783,11 @@ def _workflow_target_mask(
         return mask > 0
     if not values:
         raise ValueError("workflow target selector did not resolve to any labels")
-    return np.isin(mask, values)
+    return target_mask_from_labels(
+        mask,
+        values,
+        context="workflow target labels",
+    )
 
 
 def _workflow_label_values(model_config: dict[str, Any]) -> dict[str, int]:
@@ -840,39 +863,6 @@ def _reference_space_editor_without_sample_transform(editor: dict[str, Any]) -> 
             plane["reference_space"] = False
             plane["resolved_from_reference_space"] = True
     resolved["registration"] = {"reference_space_replayed": True, "model_space": "reference"}
-    return resolved
-
-
-def _scale_reference_space_editor(
-    editor: dict[str, Any],
-    *,
-    scaling_meta: dict[str, Any],
-) -> dict[str, Any]:
-    if not scaling_meta.get("enabled", False):
-        return editor
-    center = np.asarray(scaling_meta.get("reference_center"), dtype=float)
-    scale = np.asarray(scaling_meta.get("scale_factors"), dtype=float)
-    if center.shape != (3,) or scale.shape != (3,):
-        return editor
-    import copy
-
-    resolved = copy.deepcopy(editor)
-    for plane in resolved.get("planes", []):
-        if not isinstance(plane, dict):
-            continue
-        plane_center = plane.get("center_ras")
-        if isinstance(plane_center, (list, tuple)) and len(plane_center) == 3:
-            value = np.asarray(plane_center, dtype=float)
-            plane["center_ras"] = (center + (value - center) * scale).tolist()
-        sizes = plane.get("size_mm")
-        if isinstance(sizes, (list, tuple)) and len(sizes) >= 2:
-            u_axis = np.asarray(plane.get("u_axis_ras", [1.0, 0.0, 0.0]), dtype=float)
-            v_axis = np.asarray(plane.get("v_axis_ras", [0.0, 1.0, 0.0]), dtype=float)
-            u_scale = float(np.linalg.norm(u_axis * scale))
-            v_scale = float(np.linalg.norm(v_axis * scale))
-            plane["size_mm"] = [float(sizes[0]) * u_scale, float(sizes[1]) * v_scale]
-        plane["reference_scaled"] = True
-    resolved.setdefault("registration", {})["reference_scaling"] = scaling_meta
     return resolved
 
 
@@ -1257,30 +1247,44 @@ def _resolve_bbox_relative_plane(
         use_image_bounds=relative_to == "image_bbox",
     )
     extent = np.maximum(bounds_max - bounds_min, np.asarray(spacing, dtype=float))
-    center_fraction = np.asarray(
-        plane.get("center_fraction", plane.get("center_normalized", [0.5, 0.5, 0.5])),
-        dtype=float,
-    )
-    if center_fraction.shape != (3,):
-        raise ValueError("bbox-relative plane center_fraction must have three values")
     normal = _unit_vector(plane.get("normal_ras", [0.0, 0.0, 1.0]))
     u_axis = _unit_vector(plane.get("u_axis_ras", _default_u_axis(normal)))
     v_axis = _unit_vector(plane.get("v_axis_ras", np.cross(normal, u_axis)))
-    size_fraction = np.asarray(
-        plane.get("size_fraction", plane.get("size_normalized", [1.0, 1.0])),
-        dtype=float,
-    )
-    if size_fraction.shape != (2,):
-        raise ValueError("bbox-relative plane size_fraction must have two values")
-    size_u = _axis_extent(extent, u_axis) * float(size_fraction[0])
-    size_v = _axis_extent(extent, v_axis) * float(size_fraction[1])
+    fraction_bounds = _bbox_fraction_bounds(plane.get("bbox_fraction_bounds"))
+    if fraction_bounds is not None:
+        fraction_min = fraction_bounds[:, 0]
+        fraction_max = fraction_bounds[:, 1]
+        center_fraction = 0.5 * (fraction_min + fraction_max)
+        span_extent = np.abs(fraction_max - fraction_min) * extent
+        size_u = _axis_extent(span_extent, u_axis)
+        size_v = _axis_extent(span_extent, v_axis)
+        relative_definition = {
+            "relative_to": relative_to,
+            "bbox_fraction_bounds": _bbox_fraction_bounds_metadata(plane.get("bbox_fraction_bounds")),
+        }
+    else:
+        center_fraction = np.asarray(
+            plane.get("center_fraction", plane.get("center_normalized", [0.5, 0.5, 0.5])),
+            dtype=float,
+        )
+        if center_fraction.shape != (3,):
+            raise ValueError("bbox-relative plane center_fraction must have three values")
+        size_fraction = np.asarray(
+            plane.get("size_fraction", plane.get("size_normalized", [1.0, 1.0])),
+            dtype=float,
+        )
+        if size_fraction.shape != (2,):
+            raise ValueError("bbox-relative plane size_fraction must have two values")
+        size_u = _axis_extent(extent, u_axis) * float(size_fraction[0])
+        size_v = _axis_extent(extent, v_axis) * float(size_fraction[1])
+        relative_definition = {
+            "relative_to": relative_to,
+            "center_fraction": center_fraction.tolist(),
+            "size_fraction": size_fraction.tolist(),
+        }
 
     resolved = dict(plane)
-    resolved["relative_definition"] = {
-        "relative_to": relative_to,
-        "center_fraction": center_fraction.tolist(),
-        "size_fraction": size_fraction.tolist(),
-    }
+    resolved["relative_definition"] = relative_definition
     resolved["relative_to"] = f"resolved_{relative_to}"
     resolved["center_ras"] = (bounds_min + center_fraction * extent).tolist()
     resolved["normal_ras"] = normal.tolist()
@@ -1288,6 +1292,34 @@ def _resolve_bbox_relative_plane(
     resolved["v_axis_ras"] = v_axis.tolist()
     resolved["size_mm"] = [float(size_u), float(size_v)]
     return resolved
+
+
+def _bbox_fraction_bounds(value: Any) -> np.ndarray | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        raw = [value.get(axis) for axis in ("x", "y", "z")]
+    else:
+        raw = list(value) if isinstance(value, (list, tuple)) else []
+    if len(raw) != 3 or any(item is None for item in raw):
+        raise ValueError("bbox_fraction_bounds must define x, y, and z bounds")
+    bounds = []
+    for item in raw:
+        values = list(item) if isinstance(item, (list, tuple)) else [item, item]
+        if len(values) != 2:
+            raise ValueError("each bbox_fraction_bounds axis must contain min and max")
+        bounds.append([float(values[0]), float(values[1])])
+    return np.asarray(bounds, dtype=float)
+
+
+def _bbox_fraction_bounds_metadata(value: Any) -> dict[str, list[float]]:
+    bounds = _bbox_fraction_bounds(value)
+    if bounds is None:
+        return {}
+    return {
+        axis: [float(bounds[index, 0]), float(bounds[index, 1])]
+        for index, axis in enumerate(("x", "y", "z"))
+    }
 
 
 def _bbox_bounds_xyz(
@@ -1613,44 +1645,6 @@ def _maybe_scale_reference_points(
     }
 
 
-def _scale_reference_points_preserving_pose(
-    *,
-    reference_points: np.ndarray,
-    sample_points: np.ndarray,
-    registration_config: dict[str, Any],
-) -> tuple[np.ndarray, dict[str, Any]]:
-    scaling_cfg = registration_config.get("reference_scaling", {})
-    if scaling_cfg is False:
-        return reference_points, {"enabled": False}
-    if scaling_cfg is True:
-        scaling_cfg = {}
-    if not isinstance(scaling_cfg, dict):
-        return reference_points, {"enabled": False}
-    if not scaling_cfg.get("enabled", False):
-        return reference_points, {"enabled": False}
-    reference = np.asarray(reference_points, dtype=float)
-    sample = np.asarray(sample_points, dtype=float)
-    ref_lengths = _covariance_principal_axis_lengths(reference)
-    sample_lengths = _covariance_principal_axis_lengths(sample)
-    min_factors = np.asarray(scaling_cfg.get("min_factors", [0.8, 0.8, 0.75]), dtype=float)
-    max_factors = np.asarray(scaling_cfg.get("max_factors", [1.2, 1.2, 1.3]), dtype=float)
-    scale = np.clip(sample_lengths / np.maximum(ref_lengths, 1.0e-6), min_factors, max_factors)
-    # Preserve the reference pose by scaling around the coordinate origin before
-    # rigid ICP, rather than re-centering the point cloud.
-    center = reference.mean(axis=0)
-    scaled = reference * scale
-    return scaled, {
-        "enabled": True,
-        "source": "origin_covariance_axis_lengths_reference_pose",
-        "reference_center": center.tolist(),
-        "reference_axis_lengths": ref_lengths.tolist(),
-        "sample_axis_lengths": sample_lengths.tolist(),
-        "scale_factors": scale.tolist(),
-        "min_factors": min_factors.tolist(),
-        "max_factors": max_factors.tolist(),
-    }
-
-
 def _reference_model_space_icp_direction(registration_config: dict[str, Any]) -> str:
     if "icp_direction" not in registration_config:
         return "reference_to_sample"
@@ -1674,15 +1668,6 @@ def _invert_rigid_transform(
     inverse_rotation = rotation_arr.T
     inverse_translation = -translation_arr @ rotation_arr
     return inverse_rotation, inverse_translation
-
-
-def _covariance_principal_axis_lengths(points: np.ndarray) -> np.ndarray:
-    array = np.asarray(points, dtype=float)
-    centered = array - array.mean(axis=0)
-    covariance = np.cov(centered.T)
-    eigvals = np.linalg.eigvalsh(covariance)
-    lengths = np.sqrt(np.maximum(eigvals, 0.0)) * 2.0
-    return np.maximum(lengths, 1.0e-6)
 
 
 def _pca_axes_and_lengths(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -1716,6 +1701,202 @@ def _workflow_load_axis(load_case_config: dict[str, Any] | None) -> str:
             if dof in AXIS_TO_INDEX:
                 return dof
     return "z"
+
+
+def _workflow_effective_load_case_config(
+    load_case_config: dict[str, Any] | None,
+    *,
+    resolved_editor: dict[str, Any] | None,
+) -> dict[str, Any]:
+    editor_case = _workflow_load_case_from_editor(resolved_editor)
+    if editor_case is not None:
+        return editor_case
+    cfg = {} if load_case_config is None else load_case_config
+    return {
+        key: list(value) if key in {"fixed", "prescribed", "loaded"} and isinstance(value, list)
+        else value
+        for key, value in cfg.items()
+    }
+
+
+def _workflow_load_case_from_editor(
+    resolved_editor: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(resolved_editor, dict):
+        return None
+    loads = resolved_editor.get("loads", [])
+    planes = resolved_editor.get("planes", [])
+    if not isinstance(loads, list) or not loads:
+        return None
+    if not isinstance(planes, list):
+        planes = []
+
+    planes_by_token = _workflow_planes_by_load_token(planes)
+    fixed: list[dict[str, Any]] = []
+    prescribed: list[dict[str, Any]] = []
+    loaded: list[dict[str, Any]] = []
+    unsupported = False
+
+    for load in loads:
+        if not isinstance(load, dict):
+            continue
+        plane_token = str(load.get("nodeset", load.get("plane", ""))).strip()
+        if not plane_token:
+            continue
+        plane = planes_by_token.get(plane_token) or planes_by_token.get(
+            _plane_to_nodeset_name(plane_token)
+        )
+        nodeset = _plane_to_nodeset_name(plane_token)
+        if isinstance(plane, dict):
+            plane_name = str(plane.get("name", plane_token)).strip()
+            nodeset = _plane_to_nodeset_name(plane_name)
+
+        mode = str(load.get("mode", load.get("bc_mode", ""))).strip().lower()
+        if mode in {"fixed", "fix", "support"}:
+            fixed.append(
+                {
+                    "nodeset": nodeset,
+                    "dofs": _workflow_fixed_dofs(load, plane),
+                    "value": 0.0,
+                }
+            )
+            continue
+
+        if mode in {"displacement", "dirichlet", "prescribed"}:
+            vector = _workflow_load_direction_vector(load, plane)
+            if vector is None:
+                unsupported = True
+                continue
+            signed_components, units = _workflow_signed_components(load, vector)
+            prescribed.extend(
+                {
+                    "nodeset": nodeset,
+                    "dof": axis,
+                    "value": _workflow_component_value(component, units),
+                    "units": units,
+                }
+                for axis, component in signed_components
+            )
+            continue
+
+        if mode in {"force", "load", "neumann"}:
+            vector = _workflow_load_direction_vector(load, plane)
+            if vector is None:
+                unsupported = True
+                continue
+            signed_components, units = _workflow_signed_components(load, vector)
+            loaded.extend(
+                {
+                    "nodeset": nodeset,
+                    "dof": axis,
+                    "value": float(component),
+                    "units": units,
+                    "distribute": bool(load.get("distribute", True)),
+                }
+                for axis, component in signed_components
+            )
+            continue
+
+        unsupported = True
+
+    if unsupported:
+        return None
+    return {
+        "type": "nodeset",
+        "fixed": fixed,
+        "prescribed": prescribed,
+        "loaded": loaded,
+    }
+
+
+def _workflow_planes_by_load_token(
+    planes: list[Any],
+) -> dict[str, dict[str, Any]]:
+    indexed: dict[str, dict[str, Any]] = {}
+    for plane in planes:
+        if not isinstance(plane, dict):
+            continue
+        name = str(plane.get("name", "")).strip()
+        if not name:
+            continue
+        slug = _plane_to_nodeset_name(name)
+        indexed[name] = plane
+        indexed[slug] = plane
+    return indexed
+
+
+def _workflow_fixed_dofs(
+    load: dict[str, Any],
+    plane: dict[str, Any] | None,
+) -> list[str]:
+    for key in ("fixed_dofs", "dofs", "dof"):
+        if key in load:
+            return _workflow_axis_tokens(load[key])
+    if isinstance(plane, dict):
+        for key in ("fixed_dofs", "dofs", "dof"):
+            if key in plane:
+                return _workflow_axis_tokens(plane[key])
+    return ["x", "y", "z"]
+
+
+def _workflow_axis_tokens(value: Any) -> list[str]:
+    raw_values = value if isinstance(value, (list, tuple, set)) else [value]
+    axes: list[str] = []
+    for raw in raw_values:
+        token = str(raw).strip().lower()
+        if token in AXIS_TO_INDEX and token not in axes:
+            axes.append(token)
+    return axes or ["x", "y", "z"]
+
+
+def _workflow_load_direction_vector(
+    load: dict[str, Any],
+    plane: dict[str, Any] | None,
+) -> np.ndarray | None:
+    direction = str(load.get("direction", load.get("axis", "Plane normal"))).strip().lower()
+    if direction in {"plane normal", "normal", "plane_normal"}:
+        if not isinstance(plane, dict):
+            return None
+        return _unit_vector(plane.get("normal_ras", [0.0, 0.0, 1.0]))
+    if direction in AXIS_TO_INDEX:
+        vector = np.zeros(3, dtype=float)
+        vector[AXIS_TO_INDEX[direction]] = 1.0
+        return vector
+    for key in ("vector_ras", "vector", "direction_vector"):
+        if key in load:
+            return _unit_vector(load[key])
+    return None
+
+
+def _workflow_signed_components(
+    load: dict[str, Any],
+    vector: np.ndarray,
+) -> tuple[list[tuple[str, float]], str]:
+    magnitude, units = _workflow_load_value_and_units(load)
+    direction = _unit_vector(vector)
+    components: list[tuple[str, float]] = []
+    for axis, index in AXIS_TO_INDEX.items():
+        component = float(direction[index]) * magnitude
+        if abs(component) > 1.0e-12:
+            components.append((axis, component))
+    return components, units
+
+
+def _workflow_load_value_and_units(load: dict[str, Any]) -> tuple[float, str]:
+    raw = load.get("value", 0.0)
+    units = str(load.get("units", "")).strip()
+    if isinstance(raw, str):
+        text = raw.strip()
+        if text.endswith("%"):
+            return float(text[:-1].strip()), "%"
+        return float(text), units
+    return float(raw), units
+
+
+def _workflow_component_value(component: float, units: str) -> str | float:
+    if units.strip() == "%":
+        return f"{component:g}%"
+    return float(component)
 
 
 def _disk_intrusion_depth_mm(plane: dict[str, Any], *, default: float) -> float:
