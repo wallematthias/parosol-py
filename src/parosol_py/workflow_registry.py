@@ -1,3 +1,11 @@
+"""Registry helpers for packaged workflow/profile recipes.
+
+The CLI accepts both "profile" and "workflow" terminology while built-in
+recipes live in the same package directory. Keep this module as the single
+lookup boundary so shortcut, batch, contract, and baseline code all discover
+the same public recipe set.
+"""
+
 from __future__ import annotations
 
 from importlib import resources

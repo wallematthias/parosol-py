@@ -538,20 +538,8 @@ def _write_yaml(path: Path, config: dict[str, Any]) -> None:
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
 
-def _dict_section(config: dict[str, Any], name: str) -> dict[str, Any]:
-    value = config.setdefault(name, {})
-    if not isinstance(value, dict):
-        raise ValueError(f"{name} must be a mapping in profile config")
-    return value
-
-
 def _case_stem(path: Path) -> str:
     return image_stem(path)
-
-
-def _supports_image_metadata(path: Path) -> bool:
-    suffixes = suffix_text(path)
-    return suffixes.endswith((".aim", ".mha", ".mhd", ".nii", ".nii.gz", ".npz"))
 
 
 def _is_supported_input_image(path: Path) -> bool:
