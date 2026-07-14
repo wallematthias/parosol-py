@@ -50,6 +50,42 @@ def test_surface_nodes_can_select_interface_with_material_object():
     assert nodes == [(1, 0, 0), (1, 0, 1), (1, 1, 0), (1, 1, 1)]
 
 
+def test_outer_face_nodes_selects_free_fixture_face_from_labeled_disk():
+    labels = np.zeros((5, 5, 5), dtype=np.uint8)
+    labels[1:4, 1:3, 1:4] = 1
+    material = labels.astype(np.float32)
+    material[1:4, 3, 1:4] = 700.0
+
+    nodes = nodes_from_labeled_voxels(
+        labels,
+        label=1,
+        selection="outer_face_nodes",
+        material=material,
+    )
+
+    assert nodes
+    assert {node[1] for node in nodes} == {1}
+    assert len(nodes) == 16
+
+
+def test_outer_face_nodes_prefers_disk_thickness_axis_over_wrapped_rim():
+    labels = np.zeros((12, 5, 12), dtype=np.uint8)
+    labels[1:11, 1:4, 1:11] = 1
+    labels[4:8, 1, 4:8] = 0
+    material = labels.astype(np.float32)
+    material[:, 4, :] = labels[:, 3, :]
+
+    nodes = nodes_from_labeled_voxels(
+        labels,
+        label=1,
+        selection="outer_face_nodes",
+        material=material,
+    )
+
+    assert nodes
+    assert {node[1] for node in nodes} == {1}
+
+
 def test_mask_face_nodes_selects_only_requested_outer_face():
     mask = np.ones((2, 2, 2), dtype=bool)
 

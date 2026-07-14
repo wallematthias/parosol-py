@@ -123,7 +123,7 @@ def test_run_case_config_reads_image_metadata_for_auto_spacing(tmp_path: Path):
     result = run_case_config(config_path)
 
     assert result.summary.spacing == (0.5, 0.5, 0.5)
-    assert result.summary.origin == (1.0, 2.0, 3.0)
+    assert result.summary.origin == (-1.5, -2.5, 3.0)
 
 
 

@@ -7,7 +7,11 @@ from typing import Any
 
 import numpy as np
 
-from .nodesets import nodes_from_labeled_voxels, nodes_from_mask_directional_faces
+from .nodesets import (
+    nodes_from_labeled_voxels,
+    nodes_from_mask_directional_faces,
+    nodes_from_mask_face,
+)
 
 
 @dataclass(slots=True)
@@ -419,8 +423,10 @@ def _generate_projected_disk_mask(
     u = rel @ u_axis
     v = rel @ v_axis
     tol = max(min(spacing) * 0.75, 1.0e-6)
+    shape = str(plane_spec.get("shape", "anatomy")).strip().lower()
+    anatomy_constrained = _anatomy_constrained(plane_spec, shape=shape)
     inside = _inside_shape_vectorized(
-        str(plane_spec.get("shape", "anatomy")).strip().lower(),
+        shape,
         u,
         v,
         half_u,
@@ -447,8 +453,8 @@ def _generate_projected_disk_mask(
         return np.zeros_like(active_xyz, dtype=bool)
     thickness = float(plane_spec.get("thickness_mm", 3.0))
     intrusion = _disk_intrusion_depth_mm(plane_spec, default=2.0)
-    if str(plane_spec.get("shape", "anatomy")).strip().lower() == "anatomy":
-        max_surface_distance = first_distance + max(thickness, 0.0) + max(intrusion, 0.0) + tol
+    if anatomy_constrained:
+        max_surface_distance = first_distance + max(intrusion, 0.0) + tol
         distance_by_key = {
             key: value
             for key, value in distance_by_key.items()
@@ -466,7 +472,7 @@ def _generate_projected_disk_mask(
     u_all = rel_all @ u_axis
     v_all = rel_all @ v_axis
     inside_all = _inside_shape_vectorized(
-        str(plane_spec.get("shape", "anatomy")).strip().lower(),
+        shape,
         u_all,
         v_all,
         half_u,
@@ -474,9 +480,9 @@ def _generate_projected_disk_mask(
         tolerance=tol,
     )
     d_ok = (d_all >= cap_outer_distance - tol) & (d_all <= cap_inner_distance + tol)
-    empty = ~np.asarray(material_xyz > 0)
+    empty = ~(np.asarray(material_xyz > 0) | np.asarray(active_xyz, dtype=bool))
     empty_mask = empty[tuple(full_idx.T)]
-    if str(plane_spec.get("shape", "anatomy")).strip().lower() == "anatomy":
+    if anatomy_constrained:
         keys = [_bucket_key(u_val, v_val, spacing=spacing) for u_val, v_val in zip(u_all, v_all, strict=True)]
         local_surface = np.asarray(
             [distance_by_key.get(key, np.nan) for key in keys],
@@ -598,7 +604,7 @@ def _projected_surface_mask(
     out = np.zeros_like(active_xyz, dtype=bool)
     if candidate_idx.size == 0:
         return out
-    surface_points, _surface_keys, _first_distance, _distance_by_key = _first_surface_points_by_bucket(
+    surface_points, _surface_keys, first_distance, distance_by_key = _first_surface_points_by_bucket(
         candidate_idx,
         candidate_points,
         candidate_distance,
@@ -606,6 +612,27 @@ def _projected_surface_mask(
         candidate_v,
         spacing=spacing,
     )
+    if surface_points.size:
+        max_distance = (
+            first_distance
+            + max(_disk_intrusion_depth_mm(plane_spec, default=0.0), 0.0)
+            + tol
+        )
+        surface_coordinates = _indices_to_ras_xyz(
+            surface_points, spacing=spacing, origin=origin
+        )
+        surface_rel = surface_coordinates - center
+        surface_u = surface_rel @ u_axis
+        surface_v = surface_rel @ v_axis
+        keep = np.asarray(
+            [
+                distance_by_key.get(_bucket_key(float(uu), float(vv), spacing=spacing), np.inf)
+                <= max_distance
+                for uu, vv in zip(surface_u, surface_v, strict=True)
+            ],
+            dtype=bool,
+        )
+        surface_points = surface_points[keep]
     if surface_points.size:
         out[tuple(surface_points.T)] = True
     return out
@@ -660,10 +687,36 @@ def _node_set_from_disk_face(
 ) -> list[tuple[int, int, int]]:
     if selection.strip().lower() == "outer_face_nodes":
         _center, normal, _u_axis, _v_axis, _half_u, _half_v = _plane_geometry(plane_spec)
+        axis_face_nodes = _axis_aligned_outer_face_nodes(mask_xyz, -normal)
+        if axis_face_nodes is not None:
+            return axis_face_nodes
         return nodes_from_mask_directional_faces(mask_xyz, -normal)
     return _node_set_from_mask(
         mask_xyz, selection=selection, material_xyz=material_xyz
     )
+
+
+def _axis_aligned_outer_face_nodes(
+    mask_xyz: np.ndarray, direction: np.ndarray
+) -> list[tuple[int, int, int]] | None:
+    vector = np.asarray(direction, dtype=float)
+    norm = float(np.linalg.norm(vector))
+    if norm <= 0.0:
+        return None
+    unit = vector / norm
+    axis = int(np.argmax(np.abs(unit)))
+    if abs(float(unit[axis])) < 1.0 - 1.0e-6:
+        return None
+    side = 1 if float(unit[axis]) > 0.0 else -1
+    voxels = np.argwhere(np.asarray(mask_xyz, dtype=bool))
+    if voxels.size == 0:
+        return []
+    extreme = int(np.max(voxels[:, axis]) if side > 0 else np.min(voxels[:, axis]))
+    face = np.zeros(mask_xyz.shape, dtype=bool)
+    face_index = [slice(None)] * 3
+    face_index[axis] = extreme
+    face[tuple(face_index)] = np.asarray(mask_xyz, dtype=bool)[tuple(face_index)]
+    return nodes_from_mask_face(face, axis=("x", "y", "z")[axis], side=side)
 
 
 def _plane_geometry(
@@ -810,15 +863,13 @@ def _derive_axis(plane_spec: dict[str, Any], token: str) -> np.ndarray:
     vector = _vector_or_none(plane_spec.get("reference_axis_ras"))
     if vector is not None:
         return _safe_unit(vector)
-    if "femur" in token or "sideways" in token or "impact" in token or "support" in token:
-        return _axis_vector(str(plane_spec.get("axis", "y")))
     return _axis_vector(str(plane_spec.get("axis", "z")))
 
 
 def _derive_side(plane_spec: dict[str, Any], token: str) -> int:
-    if any(word in token for word in ("inferior", "lower", "bottom", "impact", "distal")):
+    if any(word in token for word in ("inferior", "lower", "bottom")):
         return -1
-    if "support" in token and str(plane_spec.get("normal", "+")) == "+":
+    if any(word in token for word in ("superior", "upper", "top")):
         return 1
     return -1 if str(plane_spec.get("normal", "")).strip() == "-" else 1
 
@@ -1004,6 +1055,15 @@ def _projection_mode(value: Any) -> str:
     if mode == "intersect":
         return "intersect"
     return "project_bounded"
+
+
+def _anatomy_constrained(plane_spec: dict[str, Any], *, shape: str) -> bool:
+    if shape == "anatomy":
+        return True
+    value = plane_spec.get("anatomy_constrained", False)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _disk_intrusion_depth_mm(plane_spec: dict[str, Any], *, default: float) -> float:

@@ -20,6 +20,40 @@ class MaterialMap:
     metadata: dict[str, Any]
 
 
+def apply_density_input_transform(density, transform: dict[str, Any] | None):
+    """Apply a named density-unit transform before material-law evaluation."""
+    density_array = np.asarray(density, dtype=np.float64)
+    if transform is None or not transform:
+        return density_array
+    if not isinstance(transform, dict):
+        raise ValueError("materials.density.input_transform must be an object")
+
+    equation = str(transform.get("equation", "linear")).strip().lower()
+    if equation in {"linear", "affine"}:
+        slope = float(transform.get("slope", 1.0))
+        intercept = float(transform.get("intercept", 0.0))
+        transformed = slope * density_array + intercept
+        if transform.get("clamp_min") is not None:
+            transformed = np.maximum(transformed, float(transform["clamp_min"]))
+        if transform.get("clamp_max") is not None:
+            transformed = np.minimum(transformed, float(transform["clamp_max"]))
+        return transformed
+
+    if equation in {
+        "keyak1994_k2hpo4_to_ash",
+        "keyak_1994_k2hpo4_to_ash",
+        "k2hpo4_to_ash",
+    }:
+        clamp_min = float(transform.get("clamp_min", transform.get("minimum", -31.0)))
+        clamped = np.maximum(density_array, clamp_min)
+        return 1.06 * clamped + 38.9
+
+    raise ValueError(
+        "materials.density.input_transform.equation must be 'linear' or "
+        "'keyak1994_k2hpo4_to_ash'"
+    )
+
+
 def material_to_stiffness_gpa(material, *, material_unit: str = "MPa") -> np.ndarray:
     arr = np.asarray(material, dtype=np.float64)
     if arr.ndim != 3:
@@ -96,7 +130,7 @@ def density_to_material_map(
         bin_value = str(parameters.get("bin_value", parameters.get("bin_assignment", "center"))).strip().lower()
         if bin_value not in {"center", "bin_center", "bin-centre", "bin_centre"}:
             raise ValueError("density binning currently supports bin_value='center' only")
-        density_for_material, bin_edges, bin_centers = _ogo_binned_density_values(
+        density_for_material, bin_edges, bin_centers = _global_nonzero_binned_density_values(
             density_array,
             active=active,
             number_bins=parameters.get("number_bins", parameters.get("bins", 128)),
@@ -104,7 +138,7 @@ def density_to_material_map(
         bin_metadata = {
             "bin_material": True,
             "number_bins": int(parameters.get("number_bins", parameters.get("bins", 128))),
-            "binning": "ogo_global_nonzero_active_density",
+            "binning": "global_nonzero_density",
             "bin_value": "center",
             "bin_edges": [float(value) for value in bin_edges],
             "bin_centers": [float(value) for value in bin_centers],
@@ -214,7 +248,7 @@ def _truthy(value: Any) -> bool:
     return bool(value)
 
 
-def _ogo_binned_density_values(
+def _global_nonzero_binned_density_values(
     density_array: np.ndarray,
     *,
     active: np.ndarray,
@@ -223,8 +257,8 @@ def _ogo_binned_density_values(
     n_bins = int(number_bins)
     if n_bins <= 0:
         raise ValueError("number_bins must be positive")
-    active_nonzero = np.asarray(active, dtype=bool) & (density_array != 0)
-    values = density_array[active_nonzero]
+    nonzero = density_array != 0
+    values = density_array[nonzero]
     if values.size == 0:
         raise ValueError(
             "Cannot bin material because no active non-zero density voxels were found."
@@ -233,6 +267,7 @@ def _ogo_binned_density_values(
     bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
     bin_ids = np.digitize(density_array, bin_edges, right=False)
     bin_ids = np.clip(bin_ids, 1, n_bins)
+    active_nonzero = np.asarray(active, dtype=bool) & nonzero
     binned = np.zeros(density_array.shape, dtype=np.float64)
     binned[active_nonzero] = bin_centers[bin_ids[active_nonzero].astype(np.int64) - 1]
     return binned, bin_edges, bin_centers

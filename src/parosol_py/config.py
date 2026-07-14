@@ -25,6 +25,7 @@ from .load_cases import (
     UniaxialCompression,
 )
 from .materials import (
+    apply_density_input_transform,
     density_to_material_map,
     labels_to_material_map,
     linear_isotropic_materials_from_config,
@@ -32,6 +33,7 @@ from .materials import (
     poisson_ratio_from_spec,
 )
 from .modeling import build_model
+from .modeling.io import read_image_zyx
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .paths import suffix_text
 from .profiles import get_output_profile, get_solver_profile
@@ -606,8 +608,8 @@ def _overview_field_from_export(
 ) -> np.ndarray | None:
     if path is None or not Path(path).exists():
         return None
-    image = sitk.ReadImage(str(path))
-    field_xyz = np.transpose(sitk.GetArrayFromImage(image), (2, 1, 0))
+    field_zyx, _spacing, _origin = read_image_zyx(Path(path))
+    field_xyz = np.transpose(field_zyx, (2, 1, 0))
     if field_xyz.shape != expected_shape:
         return None
     field_xyz = np.asarray(field_xyz, dtype=np.float64)
@@ -1265,8 +1267,12 @@ def _load_material_array(
                 material_cfg.get("poisson_ratio", material_cfg.get("nu", 0.3)),
             ),
         )
-        mapped = density_to_material_map(
+        density_values = apply_density_input_transform(
             array_zyx,
+            density_cfg.get("input_transform"),
+        )
+        mapped = density_to_material_map(
+            density_values,
             equation=str(e_cfg.get("equation", "power")),
             poisson_ratio=poisson_spec,
             mask_threshold=float(
@@ -1433,7 +1439,8 @@ def _read_image_array_zyx(path: Path) -> np.ndarray:
                 f"NPZ image files must contain 'labels', 'image', or one array; got {keys}"
             )
     if suffixes.endswith((".mha", ".mhd", ".nii", ".nii.gz")):
-        return sitk.GetArrayFromImage(sitk.ReadImage(str(path)))
+        array, _spacing, _origin = read_image_zyx(path)
+        return array
     if suffixes.endswith(".aim"):
         from .api import read_aim
 
@@ -1528,10 +1535,8 @@ def _image_metadata(
             origin = _npz_metadata_triple(data, "origin_xyz", "origin")
             return spacing, origin
     if suffixes.endswith((".mha", ".mhd", ".nii", ".nii.gz")):
-        image = sitk.ReadImage(str(path))
-        return _triple(image.GetSpacing(), "image spacing"), _triple(
-            image.GetOrigin(), "image origin"
-        )
+        _array, spacing, origin = read_image_zyx(path)
+        return spacing, origin
     if suffixes.endswith(".aim"):
         from .api import read_aim
 

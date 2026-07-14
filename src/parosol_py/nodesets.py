@@ -39,9 +39,17 @@ def nodes_from_labeled_voxels(
         if material_mask.shape != mask.shape:
             raise ValueError("material and labels must have the same shape")
         nodes = _interface_nodes(mask, material_mask=material_mask)
+    elif token == "outer_face_nodes":
+        if material is None:
+            raise ValueError("material is required for selection='outer_face_nodes'")
+        material_mask = np.asarray(material) > 0
+        if material_mask.shape != mask.shape:
+            raise ValueError("material and labels must have the same shape")
+        nodes = _outer_face_nodes(mask, material_mask=material_mask)
     else:
         raise ValueError(
-            "selection must be one of: all_corner_nodes, surface_nodes, interface_nodes"
+            "selection must be one of: all_corner_nodes, surface_nodes, "
+            "interface_nodes, outer_face_nodes"
         )
 
     return sorted(nodes)
@@ -248,6 +256,95 @@ def _interface_nodes(mask: np.ndarray, *, material_mask: np.ndarray) -> set[Node
                         node[lateral_axes[1]] += dv
                         nodes.add(tuple(node))
     return nodes
+
+
+def _outer_face_nodes(mask: np.ndarray, *, material_mask: np.ndarray) -> set[Node]:
+    if not bool(np.any(mask)):
+        return set()
+    axis, side = _load_facing_face(mask, material_mask=material_mask)
+    face = _outermost_face_mask(mask, axis=axis, side=side)
+    return set(nodes_from_mask_face(face, axis=("x", "y", "z")[axis], side=side))
+
+
+def _outermost_face_mask(mask: np.ndarray, *, axis: int, side: int) -> np.ndarray:
+    face = np.zeros(mask.shape, dtype=bool)
+    voxels = np.argwhere(mask)
+    if voxels.size == 0:
+        return face
+    extreme = int(np.max(voxels[:, axis]) if side > 0 else np.min(voxels[:, axis]))
+    face_index = [slice(None)] * 3
+    face_index[axis] = extreme
+    face[tuple(face_index)] = mask[tuple(face_index)]
+    return face
+
+
+def _load_facing_face(mask: np.ndarray, *, material_mask: np.ndarray) -> tuple[int, int]:
+    best: tuple[tuple[int, int, int, int], int, int] | None = None
+    for axis in range(3):
+        for side in (-1, 1):
+            face = _face_voxel_mask(mask, axis=axis, side=side)
+            face_count = int(np.count_nonzero(face))
+            if face_count == 0:
+                continue
+            material_touch = _neighbor_material_touch_count(
+                face,
+                axis=axis,
+                side=side,
+                material_mask=material_mask,
+                label_mask=mask,
+            )
+            empty_count = face_count - material_touch
+            score = (empty_count, face_count, -material_touch, -axis)
+            if best is None or score > best[0]:
+                best = (score, axis, side)
+    if best is None:
+        return 0, 1
+    return best[1], best[2]
+
+
+def _face_voxel_mask(mask: np.ndarray, *, axis: int, side: int) -> np.ndarray:
+    face = np.zeros(mask.shape, dtype=bool)
+    src = [slice(None)] * 3
+    dst = [slice(None)] * 3
+    if side > 0:
+        src[axis] = slice(0, -1)
+        dst[axis] = slice(1, None)
+        face[tuple(src)] = mask[tuple(src)] & ~mask[tuple(dst)]
+        edge = [slice(None)] * 3
+        edge[axis] = -1
+        face[tuple(edge)] = mask[tuple(edge)]
+    else:
+        src[axis] = slice(1, None)
+        dst[axis] = slice(0, -1)
+        face[tuple(src)] = mask[tuple(src)] & ~mask[tuple(dst)]
+        edge = [slice(None)] * 3
+        edge[axis] = 0
+        face[tuple(edge)] = mask[tuple(edge)]
+    return face
+
+
+def _neighbor_material_touch_count(
+    face: np.ndarray,
+    *,
+    axis: int,
+    side: int,
+    material_mask: np.ndarray,
+    label_mask: np.ndarray,
+) -> int:
+    face_voxels = np.argwhere(face)
+    if face_voxels.size == 0:
+        return 0
+    touch_count = 0
+    dims = label_mask.shape
+    for voxel_array in face_voxels:
+        neighbor = [int(value) for value in voxel_array]
+        neighbor[axis] += side
+        if neighbor[axis] < 0 or neighbor[axis] >= dims[axis]:
+            continue
+        neighbor_tuple = tuple(neighbor)
+        if bool(material_mask[neighbor_tuple]) and not bool(label_mask[neighbor_tuple]):
+            touch_count += 1
+    return touch_count
 
 
 def _add_displacement_spec(

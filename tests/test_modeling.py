@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import numpy as np
@@ -6,6 +5,7 @@ import pytest
 import SimpleITK as sitk
 
 from parosol_py.core import BoundaryConditionSet
+from parosol_py.config import _image_metadata, _read_image_array_zyx
 from parosol_py.modeling import build_model
 from parosol_py.modeling.common import (
     _shift_boundary_conditions_for_crop,
@@ -24,6 +24,9 @@ from parosol_py.modeling.alignment import (
 )
 from parosol_py.modeling.common import displacement_from_load_case
 from parosol_py.modeling.workflow_replay import (
+    _crop_workflow_model_to_material_bbox,
+    _invert_rigid_transform,
+    _reference_model_space_icp_direction,
     _resolve_bbox_relative_editor,
     _scale_reference_space_editor,
     _scale_reference_points_preserving_pose,
@@ -55,7 +58,7 @@ def test_build_model_requires_workflow_replay_for_modeling(tmp_path: Path):
             material_config={},
         )
 
-def test_model_image_reader_canonicalizes_nifti_direction(tmp_path: Path):
+def test_model_image_reader_canonicalizes_nifti_direction_to_slicer_ras(tmp_path: Path):
     array = np.arange(2 * 3 * 4, dtype=np.float32).reshape((2, 3, 4))
     image = sitk.GetImageFromArray(array)
     image.SetSpacing((1.0, 2.0, 3.0))
@@ -66,10 +69,26 @@ def test_model_image_reader_canonicalizes_nifti_direction(tmp_path: Path):
 
     data, spacing, origin = read_image_zyx(path)
 
-    expected = sitk.GetArrayFromImage(sitk.DICOMOrient(sitk.ReadImage(str(path)), "LPS"))
+    expected_image = sitk.DICOMOrient(sitk.ReadImage(str(path)), "RAS")
+    expected = sitk.GetArrayFromImage(expected_image)
     np.testing.assert_array_equal(data, expected)
     assert spacing == pytest.approx((1.0, 2.0, 3.0))
-    assert origin == pytest.approx((10.0, 16.0, 30.0))
+    assert origin == pytest.approx((-13.0, -20.0, 30.0))
+
+    direct_data = _read_image_array_zyx(path)
+    direct_spacing, direct_origin = _image_metadata(path)
+    np.testing.assert_array_equal(direct_data, expected)
+    assert direct_spacing == pytest.approx(expected_image.GetSpacing())
+    assert direct_origin == pytest.approx(origin)
+
+
+def _canonical_surface_points_from_mask_image(path: Path, label: int):
+    labels_zyx, spacing, origin = read_image_zyx(path)
+    return surface_points_from_mask(
+        labels_zyx == label,
+        spacing=spacing,
+        origin=origin,
+    )
 
 
 def test_qc_crop_shifts_boundary_condition_coordinates():
@@ -128,6 +147,68 @@ def test_model_geometry_numeric_isotropic_spacing_resamples_to_target(
     assert resampled_mask.shape == resampled_density.shape
 
 
+def test_model_preprocessing_resample_isotropic_targets_requested_spacing(
+    tmp_path: Path,
+):
+    density = np.ones((5, 6, 7), dtype=np.float32)
+    mask = np.ones_like(density, dtype=np.uint8)
+    density_image = sitk.GetImageFromArray(density)
+    mask_image = sitk.GetImageFromArray(mask)
+    density_image.SetSpacing((0.8, 0.8, 0.8))
+    mask_image.SetSpacing((0.8, 0.8, 0.8))
+    sitk.WriteImage(density_image, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_image, str(tmp_path / "mask.nii.gz"))
+
+    resampled_density, resampled_mask, spacing, _origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "resample_isotropic": {
+                "enabled": True,
+                "mode": "auto",
+                "target_spacing_mm": 1.0,
+            }
+        },
+    )
+
+    assert spacing == pytest.approx((1.0, 1.0, 1.0))
+    assert resampled_density.shape != density.shape
+    assert resampled_mask.shape == resampled_density.shape
+
+
+def test_model_preprocessing_crop_to_bb_margin_mm_uses_image_spacing(
+    tmp_path: Path,
+):
+    density = np.zeros((10, 10, 10), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[4:6, 4:6, 4:6] = 700.0
+    mask[4:6, 4:6, 4:6] = 2
+    density_image = sitk.GetImageFromArray(density)
+    mask_image = sitk.GetImageFromArray(mask)
+    density_image.SetSpacing((0.5, 1.0, 2.0))
+    mask_image.SetSpacing((0.5, 1.0, 2.0))
+    sitk.WriteImage(density_image, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_image, str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+            "geometry": {"isotropic_spacing": False},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={"crop_to_bb": {"enabled": True, "margin_mm": 2.0}},
+    )
+
+    assert cropped_density.shape == (4, 6, 10)
+    assert cropped_mask.shape == (4, 6, 10)
+    assert origin == pytest.approx((-4.5, -7.0, 6.0))
+
+
 def test_model_geometry_spacing_tolerance_skips_unnecessary_resampling(
     tmp_path: Path,
 ):
@@ -154,6 +235,128 @@ def test_model_geometry_spacing_tolerance_skips_unnecessary_resampling(
 
     assert spacing == pytest.approx((0.6069, 0.6069, 0.6069))
     assert resampled_density.shape == density.shape
+
+
+def test_model_preprocessing_normalizes_mask_bbox_aspect_ratio(tmp_path: Path):
+    density = np.zeros((24, 20, 24), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:18, 4:14, 2:22] = 700.0
+    mask[2:18, 4:14, 2:22] = 2
+    density_image = sitk.GetImageFromArray(density)
+    mask_image = sitk.GetImageFromArray(mask)
+    density_image.SetSpacing((1.0, 1.0, 1.0))
+    mask_image.SetSpacing((1.0, 1.0, 1.0))
+    sitk.WriteImage(density_image, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_image, str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "normalize_aspect_ratio": {
+                "enabled": True,
+                "ratio": [1.2, 1.0, None],
+            }
+        },
+    )
+
+    assert cropped_density.shape == (12, 10, 20)
+    assert cropped_mask.shape == (12, 10, 20)
+    assert origin == pytest.approx((-21.0, -13.0, 4.0))
+    assert int(np.count_nonzero(cropped_mask == 2)) == 12 * 10 * 20
+
+    alias_density, alias_mask, _spacing, _origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={"aspect-ratio": [1.2, 1.0, None]},
+    )
+
+    assert alias_density.shape == (12, 10, 20)
+    assert alias_mask.shape == (12, 10, 20)
+
+
+def test_model_preprocessing_accepts_bbox_ratio_recipe_order(tmp_path: Path):
+    density = np.zeros((24, 20, 24), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:18, 4:14, 2:22] = 700.0
+    mask[2:18, 4:14, 2:22] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={"bbox_ratio": [1.0, 1.2, None]},
+    )
+
+    assert cropped_density.shape == (12, 10, 20)
+    assert cropped_mask.shape == (12, 10, 20)
+    assert origin == pytest.approx((-21.0, -13.0, 4.0))
+
+
+def test_model_preprocessing_bbox_ratio_can_crop_from_constrained_min_end(
+    tmp_path: Path,
+):
+    density = np.zeros((24, 20, 24), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:18, 4:14, 2:22] = 700.0
+    mask[2:18, 4:14, 2:22] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "bbox_ratio": [1.0, 1.2, None],
+            "bbox_crop_from": [None, "min", None],
+        },
+    )
+
+    assert cropped_density.shape == (12, 10, 20)
+    assert cropped_mask.shape == (12, 10, 20)
+    assert origin == pytest.approx((-21.0, -13.0, 6.0))
+
+
+def test_model_preprocessing_bbox_ratio_uses_shortest_one_axis_as_reference(
+    tmp_path: Path,
+):
+    density = np.zeros((24, 20, 24), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:18, 4:14, 2:22] = 700.0
+    mask[2:18, 4:14, 2:22] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, _spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={"bbox_ratio": [1.0, 1.0, 1.0]},
+    )
+
+    assert cropped_density.shape == (10, 10, 10)
+    assert cropped_mask.shape == (10, 10, 10)
+    assert origin == pytest.approx((-16.0, -13.0, 5.0))
 
 
 def test_model_preprocessing_smooths_density_and_labels_together(tmp_path: Path):
@@ -500,8 +703,11 @@ def test_workflow_replay_uses_body_for_registration_but_full_mask_for_model():
     mask[0:1, 0:1, 0:1] = 2
     mask[1:3, 1:3, 1:3] = 20
     mask[2:4, 0:1, 1:3] = 48
-    model_config = {"labels": {"body": 20, "process": 48}}
-    replay_cfg = {"registration_target": "vertebral_body"}
+    model_config = {
+        "labels": {"body": 20, "process": 48},
+        "targets": {"registration": "body", "model": ["body", "process"]},
+    }
+    replay_cfg = {}
 
     registration_mask = _workflow_active_mask(mask, model_config, replay_cfg)
     model_mask = _workflow_model_mask(mask, model_config)
@@ -518,8 +724,11 @@ def test_workflow_replay_uses_label_one_for_registration_when_labels_are_remappe
     mask = np.zeros((4, 4, 4), dtype=np.uint8)
     mask[1:3, 1:3, 1:3] = 1
     mask[2:4, 0:1, 1:3] = 2
-    model_config = {"labels": {"body": 1, "process": 2}}
-    replay_cfg = {"registration_target": "vertebral_body"}
+    model_config = {
+        "labels": {"body": 1, "process": 2},
+        "targets": {"registration": "body", "model": ["body", "process"]},
+    }
+    replay_cfg = {}
 
     registration_mask = _workflow_active_mask(mask, model_config, replay_cfg)
     model_mask = _workflow_model_mask(mask, model_config)
@@ -529,7 +738,27 @@ def test_workflow_replay_uses_label_one_for_registration_when_labels_are_remappe
     assert int(np.count_nonzero(model_mask)) == int(np.count_nonzero(mask > 0))
 
 
-def test_reference_space_scaling_matches_ogo_origin_scale():
+def test_workflow_replay_target_masks_are_selected_by_declared_label_keys():
+    mask = np.zeros((4, 4, 4), dtype=np.uint8)
+    mask[1:3, 1:3, 1:3] = 7
+    mask[2:4, 0:1, 1:3] = 9
+    model_config = {
+        "labels": {"core": 7, "appendage": 9},
+        "targets": {
+            "registration": "core",
+            "model": ["core", "appendage"],
+        },
+    }
+
+    registration_mask = _workflow_active_mask(mask, model_config, {})
+    model_mask = _workflow_model_mask(mask, model_config)
+
+    assert int(np.count_nonzero(registration_mask)) == int(np.count_nonzero(mask == 7))
+    assert not np.any(registration_mask[mask == 9])
+    assert int(np.count_nonzero(model_mask)) == int(np.count_nonzero(mask > 0))
+
+
+def test_reference_space_scaling_preserves_reference_pose_about_origin():
     reference = np.asarray(
         [
             [10.0, 0.0, 0.0],
@@ -561,7 +790,91 @@ def test_reference_space_scaling_matches_ogo_origin_scale():
 
     scale = np.asarray(meta["scale_factors"])
     np.testing.assert_allclose(scaled, reference * scale)
-    assert meta["source"] == "ogo_origin_pca_axis_lengths_reference_pose"
+    assert meta["source"] == "origin_covariance_axis_lengths_reference_pose"
+
+
+def test_reference_space_scaling_uses_covariance_axis_lengths():
+    reference = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [12.0, 0.0, 0.0],
+            [0.0, 24.0, 0.0],
+            [12.0, 24.0, 0.0],
+            [0.0, 0.0, 36.0],
+            [12.0, 0.0, 36.0],
+            [0.0, 24.0, 36.0],
+            [12.0, 24.0, 36.0],
+            [30.0, 0.0, 0.0],
+        ]
+    )
+    sample = reference * np.asarray([1.5, 0.75, 1.25])
+
+    _scaled, meta = _scale_reference_points_preserving_pose(
+        reference_points=reference,
+        sample_points=sample,
+        registration_config={
+            "reference_scaling": {
+                "enabled": True,
+                "min_factors": [0.0, 0.0, 0.0],
+                "max_factors": [10.0, 10.0, 10.0],
+            }
+        },
+    )
+
+    def covariance_principal_axis_lengths(points: np.ndarray) -> np.ndarray:
+        centered = points - points.mean(axis=0)
+        eigvals = np.linalg.eigvalsh(np.cov(centered.T))
+        return np.sqrt(np.maximum(eigvals, 0.0)) * 2.0
+
+    reference_lengths = covariance_principal_axis_lengths(reference)
+    sample_lengths = covariance_principal_axis_lengths(sample)
+    np.testing.assert_allclose(meta["reference_axis_lengths"], reference_lengths)
+    np.testing.assert_allclose(meta["sample_axis_lengths"], sample_lengths)
+    np.testing.assert_allclose(
+        meta["scale_factors"],
+        sample_lengths / np.maximum(reference_lengths, 1.0e-6),
+    )
+
+
+def test_reference_model_space_icp_direction_defaults_to_reference_to_sample():
+    assert _reference_model_space_icp_direction({}) == "reference_to_sample"
+    assert (
+        _reference_model_space_icp_direction({"icp_direction": "reference-to-sample"})
+        == "reference_to_sample"
+    )
+
+    with pytest.raises(ValueError, match="no longer selectable"):
+        _reference_model_space_icp_direction({"icp_direction": "sample_to_reference"})
+    with pytest.raises(ValueError, match="registration\\.icp_direction"):
+        _reference_model_space_icp_direction({"icp_direction": "sideways"})
+
+
+def test_invert_rigid_transform_uses_row_vector_point_convention():
+    angle = np.deg2rad(20.0)
+    rotation = np.asarray(
+        [
+            [np.cos(angle), -np.sin(angle), 0.0],
+            [np.sin(angle), np.cos(angle), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    translation = np.asarray([3.0, -2.0, 5.0])
+    points = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 2.0, 3.0],
+            [-4.0, 5.0, -6.0],
+        ]
+    )
+
+    transformed = points @ rotation.T + translation
+    inverse_rotation, inverse_translation = _invert_rigid_transform(
+        rotation,
+        translation,
+    )
+
+    recovered = transformed @ inverse_rotation.T + inverse_translation
+    np.testing.assert_allclose(recovered, points)
 
 
 def test_mask_alignment_sizes_output_grid_from_full_surface_not_sampled_subset(
@@ -647,10 +960,9 @@ def test_workflow_replay_model_uses_saved_disk_and_nodeset_labels(tmp_path: Path
     sitk.WriteImage(disk_img, str(tmp_path / "disk_labels.nii.gz"))
     sitk.WriteImage(nodeset_img, str(tmp_path / "nodesets.nii.gz"))
 
-    reference_points = surface_points_from_mask(
-        mask == 2,
-        spacing=(1.0, 1.0, 1.0),
-        origin=(0.0, 0.0, 0.0),
+    reference_points = _canonical_surface_points_from_mask_image(
+        tmp_path / "mask.nii.gz",
+        2,
     )
     np.savez(tmp_path / "reference_points.npz", points=reference_points)
 
@@ -720,7 +1032,7 @@ def test_workflow_replay_model_uses_saved_disk_and_nodeset_labels(tmp_path: Path
         (built.boundary_conditions.fixed_coordinates[:, 3] == 1)
         & (~np.isclose(built.boundary_conditions.fixed_values, 0.0))
     ]
-    assert np.unique(prescribed_y).tolist() == pytest.approx([0.24])
+    assert np.unique(prescribed_y).tolist() == pytest.approx([0.20])
 
 
 def test_workflow_replay_pads_sample_extent_before_resampling_saved_disks(
@@ -756,10 +1068,9 @@ def test_workflow_replay_pads_sample_extent_before_resampling_saved_disks(
     sitk.WriteImage(disk_img, str(tmp_path / "disk_labels.nii.gz"))
     sitk.WriteImage(node_img, str(tmp_path / "nodesets.nii.gz"))
 
-    reference_points = surface_points_from_mask(
-        mask == 2,
-        spacing=(1.0, 1.0, 1.0),
-        origin=(0.0, 0.0, 0.0),
+    reference_points = _canonical_surface_points_from_mask_image(
+        tmp_path / "mask.nii.gz",
+        2,
     )
     np.savez(tmp_path / "reference_points.npz", points=reference_points)
 
@@ -844,10 +1155,9 @@ def test_workflow_replay_prefers_plane_driven_geometry_over_saved_labels(
     sitk.WriteImage(disk_img, str(tmp_path / "disk_labels.nii.gz"))
     sitk.WriteImage(nodes_img, str(tmp_path / "nodesets.nii.gz"))
 
-    reference_points = surface_points_from_mask(
-        mask == 2,
-        spacing=(1.0, 1.0, 1.0),
-        origin=(0.0, 0.0, 0.0),
+    reference_points = _canonical_surface_points_from_mask_image(
+        tmp_path / "mask.nii.gz",
+        2,
     )
     np.savez(tmp_path / "reference_points.npz", points=reference_points)
 
@@ -880,7 +1190,7 @@ def test_workflow_replay_prefers_plane_driven_geometry_over_saved_labels(
                         "thickness_mm": 2.0,
                         "intrusion_depth_mm": 1.0,
                         "use_plane_size": True,
-                        "center_ras": [3.5, 3.5, 7.0],
+                        "center_ras": [-3.5, -3.5, 7.0],
                         "normal_ras": [0.0, 0.0, -1.0],
                         "u_axis_ras": [1.0, 0.0, 0.0],
                         "v_axis_ras": [0.0, 1.0, 0.0],
@@ -986,6 +1296,112 @@ def test_workflow_replay_exports_generated_nodeset_labels_from_planes(tmp_path: 
     assert reconstructed == built.node_sets["superior_disk"]
 
 
+def test_workflow_replay_honors_explicit_plane_disk_labels_without_cached_labelmap(
+    tmp_path: Path,
+):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 20
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "outputs": {
+                "material_image": str(tmp_path / "model" / "material.nii.gz"),
+                "nodeset_image": str(tmp_path / "model" / "nodesets.nii.gz"),
+                "manifest": str(tmp_path / "model" / "model.json"),
+            },
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 1.0,
+                        "disk_label": 222,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": "-10%"}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "surface_nodes",
+            }
+        },
+    )
+
+    assert built.metadata["model"]["workflow_replay"]["disk_labels"] is None
+    assert built.element_sets["disk_label_222"] > 0
+    assert "disk_label_201" not in built.element_sets
+
+
+def test_workflow_replay_final_crop_removes_empty_canvas_and_shifts_nodes():
+    material_xyz = np.zeros((5, 6, 9), dtype=np.float32)
+    material_xyz[1:4, 2:5, 2:6] = 1000.0
+    labels_xyz = np.zeros_like(material_xyz, dtype=np.uint16)
+    labels_xyz[1:4, 2:5, 2:6] = 1
+    node_label_xyz = np.zeros_like(labels_xyz)
+    node_label_xyz[1:4, 2:5, 5:6] = 201
+
+    cropped = _crop_workflow_model_to_material_bbox(
+        material_xyz=material_xyz,
+        labels_xyz=labels_xyz,
+        node_label_xyz=node_label_xyz,
+        spacing=(1.0, 2.0, 3.0),
+        origin=(10.0, 20.0, 30.0),
+        node_sets={
+            "support": [
+                (1, 2, 5),
+                (4, 5, 6),
+            ]
+        },
+        percent_reference_node_sets={
+            "support": [
+                (1, 2, 5),
+                (4, 5, 6),
+            ]
+        },
+    )
+
+    assert cropped.material_xyz.shape == (3, 3, 4)
+    assert cropped.labels_xyz.shape == (3, 3, 4)
+    assert cropped.node_label_xyz.shape == (3, 3, 4)
+    assert cropped.origin == pytest.approx((11.0, 24.0, 36.0))
+    assert cropped.crop["lower_index_xyz"] == [1, 2, 2]
+    assert cropped.crop["upper_index_xyz"] == [4, 5, 6]
+    assert cropped.node_sets["support"] == [(0, 0, 3), (3, 3, 4)]
+    assert cropped.percent_reference_node_sets["support"] == [(0, 0, 3), (3, 3, 4)]
+    assert np.count_nonzero(cropped.material_xyz) == np.count_nonzero(material_xyz)
+
+
 def test_workflow_replay_keeps_generated_outer_face_node_sets(tmp_path: Path):
     density = np.zeros((8, 8, 8), dtype=np.float32)
     mask = np.zeros_like(density, dtype=np.uint8)
@@ -1043,10 +1459,10 @@ def test_workflow_replay_keeps_generated_outer_face_node_sets(tmp_path: Path):
     nodes = np.asarray(built.node_sets["superior_disk"], dtype=int)
 
     assert built.metadata["model"]["workflow_replay"]["geometry_mode"] == "plane_driven"
-    assert np.unique(nodes[:, 2]).tolist() == [7]
+    assert np.unique(nodes[:, 2]).tolist() == [built.material.shape[0]]
 
 
-def test_workflow_replay_outer_face_nodes_keep_ogo_style_percent_length(
+def test_workflow_replay_outer_face_nodes_keep_surface_percent_length(
     tmp_path: Path,
 ):
     density = np.zeros((8, 8, 8), dtype=np.float32)
@@ -1128,11 +1544,11 @@ def test_workflow_replay_outer_face_nodes_keep_ogo_style_percent_length(
         np.abs(built.boundary_conditions.fixed_values) > 0.0
     ]
 
-    assert np.unique(superior_nodes[:, 2]).tolist() == [9]
-    assert np.unique(inferior_nodes[:, 2]).tolist() == [1]
-    assert built.boundary_conditions.reference_lengths_mm["z"] == pytest.approx(7.0)
+    assert np.unique(superior_nodes[:, 2]).tolist() == [built.material.shape[0]]
+    assert np.unique(inferior_nodes[:, 2]).tolist() == [0]
+    assert built.boundary_conditions.reference_lengths_mm["z"] == pytest.approx(8.0)
     assert prescribed.size > 0
-    assert np.unique(prescribed).tolist() == pytest.approx([-0.7])
+    assert np.unique(prescribed).tolist() == pytest.approx([-0.8])
 
 
 def test_workflow_replay_percent_displacement_uses_occupied_model_length_with_disks(
@@ -1215,10 +1631,9 @@ def test_workflow_replay_reference_model_space_keeps_reference_plane_axial(
     sitk.WriteImage(density_img, str(tmp_path / "density.nii.gz"))
     sitk.WriteImage(mask_img, str(tmp_path / "mask.nii.gz"))
 
-    reference_points = surface_points_from_mask(
-        mask == 20,
-        spacing=(1.0, 1.0, 1.0),
-        origin=(0.0, 0.0, 0.0),
+    reference_points = _canonical_surface_points_from_mask_image(
+        tmp_path / "mask.nii.gz",
+        20,
     )
     np.savez(tmp_path / "reference_points.npz", points=reference_points)
 
@@ -1251,7 +1666,7 @@ def test_workflow_replay_reference_model_space_keeps_reference_plane_axial(
                         "thickness_mm": 2.0,
                         "intrusion_depth_mm": 1.0,
                         "use_plane_size": True,
-                        "center_ras": [4.5, 4.5, 8.0],
+                        "center_ras": [-4.5, -4.5, 8.0],
                         "normal_ras": [0.0, 0.0, -1.0],
                         "u_axis_ras": [1.0, 0.0, 0.0],
                         "v_axis_ras": [0.0, 1.0, 0.0],
@@ -1318,7 +1733,7 @@ def test_workflow_replay_without_registration_stays_in_sample_space(tmp_path: Pa
                         "thickness_mm": 2.0,
                         "intrusion_depth_mm": 1.0,
                         "use_plane_size": True,
-                        "center_ras": [3.5, 3.5, 7.0],
+                        "center_ras": [-3.5, -3.5, 7.0],
                         "normal_ras": [0.0, 0.0, -1.0],
                         "u_axis_ras": [1.0, 0.0, 0.0],
                         "v_axis_ras": [0.0, 1.0, 0.0],
@@ -1543,6 +1958,9 @@ def test_workflow_replay_pads_when_relative_disk_extends_outside_image(
         },
     )
 
-    assert built.material.shape[0] > 8
+    crop = built.metadata["model"]["workflow_replay"]["final_material_crop"]
+    assert crop["enabled"] is True
+    assert crop["original_shape_xyz"][2] > crop["cropped_shape_xyz"][2]
+    assert built.material.shape[0] == crop["cropped_shape_xyz"][2]
     assert int(built.element_sets["workflow_disks"]) > 0
     assert len(built.node_sets["superior_disk"]) > 0

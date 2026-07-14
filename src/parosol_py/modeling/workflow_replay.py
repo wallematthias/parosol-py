@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,17 @@ from .io import read_image_zyx, resolve_path
 from .types import BuiltModel
 
 
+@dataclass(slots=True)
+class _CroppedWorkflowModel:
+    material_xyz: np.ndarray
+    labels_xyz: np.ndarray
+    node_label_xyz: np.ndarray
+    origin: tuple[float, float, float]
+    node_sets: dict[str, list[tuple[int, int, int]]]
+    percent_reference_node_sets: dict[str, list[tuple[int, int, int]]] | None
+    crop: dict[str, Any]
+
+
 def build_workflow_replay_model(
     model_config: dict[str, Any],
     *,
@@ -52,6 +64,12 @@ def build_workflow_replay_model(
         preprocessing_config=preprocessing_config,
     )
     registration_mask_zyx = _workflow_active_mask(mask_zyx, model_config, replay_cfg)
+    projection_mask_zyx = _workflow_projection_mask(
+        mask_zyx,
+        model_config,
+        replay_cfg,
+        default_mask=registration_mask_zyx,
+    )
     model_mask_zyx = _workflow_model_mask(mask_zyx, model_config)
     padded, origin = pad_arrays_to_foreground_margin(
         anchor_mask_zyx=model_mask_zyx,
@@ -66,13 +84,21 @@ def build_workflow_replay_model(
             "density": density_zyx,
             "mask": mask_zyx,
             "registration": registration_mask_zyx,
+            "projection": projection_mask_zyx,
             "model": model_mask_zyx,
         },
-        constant_values={"density": 0.0, "mask": 0, "registration": False, "model": False},
+        constant_values={
+            "density": 0.0,
+            "mask": 0,
+            "registration": False,
+            "projection": False,
+            "model": False,
+        },
     )
     density_zyx = padded["density"]
     mask_zyx = padded["mask"]
     registration_mask_zyx = np.asarray(padded["registration"], dtype=bool)
+    projection_mask_zyx = np.asarray(padded["projection"], dtype=bool)
     model_mask_zyx = np.asarray(padded["model"], dtype=bool)
     registration_cfg = _workflow_registration_config(model_config, replay_cfg)
     if _workflow_registration_enabled(registration_cfg):
@@ -97,6 +123,7 @@ def build_workflow_replay_model(
             density_zyx=density_zyx,
             mask_zyx=mask_zyx,
             registration_mask_zyx=registration_mask_zyx,
+            projection_mask_zyx=projection_mask_zyx,
             model_mask_zyx=model_mask_zyx,
             spacing=spacing,
             origin=origin,
@@ -106,6 +133,7 @@ def build_workflow_replay_model(
         density_zyx = aligned["density"]
         mask_zyx = aligned["mask"]
         registration_mask_zyx = aligned["registration"]
+        projection_mask_zyx = aligned["projection"]
         model_mask_zyx = aligned["model"]
         origin = aligned["origin"]
         registration_meta = aligned["metadata"]
@@ -123,6 +151,7 @@ def build_workflow_replay_model(
             density_zyx=density_zyx,
             mask_zyx=mask_zyx,
             registration_mask_zyx=registration_mask_zyx,
+            projection_mask_zyx=projection_mask_zyx,
             model_mask_zyx=model_mask_zyx,
             spacing=spacing,
             origin=origin,
@@ -130,6 +159,7 @@ def build_workflow_replay_model(
         density_zyx = padded_for_planes["density"]
         mask_zyx = padded_for_planes["mask"]
         registration_mask_zyx = np.asarray(padded_for_planes["registration"], dtype=bool)
+        projection_mask_zyx = np.asarray(padded_for_planes["projection"], dtype=bool)
         model_mask_zyx = np.asarray(padded_for_planes["model"], dtype=bool)
 
     bone_mpa_zyx, poisson_ratio = material_from_density(
@@ -151,7 +181,7 @@ def build_workflow_replay_model(
     if isinstance(editor, dict) and isinstance(editor.get("planes"), list) and editor.get("planes"):
         disk_xyz, node_label_xyz, node_sets, resolved_editor = _workflow_geometry_from_editor(
             editor=editor,
-            active_mask_zyx=registration_mask_zyx,
+            active_mask_zyx=projection_mask_zyx,
             material_xyz=material_xyz,
             spacing=spacing,
             origin=origin,
@@ -181,8 +211,6 @@ def build_workflow_replay_model(
             transform=transform,
         )
         node_label_xyz = np.transpose(np.asarray(nodeset_labels_zyx, dtype=np.uint16), (2, 1, 0))
-    material_mask_zyx = model_mask_zyx | (np.asarray(disk_labels_zyx) > 0)
-
     disk_xyz = np.transpose(np.asarray(disk_labels_zyx, dtype=np.uint16), (2, 1, 0))
     if np.any(disk_xyz > 0):
         pmma = material_config.get("pmma", {})
@@ -213,6 +241,22 @@ def build_workflow_replay_model(
             nodeset_config=nodeset_config or {},
         )
     )
+    cropped = _crop_workflow_model_to_material_bbox(
+        material_xyz=material_xyz,
+        labels_xyz=artifact_labels_xyz,
+        node_label_xyz=node_label_xyz,
+        spacing=spacing,
+        origin=origin,
+        node_sets=node_sets,
+        percent_reference_node_sets=generated_reference_node_sets,
+    )
+    material_xyz = cropped.material_xyz
+    artifact_labels_xyz = cropped.labels_xyz
+    node_label_xyz = cropped.node_label_xyz
+    origin = cropped.origin
+    node_sets = cropped.node_sets
+    generated_reference_node_sets = cropped.percent_reference_node_sets
+
     require_non_empty(node_sets)
     boundary_conditions = boundary_conditions_from_nodesets(
         node_sets,
@@ -252,6 +296,7 @@ def build_workflow_replay_model(
                 "nodesets": str(resolve_path(replay_cfg["nodesets"], base_dir=base_dir))
                 if replay_cfg.get("nodesets")
                 else None,
+                "final_material_crop": cropped.crop,
             },
             "registration": registration_meta,
         },
@@ -280,7 +325,7 @@ def build_workflow_replay_model(
         boundary_conditions=boundary_conditions,
         node_sets=node_sets,
         element_sets=element_sets,
-        postprocess_mask=np.asarray(material_mask_zyx, dtype=bool),
+        postprocess_mask=np.asarray(to_zyx(material_xyz > 0), dtype=bool),
         exported=exported,
         metadata=metadata,
     )
@@ -554,9 +599,23 @@ def _editor_disk_labels(
     labels: dict[str, int] = {}
     for index, plane in enumerate(material_planes):
         name = str(plane.get("name", f"disk_{index + 1}")).strip()
-        label = preserved_labels[index] if index < len(preserved_labels) else 201 + index
+        explicit_label = _positive_int_or_none(plane.get("disk_label"))
+        if explicit_label is not None:
+            label = explicit_label
+        elif index < len(preserved_labels):
+            label = preserved_labels[index]
+        else:
+            label = 201 + index
         labels[name] = int(label)
     return labels
+
+
+def _positive_int_or_none(value: object) -> int | None:
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _matching_nodeset_name(plane_name: str, nodeset_config: dict[str, Any]) -> str | None:
@@ -606,15 +665,13 @@ def _workflow_percent_reference_node_sets(
     for name, spec in nodeset_config.items():
         if not isinstance(spec, dict):
             continue
-        selection = str(spec.get("selection", "surface_nodes")).strip().lower()
-        if selection != "outer_face_nodes":
+        reference_selection = spec.get("percent_reference_selection")
+        if reference_selection is None:
             continue
-        reference_spec = dict(spec)
-        reference_spec["selection"] = "surface_nodes"
         reference_sets[str(name)] = nodes_from_labeled_voxels(
             labels_xyz,
-            label=int(reference_spec["label"]),
-            selection="surface_nodes",
+            label=int(spec["label"]),
+            selection=str(reference_selection).strip().lower(),
             material=material_xyz,
         )
     return reference_sets or None
@@ -625,43 +682,138 @@ def _workflow_active_mask(
     model_config: dict[str, Any],
     replay_cfg: dict[str, Any],
 ) -> np.ndarray:
-    labels = model_config.get("labels", {})
-    target = str(
-        replay_cfg.get(
-            "registration_target",
-            model_config.get("registration", {}).get("target", ""),
-        )
-    ).strip().lower()
-    if target in {"vertebral_body", "body"}:
-        body_label = int(labels.get("body", labels.get("vertebral_body", 20)))
-        return np.asarray(mask_zyx) == body_label
-    if target in {"full_mask", "mask", "all"}:
-        return np.asarray(mask_zyx) > 0
-    if "process" in labels and "body" in labels:
-        return np.asarray(mask_zyx) > 0
-    if "body" in labels or "vertebral_body" in labels:
-        body_label = int(labels.get("body", labels.get("vertebral_body", 20)))
-        return np.asarray(mask_zyx) == body_label
-    femur_label = int(
-        labels.get("femur", labels.get("left", labels.get("right", 2)))
+    targets = model_config.get("targets", {})
+    registration = model_config.get("registration", {})
+    selector = _first_present(
+        replay_cfg,
+        ("registration_labels", "registration_target"),
+        targets if isinstance(targets, dict) else {},
+        ("registration", "registration_labels"),
+        registration if isinstance(registration, dict) else {},
+        ("target_labels", "target"),
     )
-    return np.asarray(mask_zyx) == femur_label
+    return _workflow_target_mask(
+        mask_zyx,
+        model_config,
+        selector,
+        default="first_declared_label",
+    )
+
+
+def _workflow_projection_mask(
+    mask_zyx: np.ndarray,
+    model_config: dict[str, Any],
+    replay_cfg: dict[str, Any],
+    *,
+    default_mask: np.ndarray,
+) -> np.ndarray:
+    targets = model_config.get("targets", {})
+    selector = _first_present(
+        replay_cfg,
+        ("projection_labels", "disk_projection_labels", "disk_projection"),
+        targets if isinstance(targets, dict) else {},
+        ("disk_projection", "projection", "projection_labels"),
+    )
+    if selector is None:
+        return np.asarray(default_mask, dtype=bool)
+    return _workflow_target_mask(mask_zyx, model_config, selector, default="nonzero")
 
 
 def _workflow_model_mask(mask_zyx: np.ndarray, model_config: dict[str, Any]) -> np.ndarray:
-    labels = model_config.get("labels", {})
-    if "body" in labels and "process" in labels:
-        body_label = int(labels["body"])
-        process_label = int(labels["process"])
-        mask = np.asarray(mask_zyx)
-        return (mask == body_label) | (mask == process_label)
-    if "body" in labels or "vertebral_body" in labels:
-        body_label = int(labels.get("body", labels.get("vertebral_body", 20)))
-        return np.asarray(mask_zyx) == body_label
-    femur_label = int(
-        labels.get("femur", labels.get("left", labels.get("right", 2)))
+    targets = model_config.get("targets", {})
+    selector = _first_present(
+        targets if isinstance(targets, dict) else {},
+        ("model", "model_labels"),
     )
-    return np.asarray(mask_zyx) == femur_label
+    return _workflow_target_mask(
+        mask_zyx,
+        model_config,
+        selector,
+        default="all_declared_labels",
+    )
+
+
+def _first_present(*pairs: Any) -> Any:
+    for mapping, keys in zip(pairs[0::2], pairs[1::2], strict=False):
+        if not isinstance(mapping, dict):
+            continue
+        for key in keys:
+            if key in mapping and mapping[key] not in (None, ""):
+                return mapping[key]
+    return None
+
+
+def _workflow_target_mask(
+    mask_zyx: np.ndarray,
+    model_config: dict[str, Any],
+    selector: Any,
+    *,
+    default: str,
+) -> np.ndarray:
+    mask = np.asarray(mask_zyx)
+    labels = _workflow_label_values(model_config)
+    if selector is None:
+        if default == "all_declared_labels" and labels:
+            return np.isin(mask, list(labels.values()))
+        if default == "first_declared_label" and labels:
+            return mask == next(iter(labels.values()))
+        return mask > 0
+
+    values = _workflow_selector_values(selector, labels)
+    if values is None:
+        return mask > 0
+    if not values:
+        raise ValueError("workflow target selector did not resolve to any labels")
+    return np.isin(mask, values)
+
+
+def _workflow_label_values(model_config: dict[str, Any]) -> dict[str, int]:
+    raw = model_config.get("labels", {})
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): int(value) for key, value in raw.items()}
+
+
+def _workflow_selector_values(selector: Any, labels: dict[str, int]) -> list[int] | None:
+    if isinstance(selector, dict):
+        mode = str(selector.get("mode", "")).strip().lower()
+        if mode in {"all", "mask", "full_mask", "nonzero", "*"}:
+            return None
+        for key in ("labels", "label_keys", "keys", "values", "label_values"):
+            if key in selector:
+                return _workflow_selector_values(selector[key], labels)
+        raise ValueError(
+            "workflow target selector objects must define labels, label_keys, values, or mode"
+        )
+    if isinstance(selector, (list, tuple, set)):
+        values: list[int] = []
+        for item in selector:
+            item_values = _workflow_selector_values(item, labels)
+            if item_values is None:
+                return None
+            values.extend(item_values)
+        return sorted(set(values))
+    if isinstance(selector, (int, np.integer)):
+        return [int(selector)]
+    token = str(selector).strip()
+    lowered = token.lower()
+    if lowered in {"all", "mask", "full_mask", "nonzero", "*"}:
+        return None
+    if "," in token:
+        return _workflow_selector_values(
+            [part.strip() for part in token.split(",") if part.strip()],
+            labels,
+        )
+    if token in labels:
+        return [int(labels[token])]
+    try:
+        return [int(token)]
+    except ValueError as exc:
+        expected = ", ".join(sorted(labels)) or "numeric labels"
+        raise ValueError(
+            f"workflow target selector {selector!r} is not a declared label key; "
+            f"expected one of: {expected}"
+        ) from exc
 
 
 def _workflow_model_space(
@@ -766,6 +918,7 @@ def _pad_workflow_arrays_for_editor_planes(
     density_zyx: np.ndarray,
     mask_zyx: np.ndarray,
     registration_mask_zyx: np.ndarray,
+    projection_mask_zyx: np.ndarray,
     model_mask_zyx: np.ndarray,
     spacing: tuple[float, float, float],
     origin: tuple[float, float, float],
@@ -787,6 +940,7 @@ def _pad_workflow_arrays_for_editor_planes(
             "density": np.asarray(density_zyx),
             "mask": np.asarray(mask_zyx),
             "registration": np.asarray(registration_mask_zyx),
+            "projection": np.asarray(projection_mask_zyx),
             "model": np.asarray(model_mask_zyx),
         }, origin
     desired_min, desired_max = desired_bounds
@@ -795,13 +949,20 @@ def _pad_workflow_arrays_for_editor_planes(
             "density": density_zyx,
             "mask": mask_zyx,
             "registration": registration_mask_zyx,
+            "projection": projection_mask_zyx,
             "model": model_mask_zyx,
         },
         spacing=spacing,
         origin=origin,
         desired_min_xyz=desired_min,
         desired_max_xyz=desired_max,
-        constant_values={"density": 0.0, "mask": 0, "registration": False, "model": False},
+        constant_values={
+            "density": 0.0,
+            "mask": 0,
+            "registration": False,
+            "projection": False,
+            "model": False,
+        },
     )
 
 
@@ -942,6 +1103,122 @@ def _pad_arrays_to_xyz_bounds(
     return padded, padded_origin
 
 
+def _crop_workflow_model_to_material_bbox(
+    *,
+    material_xyz: np.ndarray,
+    labels_xyz: np.ndarray,
+    node_label_xyz: np.ndarray,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    node_sets: dict[str, list[tuple[int, int, int]]],
+    percent_reference_node_sets: dict[str, list[tuple[int, int, int]]] | None,
+) -> _CroppedWorkflowModel:
+    """Crop finished workflow arrays to active material while preserving physics.
+
+    Interactive workflow replay may temporarily pad the image so authored
+    projected disks have enough space to generate. Once material and node sets
+    exist, any all-zero canvas can be removed. Node coordinates are shifted by
+    the cropped element offset; high-face nodes may remain equal to the cropped
+    element dimensions, which is valid for hexahedral node coordinates.
+    """
+    material = np.asarray(material_xyz)
+    if material.ndim != 3:
+        raise ValueError("material_xyz must be a 3D x/y/z array")
+    active = material > 0
+    original_shape = np.asarray(material.shape, dtype=np.int64)
+    origin_arr = np.asarray(origin, dtype=float)
+    spacing_arr = np.asarray(spacing, dtype=float)
+    if not np.any(active):
+        crop = _workflow_crop_metadata(
+            enabled=False,
+            lower_xyz=np.zeros(3, dtype=np.int64),
+            upper_xyz=original_shape,
+            original_shape=original_shape,
+            origin_before=origin_arr,
+            origin_after=origin_arr,
+        )
+        return _CroppedWorkflowModel(
+            material_xyz=material,
+            labels_xyz=np.asarray(labels_xyz),
+            node_label_xyz=np.asarray(node_label_xyz),
+            origin=origin,
+            node_sets={name: list(nodes) for name, nodes in node_sets.items()},
+            percent_reference_node_sets=(
+                None
+                if percent_reference_node_sets is None
+                else {
+                    name: list(nodes)
+                    for name, nodes in percent_reference_node_sets.items()
+                }
+            ),
+            crop=crop,
+        )
+
+    coords = np.argwhere(active)
+    lower_xyz = coords.min(axis=0).astype(np.int64)
+    upper_xyz = (coords.max(axis=0) + 1).astype(np.int64)
+    crop_slices = tuple(slice(int(lower_xyz[axis]), int(upper_xyz[axis])) for axis in range(3))
+    cropped_origin = origin_arr + lower_xyz.astype(float) * spacing_arr
+    enabled = bool(np.any(lower_xyz != 0) or np.any(upper_xyz != original_shape))
+
+    crop = _workflow_crop_metadata(
+        enabled=enabled,
+        lower_xyz=lower_xyz,
+        upper_xyz=upper_xyz,
+        original_shape=original_shape,
+        origin_before=origin_arr,
+        origin_after=cropped_origin,
+    )
+    return _CroppedWorkflowModel(
+        material_xyz=material[crop_slices],
+        labels_xyz=np.asarray(labels_xyz)[crop_slices],
+        node_label_xyz=np.asarray(node_label_xyz)[crop_slices],
+        origin=tuple(float(value) for value in cropped_origin),
+        node_sets=_shift_node_sets(node_sets, lower_xyz=lower_xyz),
+        percent_reference_node_sets=(
+            None
+            if percent_reference_node_sets is None
+            else _shift_node_sets(percent_reference_node_sets, lower_xyz=lower_xyz)
+        ),
+        crop=crop,
+    )
+
+
+def _workflow_crop_metadata(
+    *,
+    enabled: bool,
+    lower_xyz: np.ndarray,
+    upper_xyz: np.ndarray,
+    original_shape: np.ndarray,
+    origin_before: np.ndarray,
+    origin_after: np.ndarray,
+) -> dict[str, Any]:
+    return {
+        "enabled": bool(enabled),
+        "lower_index_xyz": [int(value) for value in lower_xyz],
+        "upper_index_xyz": [int(value) for value in upper_xyz],
+        "original_shape_xyz": [int(value) for value in original_shape],
+        "cropped_shape_xyz": [int(value) for value in (upper_xyz - lower_xyz)],
+        "origin_before": [float(value) for value in origin_before],
+        "origin_after": [float(value) for value in origin_after],
+    }
+
+
+def _shift_node_sets(
+    node_sets: dict[str, list[tuple[int, int, int]]],
+    *,
+    lower_xyz: np.ndarray,
+) -> dict[str, list[tuple[int, int, int]]]:
+    offset = np.asarray(lower_xyz, dtype=np.int64)
+    shifted: dict[str, list[tuple[int, int, int]]] = {}
+    for name, nodes in node_sets.items():
+        shifted[name] = [
+            tuple(int(value) for value in (np.asarray(node, dtype=np.int64) - offset))
+            for node in nodes
+        ]
+    return shifted
+
+
 def _summarize_resolved_planes(editor: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not isinstance(editor, dict):
         return []
@@ -1060,6 +1337,7 @@ def _align_workflow_arrays_to_reference(
     density_zyx: np.ndarray,
     mask_zyx: np.ndarray,
     registration_mask_zyx: np.ndarray,
+    projection_mask_zyx: np.ndarray,
     model_mask_zyx: np.ndarray,
     spacing: tuple[float, float, float],
     origin: tuple[float, float, float],
@@ -1071,6 +1349,7 @@ def _align_workflow_arrays_to_reference(
             "density": density_zyx,
             "mask": mask_zyx,
             "registration": registration_mask_zyx,
+            "projection": projection_mask_zyx,
             "model": model_mask_zyx,
             "origin": origin,
             "metadata": {"enabled": False, "applied_to_model_grid": False},
@@ -1102,15 +1381,26 @@ def _align_workflow_arrays_to_reference(
         sample_points=sample_points,
         registration_config=registration_config,
     )
-    transform = estimate_rigid_icp(
-        moving_points=sample_points,
-        fixed_points=reference_points,
+    icp_direction = _reference_model_space_icp_direction(registration_config)
+    source_to_target = estimate_rigid_icp(
+        moving_points=reference_points,
+        fixed_points=sample_points,
         iterations=int(registration_config.get("iterations", 50)),
         tolerance=float(registration_config.get("tolerance", 1.0e-4)),
         start_by_matching_centroids_only=_centroid_start(registration_config),
         convergence=str(registration_config.get("convergence", "delta")),
         distance_mode=str(registration_config.get("distance_mode", "mean")),
     )
+    rotation, translation = _invert_rigid_transform(
+        source_to_target["rotation"],
+        source_to_target["translation"],
+    )
+    transform = {
+        **source_to_target,
+        "rotation": rotation,
+        "translation": translation,
+        "icp_direction": icp_direction,
+    }
     active_points = surface_points_from_mask(
         model_mask_zyx,
         spacing=spacing,
@@ -1162,6 +1452,18 @@ def _align_workflow_arrays_to_reference(
             interpolation="nearest",
         )
         > 0,
+        "projection": _resample_with_transform(
+            np.asarray(projection_mask_zyx, dtype=np.uint8),
+            spacing=spacing,
+            origin=origin,
+            output_spacing=spacing,
+            output_origin=output_origin,
+            output_size=output_size,
+            rotation=transform["rotation"],
+            translation=transform["translation"],
+            interpolation="nearest",
+        )
+        > 0,
         "model": _resample_with_transform(
             np.asarray(model_mask_zyx, dtype=np.uint8),
             spacing=spacing,
@@ -1184,6 +1486,7 @@ def _align_workflow_arrays_to_reference(
             "rotation": transform["rotation"].tolist(),
             "translation": transform["translation"].tolist(),
             "reference_scaling": scaling_meta,
+            "icp_direction": icp_direction,
             "applied_to_model_grid": True,
         },
     }
@@ -1327,18 +1630,18 @@ def _scale_reference_points_preserving_pose(
         return reference_points, {"enabled": False}
     reference = np.asarray(reference_points, dtype=float)
     sample = np.asarray(sample_points, dtype=float)
-    _ref_axes, ref_lengths, _ref_center = _pca_axes_and_lengths(reference)
-    _sample_axes, sample_lengths, _sample_center = _pca_axes_and_lengths(sample)
+    ref_lengths = _covariance_principal_axis_lengths(reference)
+    sample_lengths = _covariance_principal_axis_lengths(sample)
     min_factors = np.asarray(scaling_cfg.get("min_factors", [0.8, 0.8, 0.75]), dtype=float)
     max_factors = np.asarray(scaling_cfg.get("max_factors", [1.2, 1.2, 1.3]), dtype=float)
     scale = np.clip(sample_lengths / np.maximum(ref_lengths, 1.0e-6), min_factors, max_factors)
-    # Match Ogo/n88's VTK path: vtkTransform.Scale applies scale about the
-    # coordinate origin before rigid ICP, not about the reference centroid.
+    # Preserve the reference pose by scaling around the coordinate origin before
+    # rigid ICP, rather than re-centering the point cloud.
     center = reference.mean(axis=0)
     scaled = reference * scale
     return scaled, {
         "enabled": True,
-        "source": "ogo_origin_pca_axis_lengths_reference_pose",
+        "source": "origin_covariance_axis_lengths_reference_pose",
         "reference_center": center.tolist(),
         "reference_axis_lengths": ref_lengths.tolist(),
         "sample_axis_lengths": sample_lengths.tolist(),
@@ -1346,6 +1649,40 @@ def _scale_reference_points_preserving_pose(
         "min_factors": min_factors.tolist(),
         "max_factors": max_factors.tolist(),
     }
+
+
+def _reference_model_space_icp_direction(registration_config: dict[str, Any]) -> str:
+    if "icp_direction" not in registration_config:
+        return "reference_to_sample"
+    value = registration_config["icp_direction"]
+    token = str(value).strip().lower().replace("-", "_")
+    if token == "reference_to_sample":
+        return "reference_to_sample"
+    raise ValueError(
+        "registration.icp_direction is no longer selectable; "
+        "use reference_to_sample or omit it"
+    )
+
+
+def _invert_rigid_transform(
+    rotation: np.ndarray,
+    translation: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Invert the point transform convention ``p2 = p1 @ R.T + t``."""
+    rotation_arr = np.asarray(rotation, dtype=float)
+    translation_arr = np.asarray(translation, dtype=float)
+    inverse_rotation = rotation_arr.T
+    inverse_translation = -translation_arr @ rotation_arr
+    return inverse_rotation, inverse_translation
+
+
+def _covariance_principal_axis_lengths(points: np.ndarray) -> np.ndarray:
+    array = np.asarray(points, dtype=float)
+    centered = array - array.mean(axis=0)
+    covariance = np.cov(centered.T)
+    eigvals = np.linalg.eigvalsh(covariance)
+    lengths = np.sqrt(np.maximum(eigvals, 0.0)) * 2.0
+    return np.maximum(lengths, 1.0e-6)
 
 
 def _pca_axes_and_lengths(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

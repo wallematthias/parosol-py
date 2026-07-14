@@ -68,6 +68,15 @@ preprocessing:
   crop_to_bb:
     enabled: false
     margin_voxels: 4
+  # Crop the foreground mask to a target bounding-box ratio before registration
+  # or solve setup. Example: [1, 1.2, null] preserves the first/reference bbox
+  # dimension, crops the second dimension to 1.2x the first, and leaves the
+  # third dimension unchanged.
+  # bbox_ratio: [1, 1.2, null]
+  # Optional crop anchor in the same recipe order. "min" removes the low-index
+  # end of that dimension, "max" removes the high-index end, and null/center
+  # crops around the bbox center.
+  # bbox_crop_from: [null, min, null]
   # Optional downsampled solve. This changes the solve grid and scales spacing.
   # Use for exploratory coarse passes before full-resolution batches.
   # coarsen:
@@ -166,7 +175,7 @@ modeling:
   # the target anatomy.
   # disk:
   #   target_label: 20
-  #   shape: anatomy  # anatomy, square, round, or hex
+  #   shape: anatomy  # anatomy, rectangle, square, round, or hex
   #   thickness_mm: 3
   #   intrusion_depth_mm: 6
   #   method: projected_cap

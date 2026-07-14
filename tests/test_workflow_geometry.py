@@ -5,7 +5,11 @@ import pytest
 
 from parosol_py.nodesets import nodes_from_labeled_voxels
 from parosol_py.workflow_geometry import (
+    derive_reference_plane,
     generate_disk_and_nodeset_geometry,
+    _inside_shape_vectorized,
+    _node_set_from_disk_face,
+    _plane_geometry,
     resolve_reference_space_editor,
 )
 
@@ -47,6 +51,38 @@ def test_resolve_reference_space_editor_maps_reference_plane_to_sample_space():
     assert plane["reference_space"] is False
     assert plane["resolved_from_reference_space"] is True
     assert np.allclose(plane["center_ras"], [5.0, -2.0, 3.0], atol=1.0e-3)
+
+
+def test_derive_reference_plane_defaults_missing_axis_to_z_independent_of_name():
+    reference = np.asarray(
+        [
+            [x, y, z]
+            for x in (0.0, 1.0, 2.0)
+            for y in (0.0, 1.0, 2.0)
+            for z in (0.0, 10.0, 11.0)
+        ],
+        dtype=float,
+    )
+
+    plane = derive_reference_plane({"derive_from": "support"}, reference)
+
+    assert abs(float(np.dot(plane["normal_ras"], [0.0, 0.0, 1.0]))) > 0.9
+
+
+def test_derive_reference_plane_side_comes_from_normal_not_case_name():
+    reference = np.asarray(
+        [
+            [x, y, z]
+            for x in (0.0, 1.0, 2.0)
+            for y in (0.0, 1.0, 2.0)
+            for z in (0.0, 10.0, 11.0)
+        ],
+        dtype=float,
+    )
+
+    plane = derive_reference_plane({"derive_from": "impact", "axis": "z"}, reference)
+
+    assert float(np.dot(plane["center_ras"], [0.0, 0.0, 1.0])) > 9.0
 
 
 def test_generate_disk_and_nodeset_geometry_builds_intersect_surface_nodeset():
@@ -154,8 +190,8 @@ def test_projected_anatomy_disk_follows_local_surface_height():
                 "contact": "Material disks",
                 "surface_mode": "project_bounded",
                 "shape": "anatomy",
-                "thickness_mm": 2.0,
-                "intrusion_depth_mm": 0.0,
+                "thickness_mm": 4.0,
+                "intrusion_depth_mm": 2.0,
                 "center_ras": [3.5, 3.5, 7.0],
                 "normal_ras": [0.0, 0.0, -1.0],
                 "u_axis_ras": [1.0, 0.0, 0.0],
@@ -187,6 +223,110 @@ def test_projected_anatomy_disk_follows_local_surface_height():
     assert np.count_nonzero(nodeset[5, 3:5, :]) > 0
 
 
+def test_projected_anatomy_disk_limits_wrap_to_intrusion_depth():
+    mask_xyz = np.zeros((8, 8, 14), dtype=bool)
+    mask_xyz[2:4, 3:5, 10:12] = True
+    mask_xyz[5:7, 3:5, 5:7] = True
+    material_xyz = mask_xyz.astype(np.float32) * 1000.0
+    editor = {
+        "planes": [
+            {
+                "name": "Support disk",
+                "contact": "Material disks",
+                "surface_mode": "project_bounded",
+                "shape": "anatomy",
+                "thickness_mm": 6.0,
+                "intrusion_depth_mm": 3.0,
+                "center_ras": [3.5, 3.5, 13.0],
+                "normal_ras": [0.0, 0.0, -1.0],
+                "u_axis_ras": [1.0, 0.0, 0.0],
+                "v_axis_ras": [0.0, 1.0, 0.0],
+                "size_mm": [8.0, 4.0],
+            }
+        ]
+    }
+
+    geometry = generate_disk_and_nodeset_geometry(
+        editor,
+        mask_xyz=mask_xyz,
+        material_xyz=material_xyz,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        nodeset_labels={"support_disk": 202},
+        nodeset_names={"Support disk": "support_disk"},
+        disk_labels={"Support disk": 22},
+    )
+
+    disk = geometry.disk_labels_xyz == 22
+    assert np.count_nonzero(disk[2:4, 3:5, :]) > 0
+    assert np.count_nonzero(disk[5:7, 3:5, :]) == 0
+
+
+def test_projected_square_disk_can_be_anatomy_constrained():
+    mask_xyz = np.zeros((8, 8, 14), dtype=bool)
+    mask_xyz[2:4, 3:5, 10:12] = True
+    mask_xyz[5:7, 3:5, 5:7] = True
+    material_xyz = mask_xyz.astype(np.float32) * 1000.0
+    editor = {
+        "planes": [
+            {
+                "name": "Support disk",
+                "contact": "Material disks",
+                "surface_mode": "project_bounded",
+                "shape": "square",
+                "anatomy_constrained": True,
+                "thickness_mm": 6.0,
+                "intrusion_depth_mm": 3.0,
+                "center_ras": [3.5, 3.5, 13.0],
+                "normal_ras": [0.0, 0.0, -1.0],
+                "u_axis_ras": [1.0, 0.0, 0.0],
+                "v_axis_ras": [0.0, 1.0, 0.0],
+                "size_mm": [8.0, 8.0],
+            }
+        ]
+    }
+
+    geometry = generate_disk_and_nodeset_geometry(
+        editor,
+        mask_xyz=mask_xyz,
+        material_xyz=material_xyz,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        nodeset_labels={"support_disk": 202},
+        nodeset_names={"Support disk": "support_disk"},
+        disk_labels={"Support disk": 22},
+    )
+
+    disk = geometry.disk_labels_xyz == 22
+    assert np.count_nonzero(disk[2:4, 3:5, :]) > 0
+    assert np.count_nonzero(disk[5:7, 3:5, :]) == 0
+
+
+def test_rectangle_plane_preserves_independent_bbox_footprint():
+    plane = {
+        "center_ras": [0.0, 0.0, 0.0],
+        "normal_ras": [0.0, 1.0, 0.0],
+        "u_axis_ras": [0.0, 0.0, 1.0],
+        "v_axis_ras": [1.0, 0.0, 0.0],
+        "size_mm": [110.0, 20.0],
+        "shape": "rectangle",
+    }
+
+    _center, _normal, _u_axis, _v_axis, half_u, half_v = _plane_geometry(plane)
+    inside = _inside_shape_vectorized(
+        "rectangle",
+        np.asarray([54.0, 54.0]),
+        np.asarray([0.0, 11.0]),
+        half_u,
+        half_v,
+        tolerance=0.0,
+    )
+
+    assert half_u == pytest.approx(55.0)
+    assert half_v == pytest.approx(10.0)
+    assert inside.tolist() == [True, False]
+
+
 def test_projected_anatomy_disk_has_flat_load_facing_nodeset_on_uneven_bone():
     mask_xyz = np.zeros((8, 8, 10), dtype=bool)
     mask_xyz[2:4, 3:5, 5:7] = True
@@ -200,7 +340,7 @@ def test_projected_anatomy_disk_has_flat_load_facing_nodeset_on_uneven_bone():
                 "surface_mode": "project_bounded",
                 "shape": "anatomy",
                 "thickness_mm": 3.0,
-                "intrusion_depth_mm": 1.0,
+                "intrusion_depth_mm": 2.0,
                 "center_ras": [3.5, 3.5, 9.0],
                 "normal_ras": [0.0, 0.0, -1.0],
                 "u_axis_ras": [1.0, 0.0, 0.0],
@@ -227,7 +367,7 @@ def test_projected_anatomy_disk_has_flat_load_facing_nodeset_on_uneven_bone():
 
     nodeset = np.argwhere(geometry.nodeset_labels_xyz == 201)
     assert nodeset.size > 0
-    assert np.unique(nodeset[:, 2]).tolist() == [8]
+    assert np.unique(nodeset[:, 2]).tolist() == [7]
 
 
 def test_material_disk_outer_face_nodes_select_only_load_facing_node_plane():
@@ -271,10 +411,36 @@ def test_material_disk_outer_face_nodes_select_only_load_facing_node_plane():
     assert np.unique(nodes[:, 2]).tolist() == [9]
 
 
+def test_axis_aligned_outer_face_nodes_use_single_outermost_disk_plane():
+    disk = np.zeros((8, 8, 8), dtype=bool)
+    disk[2:5, 2, 2:4] = True
+    disk[2:5, 3, 4:6] = True
+    material = disk.astype(np.float32) * 2500.0
+
+    nodes = np.asarray(
+        _node_set_from_disk_face(
+            disk,
+            selection="outer_face_nodes",
+            material_xyz=material,
+            plane_spec={
+                "center_ras": [3.0, 1.0, 3.0],
+                "normal_ras": [0.0, 1.0, 0.0],
+                "u_axis_ras": [1.0, 0.0, 0.0],
+                "v_axis_ras": [0.0, 0.0, 1.0],
+                "size_mm": [4.0, 4.0],
+            },
+        ),
+        dtype=int,
+    )
+
+    assert np.unique(nodes[:, 1]).tolist() == [2]
+
+
 def test_projected_material_disk_never_labels_bone_voxels():
     mask_xyz = np.zeros((7, 7, 7), dtype=bool)
     mask_xyz[2:5, 2:5, 2:5] = True
     material_xyz = mask_xyz.astype(np.float32) * 1000.0
+    material_xyz[3, 3, 4] = 0.0
     editor = {
         "planes": [
             {
@@ -312,7 +478,7 @@ def test_projected_material_disk_never_labels_bone_voxels():
 def test_larger_intrusion_wraps_more_anatomy_columns_without_entering_bone():
     mask_xyz = np.zeros((9, 9, 9), dtype=bool)
     mask_xyz[3:6, 3:6, 4:6] = True
-    mask_xyz[1:3, 3:6, 1:3] = True
+    mask_xyz[1:3, 3:6, 2:4] = True
     material_xyz = mask_xyz.astype(np.float32) * 1000.0
 
     def build(intrusion_depth_mm: float):
@@ -358,7 +524,7 @@ def test_larger_intrusion_wraps_more_anatomy_columns_without_entering_bone():
 def test_legacy_protrusion_depth_is_not_geometry_input():
     mask_xyz = np.zeros((9, 9, 9), dtype=bool)
     mask_xyz[3:6, 3:6, 4:6] = True
-    mask_xyz[1:3, 3:6, 1:3] = True
+    mask_xyz[1:3, 3:6, 2:4] = True
     material_xyz = mask_xyz.astype(np.float32) * 1000.0
 
     def build(extra: dict[str, object]):
@@ -505,3 +671,79 @@ def test_projected_anatomy_disk_ignores_surfaces_beyond_search_depth():
     disk = geometry.disk_labels_xyz == 22
     assert np.count_nonzero(disk[2:4, 3:5, :]) > 0
     assert np.count_nonzero(disk[5:7, 3:5, :]) == 0
+
+
+def test_projected_bone_surface_ignores_surfaces_beyond_search_depth():
+    mask_xyz = np.zeros((8, 8, 12), dtype=bool)
+    mask_xyz[2:4, 3:5, 8:10] = True
+    mask_xyz[5:7, 3:5, 2:4] = True
+    material_xyz = mask_xyz.astype(np.float32) * 1000.0
+    editor = {
+        "planes": [
+            {
+                "name": "Distal shaft fixation",
+                "contact": "Bone surface",
+                "surface_mode": "project_bounded",
+                "shape": "anatomy",
+                "thickness_mm": 2.0,
+                "intrusion_depth_mm": 1.0,
+                "center_ras": [3.5, 3.5, 11.0],
+                "normal_ras": [0.0, 0.0, -1.0],
+                "u_axis_ras": [1.0, 0.0, 0.0],
+                "v_axis_ras": [0.0, 1.0, 0.0],
+                "size_mm": [8.0, 4.0],
+            }
+        ]
+    }
+
+    geometry = generate_disk_and_nodeset_geometry(
+        editor,
+        mask_xyz=mask_xyz,
+        material_xyz=material_xyz,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        nodeset_labels={"distal_shaft_fixation": 103},
+        nodeset_names={"Distal shaft fixation": "distal_shaft_fixation"},
+    )
+
+    nodeset = geometry.nodeset_labels_xyz == 103
+    assert np.count_nonzero(nodeset[2:4, 3:5, :]) > 0
+    assert np.count_nonzero(nodeset[5:7, 3:5, :]) == 0
+
+
+def test_projected_bone_surface_limits_wrap_to_intrusion_depth():
+    mask_xyz = np.zeros((8, 8, 14), dtype=bool)
+    mask_xyz[2:4, 3:5, 10:12] = True
+    mask_xyz[5:7, 3:5, 5:7] = True
+    material_xyz = mask_xyz.astype(np.float32) * 1000.0
+    editor = {
+        "planes": [
+            {
+                "name": "Distal shaft fixation",
+                "contact": "Bone surface",
+                "surface_mode": "project_bounded",
+                "shape": "anatomy",
+                "thickness_mm": 6.0,
+                "intrusion_depth_mm": 3.0,
+                "center_ras": [3.5, 3.5, 13.0],
+                "normal_ras": [0.0, 0.0, -1.0],
+                "u_axis_ras": [1.0, 0.0, 0.0],
+                "v_axis_ras": [0.0, 1.0, 0.0],
+                "size_mm": [8.0, 4.0],
+            }
+        ]
+    }
+
+    geometry = generate_disk_and_nodeset_geometry(
+        editor,
+        mask_xyz=mask_xyz,
+        material_xyz=material_xyz,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        nodeset_labels={"distal_shaft_fixation": 103},
+        nodeset_names={"Distal shaft fixation": "distal_shaft_fixation"},
+    )
+
+    nodeset = geometry.nodeset_labels_xyz == 103
+    assert np.count_nonzero(nodeset[2:4, 3:5, :]) > 0
+    assert np.count_nonzero(nodeset[5:7, 3:5, :]) == 0
