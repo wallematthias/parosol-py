@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import subprocess
 
 from parosol_py.workflow_baseline import build_builtin_workflow_baseline
@@ -88,3 +89,45 @@ def test_baseline_git_sha_ignores_caller_cwd_git_repo(tmp_path, monkeypatch):
     baseline_git_sha = baseline["git_sha"]
 
     assert baseline_git_sha != unrelated_sha
+
+
+def test_builtin_workflow_behavior_matches_locked_fixture():
+    expected_path = Path(__file__).parent / "fixtures" / "builtin_workflow_baseline_locked.json"
+    expected = json.loads(expected_path.read_text(encoding="utf-8"))
+
+    assert _locked_workflow_baseline() == expected
+
+
+def _locked_workflow_baseline():
+    baseline = build_builtin_workflow_baseline()
+    return {
+        "schema_version": 1,
+        "profiles": baseline["profiles"],
+        "workflows": {
+            profile: _locked_workflow_summary(workflow)
+            for profile, workflow in baseline["workflows"].items()
+        },
+    }
+
+
+def _locked_workflow_summary(workflow):
+    locked_member_hashes = {
+        member: digest
+        for member, digest in workflow["bundle_member_sha256"].items()
+        if member == "workflow.yaml" or member.startswith("reference/")
+    }
+    return {
+        "config_sha256": workflow["config_sha256"],
+        "bundle_member_sha256": locked_member_hashes,
+        "workflow_type": workflow["workflow_type"],
+        "profile": workflow["profile"],
+        "plane_count": workflow["plane_count"],
+        "load_count": workflow["load_count"],
+        "load_case_type": workflow["load_case_type"],
+        "batch_case_count": workflow["batch_case_count"],
+        "model_type": workflow["model_type"],
+        "registration_enabled": workflow["registration_enabled"],
+        "workflow_replay_enabled": workflow["workflow_replay_enabled"],
+        "workflow_replay_model_space": workflow["workflow_replay_model_space"],
+        "solver_tolerance": workflow["solver_tolerance"],
+    }
