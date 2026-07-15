@@ -1260,6 +1260,8 @@ def export_model_artifacts(
     *,
     material_xyz: np.ndarray,
     labels_xyz: np.ndarray,
+    nodeset_labels_xyz: np.ndarray | None = None,
+    disk_labels_xyz: np.ndarray | None = None,
     spacing: tuple[float, float, float],
     origin: tuple[float, float, float],
     node_sets: dict[str, list[tuple[int, int, int]]],
@@ -1277,9 +1279,28 @@ def export_model_artifacts(
             resolve_path(output_cfg["material_image"], base_dir=base_dir),
         )
     if "nodeset_image" in output_cfg:
+        nodeset_labels = (
+            labels_xyz
+            if nodeset_labels_xyz is None
+            else np.asarray(nodeset_labels_xyz)
+        )
+        if nodeset_labels.shape != labels_xyz.shape:
+            raise ValueError("nodeset_labels_xyz shape must match labels_xyz")
         exported["nodeset_image"] = export_scalar_image(
-            ImageGrid(labels_xyz.astype(np.float32), spacing, origin),
+            ImageGrid(nodeset_labels.astype(np.float32), spacing, origin),
             resolve_path(output_cfg["nodeset_image"], base_dir=base_dir),
+        )
+    if "disk_label_image" in output_cfg:
+        disk_labels = (
+            np.zeros_like(labels_xyz)
+            if disk_labels_xyz is None
+            else np.asarray(disk_labels_xyz)
+        )
+        if disk_labels.shape != labels_xyz.shape:
+            raise ValueError("disk_labels_xyz shape must match labels_xyz")
+        exported["disk_label_image"] = export_scalar_image(
+            ImageGrid(disk_labels.astype(np.float32), spacing, origin),
+            resolve_path(output_cfg["disk_label_image"], base_dir=base_dir),
         )
     if "qc_image" in output_cfg:
         qc_path = resolve_path(output_cfg["qc_image"], base_dir=base_dir)

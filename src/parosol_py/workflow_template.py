@@ -157,6 +157,7 @@ def apply_workflow_template(
         model_dir = out / "model"
         model_outputs["material_image"] = str(model_dir / "material.nii.gz")
         model_outputs["nodeset_image"] = str(model_dir / "nodesets.nii.gz")
+        model_outputs["disk_label_image"] = str(model_dir / "disks.nii.gz")
         model_outputs["manifest"] = str(model_dir / "model.json")
         model_outputs["qc_image"] = str(model_dir / "qc.png")
 

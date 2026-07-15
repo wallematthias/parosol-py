@@ -8,12 +8,14 @@ from parosol_py.workflow_geometry import (
     derive_reference_plane,
     estimate_reference_to_sample_transform,
     generate_disk_and_nodeset_geometry,
+    generate_slicer_disk_and_nodeset_geometry,
     _inside_shape_vectorized,
     _node_set_from_disk_face,
     _plane_geometry,
     invert_rigid_transform,
     output_grid_for_transformed_points,
     resolve_reference_space_editor,
+    scale_reference_space_editor,
     scale_reference_points_preserving_pose,
     transform_points,
 )
@@ -93,6 +95,63 @@ def test_reference_scaling_helper_is_shared_by_workflow_geometry():
     scale = np.asarray(meta["scale_factors"])
     np.testing.assert_allclose(scaled, reference * scale)
     assert meta["source"] == "origin_covariance_axis_lengths_reference_pose"
+
+
+def test_reference_scaling_skips_already_resolved_editor_planes():
+    editor = {
+        "planes": [
+            {
+                "name": "resolved",
+                "relative_to": "resolved_model_bbox",
+                "resolved_from_reference_space": True,
+                "reference_scaled": True,
+                "center_ras": [10.0, 20.0, 30.0],
+                "normal_ras": [0.0, 1.0, 0.0],
+                "u_axis_ras": [1.0, 0.0, 0.0],
+                "v_axis_ras": [0.0, 0.0, 1.0],
+                "size_mm": [8.0, 6.0],
+            }
+        ]
+    }
+    scaling_meta = {
+        "enabled": True,
+        "reference_center": [0.0, 0.0, 0.0],
+        "scale_factors": [2.0, 3.0, 4.0],
+    }
+
+    scaled = scale_reference_space_editor(editor, scaling_meta=scaling_meta)
+
+    plane = scaled["planes"][0]
+    assert plane["center_ras"] == [10.0, 20.0, 30.0]
+    assert plane["size_mm"] == [8.0, 6.0]
+    assert scaled["registration"]["reference_scaling"] == scaling_meta
+
+
+def test_reference_scaling_still_scales_authored_reference_planes():
+    editor = {
+        "planes": [
+            {
+                "name": "authored",
+                "reference_space": True,
+                "center_ras": [10.0, 20.0, 30.0],
+                "u_axis_ras": [1.0, 0.0, 0.0],
+                "v_axis_ras": [0.0, 0.0, 1.0],
+                "size_mm": [8.0, 6.0],
+            }
+        ]
+    }
+    scaling_meta = {
+        "enabled": True,
+        "reference_center": [0.0, 0.0, 0.0],
+        "scale_factors": [2.0, 3.0, 4.0],
+    }
+
+    scaled = scale_reference_space_editor(editor, scaling_meta=scaling_meta)
+
+    plane = scaled["planes"][0]
+    assert plane["center_ras"] == [20.0, 60.0, 120.0]
+    assert plane["size_mm"] == [16.0, 24.0]
+    assert plane["reference_scaled"] is True
 
 
 def test_workflow_geometry_exposes_slicer_transform_utilities():
@@ -254,6 +313,123 @@ def test_generate_disk_and_nodeset_geometry_builds_projected_cap_and_face_nodese
     assert int(np.count_nonzero(geometry.nodeset_labels_xyz == 202)) > 0
     assert "support_disk" in geometry.node_sets
     assert len(geometry.node_sets["support_disk"]) > 0
+
+
+def test_slicer_disk_bridge_matches_canonical_geometry_for_identity_grid():
+    mask_xyz = np.zeros((8, 8, 8), dtype=bool)
+    mask_xyz[2:6, 2:6, 2:6] = True
+    material_xyz = mask_xyz.astype(np.float32) * 1000.0
+    editor = {
+        "planes": [
+            {
+                "name": "Support disk",
+                "contact": "Material disks",
+                "surface_mode": "project_bounded",
+                "shape": "anatomy",
+                "thickness_mm": 2.0,
+                "intrusion_depth_mm": 1.0,
+                "center_ras": [3.5, 3.5, 7.0],
+                "normal_ras": [0.0, 0.0, -1.0],
+                "u_axis_ras": [1.0, 0.0, 0.0],
+                "v_axis_ras": [0.0, 1.0, 0.0],
+                "size_mm": [4.0, 4.0],
+            }
+        ]
+    }
+    kwargs = {
+        "nodeset_specs": {"support_disk": {"selection": "outer_face_nodes"}},
+        "nodeset_labels": {"support_disk": 202},
+        "nodeset_names": {"Support disk": "support_disk"},
+        "disk_labels": {"Support disk": 22},
+    }
+
+    canonical = generate_disk_and_nodeset_geometry(
+        editor,
+        mask_xyz=mask_xyz,
+        material_xyz=material_xyz,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        **kwargs,
+    )
+    bridged = generate_slicer_disk_and_nodeset_geometry(
+        editor,
+        mask_zyx=np.transpose(mask_xyz, (2, 1, 0)),
+        material_zyx=np.transpose(material_xyz, (2, 1, 0)),
+        ijk_to_ras=np.eye(4),
+        **kwargs,
+    )
+
+    np.testing.assert_array_equal(
+        bridged.disk_labels_zyx,
+        np.transpose(canonical.disk_labels_xyz, (2, 1, 0)),
+    )
+    np.testing.assert_array_equal(
+        bridged.nodeset_labels_zyx,
+        np.transpose(canonical.nodeset_labels_xyz, (2, 1, 0)),
+    )
+
+
+def test_slicer_disk_bridge_handles_slicer_ras_negative_x_y_grid():
+    mask_xyz = np.zeros((8, 8, 8), dtype=bool)
+    mask_xyz[2:6, 2:6, 2:6] = True
+    material_xyz = mask_xyz.astype(np.float32) * 1000.0
+    editor = {
+        "planes": [
+            {
+                "name": "Support disk",
+                "contact": "Material disks",
+                "surface_mode": "project_bounded",
+                "shape": "anatomy",
+                "thickness_mm": 2.0,
+                "intrusion_depth_mm": 1.0,
+                "center_ras": [3.5, 3.5, 7.0],
+                "normal_ras": [0.0, 0.0, -1.0],
+                "u_axis_ras": [1.0, 0.0, 0.0],
+                "v_axis_ras": [0.0, 1.0, 0.0],
+                "size_mm": [4.0, 4.0],
+            }
+        ]
+    }
+    kwargs = {
+        "nodeset_specs": {"support_disk": {"selection": "outer_face_nodes"}},
+        "nodeset_labels": {"support_disk": 202},
+        "nodeset_names": {"Support disk": "support_disk"},
+        "disk_labels": {"Support disk": 22},
+    }
+    ijk_to_ras = np.asarray(
+        [
+            [-1.0, 0.0, 0.0, 7.0],
+            [0.0, -1.0, 0.0, 7.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=float,
+    )
+
+    canonical = generate_disk_and_nodeset_geometry(
+        editor,
+        mask_xyz=mask_xyz,
+        material_xyz=material_xyz,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+        **kwargs,
+    )
+    bridged = generate_slicer_disk_and_nodeset_geometry(
+        editor,
+        mask_zyx=np.transpose(np.flip(mask_xyz, axis=(0, 1)), (2, 1, 0)),
+        material_zyx=np.transpose(np.flip(material_xyz, axis=(0, 1)), (2, 1, 0)),
+        ijk_to_ras=ijk_to_ras,
+        **kwargs,
+    )
+
+    np.testing.assert_array_equal(
+        bridged.disk_labels_zyx,
+        np.transpose(np.flip(canonical.disk_labels_xyz, axis=(0, 1)), (2, 1, 0)),
+    )
+    np.testing.assert_array_equal(
+        bridged.nodeset_labels_zyx,
+        np.transpose(np.flip(canonical.nodeset_labels_xyz, axis=(0, 1)), (2, 1, 0)),
+    )
 
 
 def test_projected_anatomy_disk_follows_local_surface_height():

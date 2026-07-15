@@ -21,6 +21,15 @@ class WorkflowGeometryResult:
     node_sets: dict[str, list[tuple[int, int, int]]]
 
 
+@dataclass(slots=True)
+class SlicerWorkflowGeometryResult:
+    disk_labels_zyx: np.ndarray
+    nodeset_labels_zyx: np.ndarray
+    node_sets_xyz: dict[str, list[tuple[int, int, int]]]
+    spacing: tuple[float, float, float]
+    origin: tuple[float, float, float]
+
+
 def read_reference_points(
     path: str | Path,
     *,
@@ -194,6 +203,131 @@ def generate_disk_and_nodeset_geometry(
         nodeset_labels_xyz=nodeset_label_array,
         node_sets=node_sets,
     )
+
+
+def generate_slicer_disk_and_nodeset_geometry(
+    editor: dict[str, Any],
+    *,
+    mask_zyx: np.ndarray,
+    material_zyx: np.ndarray,
+    ijk_to_ras: np.ndarray,
+    nodeset_specs: dict[str, dict[str, Any]] | None = None,
+    nodeset_labels: dict[str, int] | None = None,
+    nodeset_names: dict[str, str] | None = None,
+    disk_labels: dict[str, int] | None = None,
+) -> SlicerWorkflowGeometryResult:
+    """Generate workflow labels for a Slicer volume grid.
+
+    Slicer stores volume arrays in K/J/I order and uses ``IJKToRAS`` to map
+    them into physical space. The core workflow generator operates on arrays in
+    x/y/z order whose axes increase in positive RAS directions. This adapter is
+    the single conversion layer between the Slicer UI and reusable workflow
+    geometry code.
+    """
+    mask = np.asarray(mask_zyx)
+    material = np.asarray(material_zyx)
+    if mask.ndim != 3 or material.ndim != 3:
+        raise ValueError("mask_zyx and material_zyx must be 3D arrays")
+    if mask.shape != material.shape:
+        raise ValueError("mask_zyx and material_zyx must have matching shapes")
+
+    grid = _axis_aligned_slicer_grid(mask.shape, ijk_to_ras)
+    mask_xyz = _slicer_zyx_to_ras_xyz(mask, grid)
+    material_xyz = _slicer_zyx_to_ras_xyz(material, grid)
+
+    result = generate_disk_and_nodeset_geometry(
+        editor,
+        mask_xyz=mask_xyz,
+        material_xyz=material_xyz,
+        spacing=grid["spacing"],
+        origin=grid["origin"],
+        nodeset_specs=nodeset_specs,
+        nodeset_labels=nodeset_labels,
+        nodeset_names=nodeset_names,
+        disk_labels=disk_labels,
+    )
+
+    return SlicerWorkflowGeometryResult(
+        disk_labels_zyx=_ras_xyz_to_slicer_zyx(result.disk_labels_xyz, grid),
+        nodeset_labels_zyx=_ras_xyz_to_slicer_zyx(result.nodeset_labels_xyz, grid),
+        node_sets_xyz=result.node_sets,
+        spacing=grid["spacing"],
+        origin=grid["origin"],
+    )
+
+
+def _axis_aligned_slicer_grid(
+    shape_zyx: tuple[int, int, int],
+    ijk_to_ras: np.ndarray,
+) -> dict[str, Any]:
+    matrix = np.asarray(ijk_to_ras, dtype=float)
+    if matrix.shape != (4, 4):
+        raise ValueError("ijk_to_ras must be a 4x4 matrix")
+
+    axes = matrix[:3, :3]
+    source_shape = (int(shape_zyx[2]), int(shape_zyx[1]), int(shape_zyx[0]))
+    component_for_source: list[int] = []
+    sign_for_source: list[int] = []
+    spacing_for_source: list[float] = []
+    used_components: set[int] = set()
+
+    for source_axis in range(3):
+        column = axes[:, source_axis]
+        component = int(np.argmax(np.abs(column)))
+        magnitude = float(abs(column[component]))
+        if magnitude <= 0.0:
+            raise ValueError("IJKToRAS contains a zero-length axis")
+        residual = np.delete(column, component)
+        if np.any(np.abs(residual) > max(1.0e-6, magnitude * 1.0e-6)):
+            raise ValueError(
+                "Slicer workflow geometry requires an axis-aligned IJKToRAS matrix"
+            )
+        if component in used_components:
+            raise ValueError("IJKToRAS maps multiple voxel axes to one RAS axis")
+        used_components.add(component)
+        component_for_source.append(component)
+        sign_for_source.append(1 if float(column[component]) > 0.0 else -1)
+        spacing_for_source.append(magnitude)
+
+    source_for_component = [0, 0, 0]
+    sign_for_component = [1, 1, 1]
+    spacing = [1.0, 1.0, 1.0]
+    for source_axis, component in enumerate(component_for_source):
+        source_for_component[component] = source_axis
+        sign_for_component[component] = sign_for_source[source_axis]
+        spacing[component] = spacing_for_source[source_axis]
+
+    origin_index_ijk = np.zeros(3, dtype=float)
+    for component, source_axis in enumerate(source_for_component):
+        if sign_for_component[component] < 0:
+            origin_index_ijk[source_axis] = max(source_shape[source_axis] - 1, 0)
+    origin = matrix[:3, 3] + axes @ origin_index_ijk
+
+    return {
+        "source_for_component": tuple(source_for_component),
+        "component_for_source": tuple(component_for_source),
+        "sign_for_component": tuple(sign_for_component),
+        "spacing": tuple(float(value) for value in spacing),
+        "origin": tuple(float(value) for value in origin),
+    }
+
+
+def _slicer_zyx_to_ras_xyz(array_zyx: np.ndarray, grid: dict[str, Any]) -> np.ndarray:
+    array_ijk = np.transpose(np.asarray(array_zyx), (2, 1, 0))
+    array_xyz = np.transpose(array_ijk, grid["source_for_component"])
+    for component, sign in enumerate(grid["sign_for_component"]):
+        if sign < 0:
+            array_xyz = np.flip(array_xyz, axis=component)
+    return np.ascontiguousarray(array_xyz)
+
+
+def _ras_xyz_to_slicer_zyx(array_xyz: np.ndarray, grid: dict[str, Any]) -> np.ndarray:
+    array = np.asarray(array_xyz)
+    for component, sign in enumerate(grid["sign_for_component"]):
+        if sign < 0:
+            array = np.flip(array, axis=component)
+    array_ijk = np.transpose(array, grid["component_for_source"])
+    return np.ascontiguousarray(np.transpose(array_ijk, (2, 1, 0)))
 
 
 def transform_points(
@@ -380,6 +514,8 @@ def scale_reference_space_editor(
     for plane in resolved.get("planes", []):
         if not isinstance(plane, dict):
             continue
+        if _is_reference_scaling_resolved_plane(plane):
+            continue
         plane_center = plane.get("center_ras")
         if isinstance(plane_center, (list, tuple)) and len(plane_center) == 3:
             value = np.asarray(plane_center, dtype=float)
@@ -394,6 +530,13 @@ def scale_reference_space_editor(
         plane["reference_scaled"] = True
     resolved.setdefault("registration", {})["reference_scaling"] = scaling_meta
     return resolved
+
+
+def _is_reference_scaling_resolved_plane(plane: dict[str, Any]) -> bool:
+    if bool(plane.get("reference_scaled", False)):
+        return True
+    relative_to = str(plane.get("relative_to", "")).strip().lower()
+    return relative_to == "resolved_model_bbox"
 
 
 def transform_plane_spec(plane_spec: dict[str, Any], transform: dict[str, Any]) -> dict[str, Any]:

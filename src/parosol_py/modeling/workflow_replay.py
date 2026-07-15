@@ -45,6 +45,7 @@ class _CroppedWorkflowModel:
     material_xyz: np.ndarray
     labels_xyz: np.ndarray
     node_label_xyz: np.ndarray
+    postprocess_mask_xyz: np.ndarray
     origin: tuple[float, float, float]
     node_sets: dict[str, list[tuple[int, int, int]]]
     percent_reference_node_sets: dict[str, list[tuple[int, int, int]]] | None
@@ -251,6 +252,7 @@ def build_workflow_replay_model(
         material_xyz=material_xyz,
         labels_xyz=artifact_labels_xyz,
         node_label_xyz=node_label_xyz,
+        postprocess_mask_xyz=mask_xyz,
         spacing=spacing,
         origin=origin,
         node_sets=node_sets,
@@ -259,9 +261,11 @@ def build_workflow_replay_model(
     material_xyz = cropped.material_xyz
     artifact_labels_xyz = cropped.labels_xyz
     node_label_xyz = cropped.node_label_xyz
+    postprocess_mask_xyz = cropped.postprocess_mask_xyz
     origin = cropped.origin
     node_sets = cropped.node_sets
     generated_reference_node_sets = cropped.percent_reference_node_sets
+    disk_xyz = _crop_array_to_workflow_crop(disk_xyz, cropped.crop)
 
     require_non_empty(node_sets)
     effective_load_case_config = _workflow_effective_load_case_config(
@@ -301,6 +305,7 @@ def build_workflow_replay_model(
                 "geometry_mode": geometry_mode,
                 "model_space": model_space,
                 "resolved_planes": _summarize_resolved_planes(resolved_editor),
+                "resolved_editor": _json_safe_editor(resolved_editor),
                 "disk_labels": str(resolve_path(replay_cfg["disk_labels"], base_dir=base_dir))
                 if replay_cfg.get("disk_labels")
                 else None,
@@ -319,6 +324,8 @@ def build_workflow_replay_model(
     exported = export_model_artifacts(
         material_xyz=material_xyz,
         labels_xyz=artifact_labels_xyz,
+        nodeset_labels_xyz=node_label_xyz,
+        disk_labels_xyz=disk_xyz,
         spacing=spacing,
         origin=origin,
         node_sets=node_sets,
@@ -336,7 +343,7 @@ def build_workflow_replay_model(
         boundary_conditions=boundary_conditions,
         node_sets=node_sets,
         element_sets=element_sets,
-        postprocess_mask=np.asarray(to_zyx(material_xyz > 0), dtype=bool),
+        postprocess_mask=np.asarray(to_zyx(postprocess_mask_xyz), dtype=bool),
         exported=exported,
         metadata=metadata,
     )
@@ -1098,6 +1105,7 @@ def _crop_workflow_model_to_material_bbox(
     material_xyz: np.ndarray,
     labels_xyz: np.ndarray,
     node_label_xyz: np.ndarray,
+    postprocess_mask_xyz: np.ndarray | None = None,
     spacing: tuple[float, float, float],
     origin: tuple[float, float, float],
     node_sets: dict[str, list[tuple[int, int, int]]],
@@ -1114,6 +1122,12 @@ def _crop_workflow_model_to_material_bbox(
     material = np.asarray(material_xyz)
     if material.ndim != 3:
         raise ValueError("material_xyz must be a 3D x/y/z array")
+    if postprocess_mask_xyz is None:
+        postprocess_mask = material > 0
+    else:
+        postprocess_mask = np.asarray(postprocess_mask_xyz, dtype=bool)
+        if postprocess_mask.shape != material.shape:
+            raise ValueError("postprocess_mask_xyz shape must match material_xyz")
     active = material > 0
     original_shape = np.asarray(material.shape, dtype=np.int64)
     origin_arr = np.asarray(origin, dtype=float)
@@ -1131,6 +1145,7 @@ def _crop_workflow_model_to_material_bbox(
             material_xyz=material,
             labels_xyz=np.asarray(labels_xyz),
             node_label_xyz=np.asarray(node_label_xyz),
+            postprocess_mask_xyz=postprocess_mask,
             origin=origin,
             node_sets={name: list(nodes) for name, nodes in node_sets.items()},
             percent_reference_node_sets=(
@@ -1163,6 +1178,7 @@ def _crop_workflow_model_to_material_bbox(
         material_xyz=material[crop_slices],
         labels_xyz=np.asarray(labels_xyz)[crop_slices],
         node_label_xyz=np.asarray(node_label_xyz)[crop_slices],
+        postprocess_mask_xyz=postprocess_mask[crop_slices],
         origin=tuple(float(value) for value in cropped_origin),
         node_sets=_shift_node_sets(node_sets, lower_xyz=lower_xyz),
         percent_reference_node_sets=(
@@ -1172,6 +1188,16 @@ def _crop_workflow_model_to_material_bbox(
         ),
         crop=crop,
     )
+
+
+def _crop_array_to_workflow_crop(array_xyz: np.ndarray, crop: dict[str, Any]) -> np.ndarray:
+    array = np.asarray(array_xyz)
+    lower = np.asarray(crop.get("lower_index_xyz", [0, 0, 0]), dtype=np.int64)
+    upper = np.asarray(crop.get("upper_index_xyz", array.shape), dtype=np.int64)
+    if lower.shape != (3,) or upper.shape != (3,):
+        raise ValueError("workflow crop metadata must contain three-dimensional bounds")
+    slices = tuple(slice(int(lower[axis]), int(upper[axis])) for axis in range(3))
+    return array[slices]
 
 
 def _workflow_crop_metadata(
@@ -1230,6 +1256,28 @@ def _summarize_resolved_planes(editor: dict[str, Any] | None) -> list[dict[str, 
             }
         )
     return summary
+
+
+def _json_safe_editor(editor: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(editor, dict):
+        return None
+    return _json_safe_value(editor)
+
+
+def _json_safe_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_value(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return _json_safe_value(value.tolist())
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
+    return value
 
 
 def _resolve_bbox_relative_plane(

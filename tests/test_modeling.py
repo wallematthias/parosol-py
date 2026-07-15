@@ -1437,6 +1437,7 @@ def test_workflow_replay_exports_generated_nodeset_labels_from_planes(tmp_path: 
     labels_zyx, _spacing, _origin = read_image_zyx(tmp_path / "model" / "nodesets.nii.gz")
     labels_xyz = np.transpose(labels_zyx, (2, 1, 0))
     material_xyz = np.transpose(built.material, (2, 1, 0))
+    assert 1 not in set(np.unique(labels_zyx).astype(int))
     reconstructed = nodes_from_labeled_voxels(
         labels_xyz,
         label=201,
@@ -1445,6 +1446,78 @@ def test_workflow_replay_exports_generated_nodeset_labels_from_planes(tmp_path: 
     )
     assert built.metadata["model"]["workflow_replay"]["geometry_mode"] == "plane_driven"
     assert reconstructed == built.node_sets["superior_disk"]
+
+
+def test_workflow_replay_exports_generated_disk_labels_for_visual_review(tmp_path: Path):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 700.0
+    mask[2:6, 2:6, 2:6] = 20
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"body": 20},
+            "outputs": {
+                "material_image": str(tmp_path / "model" / "material.nii.gz"),
+                "nodeset_image": str(tmp_path / "model" / "nodesets.nii.gz"),
+                "disk_label_image": str(tmp_path / "model" / "disks.nii.gz"),
+                "manifest": str(tmp_path / "model" / "model.json"),
+            },
+            "workflow_replay": {"enabled": True},
+            "registration": {"enabled": False},
+            "slicer_editor": {
+                "planes": [
+                    {
+                        "name": "Superior disk",
+                        "relative_to": "model_bbox",
+                        "center_fraction": [0.5, 0.5, 1.25],
+                        "size_fraction": [1.5, 1.5],
+                        "contact": "Material disks",
+                        "surface_mode": "project_bounded",
+                        "shape": "anatomy",
+                        "thickness_mm": 2.0,
+                        "intrusion_depth_mm": 1.0,
+                        "normal_ras": [0.0, 0.0, -1.0],
+                        "u_axis_ras": [1.0, 0.0, 0.0],
+                        "v_axis_ras": [0.0, 1.0, 0.0],
+                    }
+                ]
+            },
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": "-10%"}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "surface_nodes",
+            }
+        },
+    )
+
+    disk_labels_zyx, _spacing, _origin = read_image_zyx(
+        tmp_path / "model" / "disks.nii.gz"
+    )
+    nodeset_labels_zyx, _spacing, _origin = read_image_zyx(
+        tmp_path / "model" / "nodesets.nii.gz"
+    )
+
+    assert int(np.count_nonzero(disk_labels_zyx == 10001)) > int(
+        np.count_nonzero(nodeset_labels_zyx == 201)
+    )
 
 
 def test_editor_disk_labels_default_to_reserved_range(tmp_path: Path):
@@ -1627,6 +1700,8 @@ def test_workflow_replay_keeps_generated_outer_face_node_sets(tmp_path: Path):
 
     assert built.metadata["model"]["workflow_replay"]["geometry_mode"] == "plane_driven"
     assert np.unique(nodes[:, 2]).tolist() == [built.material.shape[0]]
+    assert int(np.count_nonzero(built.postprocess_mask)) == built.element_sets["bone"]
+    assert int(np.count_nonzero(built.postprocess_mask)) < int(np.count_nonzero(built.material))
 
 
 def test_workflow_replay_resolves_editor_plane_normal_displacement_sign(
@@ -2215,6 +2290,16 @@ def test_workflow_replay_uses_bbox_relative_plane_for_scaled_model(tmp_path: Pat
     resolved_plane = built.metadata["model"]["workflow_replay"]["resolved_planes"][0]
     assert resolved_plane["relative_to"] == "resolved_model_bbox"
     assert resolved_plane["relative_definition"]["center_fraction"] == [0.5, 0.5, 1.25]
+    resolved_editor = built.metadata["model"]["workflow_replay"]["resolved_editor"]
+    full_plane = resolved_editor["planes"][0]
+    assert full_plane["name"] == "Superior disk"
+    assert full_plane["relative_to"] == "resolved_model_bbox"
+    assert full_plane["center_ras"] == pytest.approx(resolved_plane["center_ras"])
+    assert full_plane["normal_ras"] == pytest.approx([0.0, 0.0, -1.0])
+    assert full_plane["u_axis_ras"] == pytest.approx([1.0, 0.0, 0.0])
+    assert full_plane["v_axis_ras"] == pytest.approx([0.0, 1.0, 0.0])
+    assert full_plane["thickness_mm"] == pytest.approx(2.0)
+    assert full_plane["intrusion_depth_mm"] == pytest.approx(1.0)
 
 
 def test_workflow_replay_pads_when_relative_disk_extends_outside_image(
