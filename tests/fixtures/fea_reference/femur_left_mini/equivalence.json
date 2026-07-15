@@ -1,0 +1,29 @@
+{
+  "checks": {
+    "label_dice": true,
+    "top_node_count": true
+  },
+  "label_dice": 1.0,
+  "label_overlap": {
+    "different_voxels": 0,
+    "label_dice": 1.0,
+    "matching_label_voxels": 242082,
+    "reference_nonzero_voxels": 242082,
+    "replay_nonzero_voxels": 242082,
+    "shape_zyx": [
+      119,
+      95,
+      119
+    ]
+  },
+  "node_counts": {
+    "absolute_delta": null,
+    "reference_top": null,
+    "replay_top": 706
+  },
+  "passed": true,
+  "tolerances": {
+    "label_dice_min": 1.0,
+    "node_count_delta_max": 0.0
+  }
+}

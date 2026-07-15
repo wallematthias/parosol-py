@@ -260,7 +260,13 @@ def test_run_batch_config_runs_load_history_final_rerun(
             {
                 "case": {"name": "sample", "work_dir": "runs/sample"},
                 "input": {"image": "material.npy", "spacing": [1, 1, 1]},
-                "nodesets": {"top": {"type": "label_image", "image": "nodes.nii.gz", "label": 201}},
+                "nodesets": {
+                    "top": {
+                        "type": "label_image",
+                        "image": "nodes.nii.gz",
+                        "label": 201,
+                    }
+                },
                 "output": {"fields": ["sed"], "export_fields": True},
                 "postprocess": {
                     "load_history": {
@@ -285,7 +291,12 @@ def test_run_batch_config_runs_load_history_final_rerun(
                             "load_case": {
                                 "type": "nodeset",
                                 "prescribed": [
-                                    {"nodeset": "top", "dof": "z", "value": "-1%", "units": "%"}
+                                    {
+                                        "nodeset": "top",
+                                        "dof": "z",
+                                        "value": "-1%",
+                                        "units": "%",
+                                    }
                                 ],
                             },
                         },
@@ -294,7 +305,12 @@ def test_run_batch_config_runs_load_history_final_rerun(
                             "load_case": {
                                 "type": "nodeset",
                                 "prescribed": [
-                                    {"nodeset": "top", "dof": "x", "value": "1%", "units": "%"}
+                                    {
+                                        "nodeset": "top",
+                                        "dof": "x",
+                                        "value": "1%",
+                                        "units": "%",
+                                    }
                                 ],
                             },
                         },
@@ -323,7 +339,10 @@ def test_run_batch_config_runs_load_history_final_rerun(
                 {
                     "case": {"name": config["case"]["name"]},
                     "load_case": config["load_case"],
-                    "outputs": {"exported": exported, "input_file": str(tmp_path / "material.npy")},
+                    "outputs": {
+                        "exported": exported,
+                        "input_file": str(tmp_path / "material.npy"),
+                    },
                     "mechanics": {
                         "generalized_load": {
                             "name": "force",
@@ -372,7 +391,13 @@ def test_run_batch_config_uses_moment_for_rotational_load_history_case(
             {
                 "case": {"name": "sample", "work_dir": "runs/sample"},
                 "input": {"image": "material.npy", "spacing": [1, 1, 1]},
-                "nodesets": {"top": {"type": "label_image", "image": "nodes.nii.gz", "label": 201}},
+                "nodesets": {
+                    "top": {
+                        "type": "label_image",
+                        "image": "nodes.nii.gz",
+                        "label": 201,
+                    }
+                },
                 "output": {"fields": ["sed"], "export_fields": True},
                 "postprocess": {
                     "load_history": {
@@ -396,7 +421,12 @@ def test_run_batch_config_uses_moment_for_rotational_load_history_case(
                             "load_case": {
                                 "type": "nodeset",
                                 "prescribed": [
-                                    {"nodeset": "top", "dof": "z", "value": "-1%", "units": "%"}
+                                    {
+                                        "nodeset": "top",
+                                        "dof": "z",
+                                        "value": "-1%",
+                                        "units": "%",
+                                    }
                                 ],
                             },
                         },
@@ -439,7 +469,10 @@ def test_run_batch_config_uses_moment_for_rotational_load_history_case(
                 {
                     "case": {"name": config["case"]["name"]},
                     "load_case": config["load_case"],
-                    "outputs": {"exported": exported, "input_file": str(tmp_path / "material.npy")},
+                    "outputs": {
+                        "exported": exported,
+                        "input_file": str(tmp_path / "material.npy"),
+                    },
                     "mechanics": {
                         "generalized_load": (
                             {
@@ -533,6 +566,9 @@ def test_cli_shortcut_routes_load_history_profile_to_batch(
     assert config.get("nodesets", {}) == {}
     assert config["case"]["name"] == "distal_radius"
     assert config["case"]["work_dir"] == str(output_dir / "distal_radius")
+    assert config["output"]["material_image"] == str(
+        output_dir / "distal_radius" / "model" / "material.nii.gz"
+    )
     assert config["batch"]["summary"] == str(output_dir / "result.json")
     assert [case["name_suffix"] for case in config["batch"]["cases"]] == [
         "compression_z",

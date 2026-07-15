@@ -70,6 +70,10 @@ LOAD_HISTORY_SUFFIXES = {
         "torsion_z",
     ),
 }
+LOAD_HISTORY_3_MATERIALS = {
+    100: {"E": 8748.0, "nu": 0.3},
+    127: {"E": 8748.0, "nu": 0.3},
+}
 
 
 @dataclass(frozen=True)
@@ -259,6 +263,13 @@ def _validate_family_semantics(
                     ),
                 )
             )
+    if profile == "load_history_3":
+        _validate_label_materials(
+            profile=profile,
+            config=config,
+            expected=LOAD_HISTORY_3_MATERIALS,
+            issues=issues,
+        )
 
 
 def _bundle_members(path: str | Path) -> tuple[str, ...]:
@@ -357,6 +368,32 @@ def _batch_name_suffixes(value: Any) -> tuple[Any, ...]:
     return tuple(
         item.get("name_suffix") if isinstance(item, dict) else None for item in value
     )
+
+
+def _validate_label_materials(
+    *,
+    profile: str,
+    config: dict[str, Any],
+    expected: dict[int, dict[str, float]],
+    issues: list[WorkflowContractIssue],
+) -> None:
+    labels = _mapping(_mapping(config.get("materials", {})).get("labels"))
+    for label, expected_values in expected.items():
+        material = _mapping(labels.get(label, labels.get(str(label))))
+        for key, expected_value in expected_values.items():
+            actual = material.get(key)
+            actual_float = _to_float(actual)
+            if actual_float is not None and actual_float == expected_value:
+                continue
+            issues.append(
+                WorkflowContractIssue(
+                    code="invalid_load_history_material",
+                    message=(
+                        f"Workflow {profile} must set materials.labels.{label}.{key} "
+                        f"to {expected_value!r}; got {actual!r}"
+                    ),
+                )
+            )
 
 
 def _require_equal(

@@ -1,0 +1,643 @@
+{
+  "fixture": "vertebra_l4_mini",
+  "grid": {
+    "array_order": "zyx",
+    "coordinate_system": "RAS",
+    "direction_ras": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "origin_ras": [
+      -394.6617736816406,
+      3.39208984375,
+      295.07342529296875
+    ],
+    "shape_zyx": [
+      64,
+      102,
+      98
+    ],
+    "spacing_xyz": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "units": "mm"
+  },
+  "role": "replay",
+  "summary": {
+    "failure": {
+      "crawford_stiffness_height": {
+        "coefficient": 0.0068,
+        "equivalent_deformation": 0.0068,
+        "failure_generalized_load": {
+          "name": "force",
+          "units": "N",
+          "value": -6552.758180320266
+        },
+        "failure_load": {
+          "x": null,
+          "y": null,
+          "z": -6552.758180320266
+        },
+        "height_mm": 43.0,
+        "method": "crawford_stiffness_height",
+        "relative_to_linear_deformation": 1.0,
+        "status": "computed",
+        "stiffness_n_per_mm": 22410.253694665753,
+        "stiffness_source": "generalized_stiffness"
+      },
+      "criterion": "none",
+      "critical_strain": null,
+      "critical_volume_percent": null,
+      "ees_at_critical_volume": null,
+      "factor": null,
+      "failure_load": {
+        "x": null,
+        "y": null,
+        "z": null
+      },
+      "linear_reaction_at_deformation": {
+        "deformation": 0.0068,
+        "displacement_mm": 0.2924,
+        "failure_generalized_load": {
+          "name": "force",
+          "units": "N",
+          "value": -6552.758180320266
+        },
+        "failure_load": {
+          "x": null,
+          "y": null,
+          "z": -6552.758180320266
+        },
+        "height_mm": 43.0,
+        "method": "linear_reaction_at_deformation",
+        "status": "computed",
+        "stiffness_n_per_mm": 22410.253694665753,
+        "stiffness_source": "generalized_stiffness"
+      },
+      "status": "disabled"
+    },
+    "image": {
+      "dimensions_xyz": [
+        86,
+        95,
+        50
+      ],
+      "origin": [
+        -388.86921067088247,
+        9.591988585910194,
+        304.7135671663488
+      ],
+      "spacing": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "mechanics": {
+      "analysis_dimensions": {
+        "x": 86,
+        "y": 95,
+        "z": 50
+      },
+      "applied_displacement": {
+        "x": null,
+        "y": null,
+        "z": -0.2924000024795532
+      },
+      "applied_rotation_degrees": null,
+      "applied_strain": -0.005848000049591065,
+      "axis": "z",
+      "bottom_node_count": 1711,
+      "generalized_load": {
+        "component": "z",
+        "name": "force",
+        "units": "N",
+        "value": -6552.7582358876825
+      },
+      "generalized_stiffness": {
+        "name": "stiffness",
+        "units": "N/mm",
+        "value": 22410.253694665753
+      },
+      "interface_stiffness": {
+        "bottom_node_count": 22,
+        "displacement_difference": {
+          "x": null,
+          "y": null,
+          "z": -0.00033189927744181613
+        },
+        "height_mm": 50.0,
+        "mean_bottom_displacement": {
+          "x": null,
+          "y": null,
+          "z": -0.18191385281091835
+        },
+        "mean_top_displacement": {
+          "x": null,
+          "y": null,
+          "z": -0.18224575208836016
+        },
+        "name": "interface_stiffness",
+        "reference": "evaluation_mask_surface_displacement",
+        "top_node_count": 14,
+        "units": "N/mm",
+        "value": 19743213.321807913
+      },
+      "load_case_type": "nodeset",
+      "load_direction": "z",
+      "mean_top_displacement": {
+        "x": null,
+        "y": null,
+        "z": -0.2924000024795532
+      },
+      "reaction_force": {
+        "x": 0.18267905570937717,
+        "y": -0.01649327278245101,
+        "z": -6552.758235887684
+      },
+      "reaction_node_source": "boundary_conditions",
+      "reference_length_mm": 43.0,
+      "status": "computed",
+      "stiffness": {
+        "x": null,
+        "y": null,
+        "z": 22410.253694665756
+      },
+      "top_node_count": 1711
+    },
+    "model": {
+      "element_sets": {
+        "bone": 65715,
+        "disk_label_102": 10636,
+        "disk_label_201": 10994,
+        "workflow_disks": 21630
+      },
+      "exported": {
+        "manifest": "/Users/matthias.walle/Documents/fea/final_lockdown_20260714_current/fresh/spine/parosol/model/model.json",
+        "material_image": "/Users/matthias.walle/Documents/fea/final_lockdown_20260714_current/fresh/spine/parosol/model/material.nii.gz",
+        "nodeset_image": "/Users/matthias.walle/Documents/fea/final_lockdown_20260714_current/fresh/spine/parosol/model/nodesets.nii.gz",
+        "qc_image": "/Users/matthias.walle/Documents/fea/final_lockdown_20260714_current/fresh/spine/parosol/model/qc.png"
+      },
+      "load_axis": "z",
+      "load_direction": "z",
+      "node_sets": {
+        "inferior_disk": 1711,
+        "superior_disk": 1711
+      },
+      "registration": {
+        "applied_to_model_grid": true,
+        "enabled": true,
+        "icp_direction": "reference_to_sample",
+        "iterations": 29,
+        "mean_distance": 1.207449338776814,
+        "method": "vtk_icp",
+        "reference_points": "/private/var/folders/fk/68twqfq50b7_ccn0dmp0wd_40000gp/T/parosol_workflow_17_ckmtr/reference/slicer_reference_points.npy",
+        "reference_scaling": {
+          "enabled": true,
+          "max_factors": [
+            1.2,
+            1.2,
+            1.3
+          ],
+          "min_factors": [
+            0.8,
+            0.8,
+            0.75
+          ],
+          "reference_axis_lengths": [
+            17.8640363879101,
+            19.922728890115657,
+            23.63275402302222
+          ],
+          "reference_center": [
+            -289.0313560218811,
+            26.360524342298508,
+            271.63851171875
+          ],
+          "sample_axis_lengths": [
+            22.586484262887414,
+            24.691015813946226,
+            28.708724848531823
+          ],
+          "scale_factors": [
+            1.2,
+            1.2,
+            1.2147854126761852
+          ],
+          "source": "ogo_origin_pca_axis_lengths_reference_pose"
+        },
+        "resolved_editor_plane_count": 2,
+        "rotation": [
+          [
+            0.9998210990686387,
+            -0.0014738528726823512,
+            0.01885729606504704
+          ],
+          [
+            0.0026482581065226094,
+            0.9980473292112065,
+            -0.062406052457947635
+          ],
+          [
+            -0.018728496634177017,
+            0.062444826944210045,
+            0.9978726807572857
+          ]
+        ],
+        "translation": [
+          -6.2625648844607475,
+          21.6881051668046,
+          -7.149534475657498
+        ]
+      },
+      "type": "workflow_replay",
+      "workflow_replay": {
+        "disk_labels": null,
+        "enabled": true,
+        "final_material_crop": {
+          "cropped_shape_xyz": [
+            86,
+            95,
+            50
+          ],
+          "enabled": true,
+          "lower_index_xyz": [
+            27,
+            28,
+            5
+          ],
+          "origin_after": [
+            -388.86921067088247,
+            9.591988585910194,
+            304.7135671663488
+          ],
+          "origin_before": [
+            -415.86921067088247,
+            -18.408011414089806,
+            299.7135671663488
+          ],
+          "original_shape_xyz": [
+            140,
+            152,
+            60
+          ],
+          "upper_index_xyz": [
+            113,
+            123,
+            55
+          ]
+        },
+        "geometry_mode": "plane_driven",
+        "model_space": "reference",
+        "nodesets": null,
+        "resolved_planes": [
+          {
+            "center_ras": [
+              -347.36921067088247,
+              32.091988585910194,
+              349.4135671663488
+            ],
+            "name": "Superior disk",
+            "normal_ras": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "relative_definition": {
+              "center_fraction": [
+                0.5,
+                0.5,
+                1.05
+              ],
+              "relative_to": "model_bbox",
+              "size_fraction": [
+                1.6,
+                1.6
+              ]
+            },
+            "relative_to": "resolved_model_bbox",
+            "size_mm": [
+              78.4,
+              68.8
+            ]
+          },
+          {
+            "center_ras": [
+              -347.36921067088247,
+              32.091988585910194,
+              312.0135671663488
+            ],
+            "name": "Inferior disk",
+            "normal_ras": [
+              -0.0,
+              -0.0,
+              1.0
+            ],
+            "relative_definition": {
+              "center_fraction": [
+                0.5,
+                0.5,
+                -0.05
+              ],
+              "relative_to": "model_bbox",
+              "size_fraction": [
+                1.6,
+                1.6
+              ]
+            },
+            "relative_to": "resolved_model_bbox",
+            "size_mm": [
+              78.4,
+              68.8
+            ]
+          }
+        ]
+      }
+    },
+    "source": "parosol_py",
+    "status": "derived_from_existing_reference_run",
+    "transform_chain": [
+      {
+        "interpolation": "nearest",
+        "matrix": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "name": "source_image_to_input_ras",
+        "note": "Axis-aligned source image converted to canonical RAS-positive array order.",
+        "source_space": "source_image_physical_space",
+        "target_space": "input_ras"
+      },
+      {
+        "interpolation": "nearest",
+        "matrix": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "name": "input_ras_to_preprocessed_ras",
+        "note": "Fixture crop preserves spacing and records the updated RAS origin.",
+        "source_space": "input_ras",
+        "target_space": "preprocessed_ras"
+      },
+      {
+        "interpolation": "nearest",
+        "matrix": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "name": "preprocessed_ras_to_solver_grid",
+        "note": "Mini fixture does not run solver preprocessing during ordinary tests.",
+        "source_space": "preprocessed_ras",
+        "target_space": "solver_grid"
+      },
+      {
+        "interpolation": "nearest",
+        "matrix": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "name": "solver_grid_to_visualization_ras_grid",
+        "note": "Visual reports are generated on the same RAS grid unless explicitly resampled.",
+        "source_space": "solver_grid",
+        "target_space": "visualization_ras_grid"
+      }
+    ]
+  },
+  "transform_chain": [
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "source_image_to_input_ras",
+      "note": "Axis-aligned source image converted to canonical RAS-positive array order.",
+      "source_space": "source_image_physical_space",
+      "target_space": "input_ras"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "input_ras_to_preprocessed_ras",
+      "note": "Fixture crop preserves spacing and records the updated RAS origin.",
+      "source_space": "input_ras",
+      "target_space": "preprocessed_ras"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "preprocessed_ras_to_solver_grid",
+      "note": "Mini fixture does not run solver preprocessing during ordinary tests.",
+      "source_space": "preprocessed_ras",
+      "target_space": "solver_grid"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "solver_grid_to_visualization_ras_grid",
+      "note": "Visual reports are generated on the same RAS grid unless explicitly resampled.",
+      "source_space": "solver_grid",
+      "target_space": "visualization_ras_grid"
+    }
+  ]
+}

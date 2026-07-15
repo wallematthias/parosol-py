@@ -126,9 +126,9 @@ def test_run_case_config_reads_image_metadata_for_auto_spacing(tmp_path: Path):
     assert result.summary.origin == (-1.5, -2.5, 3.0)
 
 
-
-
-def test_generic_config_uses_input_mask_as_postprocess_mask(monkeypatch, tmp_path: Path):
+def test_generic_config_uses_input_mask_as_postprocess_mask(
+    monkeypatch, tmp_path: Path
+):
     material = np.zeros((4, 4, 4), dtype=np.float32)
     material[1:3, 1:3, 1:3] = 1000.0
     material[0, 1:3, 1:3] = 3000.0
@@ -176,7 +176,6 @@ def test_generic_config_uses_input_mask_as_postprocess_mask(monkeypatch, tmp_pat
     assert int(np.count_nonzero(captured["postprocess_mask"])) == 8
     assert captured["postprocess_mask"].shape == (4, 4, 4)
     assert not captured["postprocess_mask"][0, 1, 1]
-
 
 
 def test_run_case_config_reads_compressed_npz_label_image(tmp_path: Path):
@@ -247,7 +246,11 @@ def test_run_case_config_accepts_label_material_map(monkeypatch, tmp_path: Path)
                         },
                     },
                 },
-                "output": {"summary": "summary.json", "dry_run": True},
+                "output": {
+                    "summary": "summary.json",
+                    "dry_run": True,
+                    "material_image": "model/material.nii.gz",
+                },
             }
         ),
         encoding="utf-8",
@@ -267,10 +270,18 @@ def test_run_case_config_accepts_label_material_map(monkeypatch, tmp_path: Path)
 
     monkeypatch.setattr("parosol_py.config.solve", fake_solve)
 
-    run_case_config(config_path)
+    result = run_case_config(config_path)
 
     assert captured["material"].tolist() == [[[6829.0, 8748.0]]]
     np.testing.assert_allclose(captured["poisson_ratio"], [[[0.25, 0.3]]])
+    assert (
+        result.exported["material_image"]
+        == (tmp_path / "model" / "material.nii.gz").resolve()
+    )
+    exported_material = sitk.GetArrayFromImage(
+        sitk.ReadImage(str(result.exported["material_image"]))
+    )
+    np.testing.assert_allclose(exported_material, [[[6829.0, 8748.0]]])
 
 
 def test_run_case_config_can_disable_field_export(monkeypatch, tmp_path: Path):
@@ -823,7 +834,9 @@ def test_run_case_config_builds_nodeset_linear_bending_field(
                 },
                 "load_case": {
                     "type": "nodeset",
-                    "fixed": [{"nodeset": "bottom", "dofs": ["x", "y", "z"], "value": 0}],
+                    "fixed": [
+                        {"nodeset": "bottom", "dofs": ["x", "y", "z"], "value": 0}
+                    ],
                     "prescribed": [
                         {
                             "nodeset": "top",
@@ -960,7 +973,9 @@ def test_run_case_config_builds_nodeset_torsion_field(monkeypatch, tmp_path: Pat
                 },
                 "load_case": {
                     "type": "nodeset",
-                    "fixed": [{"nodeset": "bottom", "dofs": ["x", "y", "z"], "value": 0}],
+                    "fixed": [
+                        {"nodeset": "bottom", "dofs": ["x", "y", "z"], "value": 0}
+                    ],
                     "prescribed": [
                         {
                             "nodeset": "top",
@@ -1092,7 +1107,9 @@ def test_run_case_config_builds_nodeset_symmetric_bending_field(
                 },
                 "load_case": {
                     "type": "nodeset",
-                    "fixed": [{"nodeset": "bottom", "dofs": ["x", "y", "z"], "value": 0}],
+                    "fixed": [
+                        {"nodeset": "bottom", "dofs": ["x", "y", "z"], "value": 0}
+                    ],
                     "prescribed": [
                         {
                             "nodeset": "top",
@@ -1944,7 +1961,12 @@ def test_cli_shortcut_runs_direct_profile_and_records_execution(tmp_path: Path):
     assert summary["execution"]["profile"] == "XtremeCTII"
     assert summary["execution"]["image"] == str(image_path.resolve())
     assert summary["execution"]["generated_config"] == str(generated)
+    assert (output_dir / "model" / "material.nii.gz").exists()
+    assert summary["outputs"]["exported"]["material_image"] == str(
+        output_dir / "model" / "material.nii.gz"
+    )
     generated_text = generated.read_text(encoding="utf-8")
+    assert "material_image:" in generated_text
     assert ("tolerance: 0.0001" in generated_text) or (
         "tolerance: 1.0e-4" in generated_text
     )
@@ -2045,7 +2067,9 @@ def test_cli_shortcut_runs_spine_workflow_with_standard_mask_argument(tmp_path: 
     summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
     assert generated.exists()
     assert summary["execution"]["profile"] == "spine-compression"
-    assert summary["execution"]["template"].endswith("spine-compression.parosol-workflow")
+    assert summary["execution"]["template"].endswith(
+        "spine-compression.parosol-workflow"
+    )
     assert summary["execution"]["mask"] == str(mask_path.resolve())
     assert summary["model"]["type"] == "workflow_replay"
     assert summary["model"]["workflow_replay"]["enabled"] is True
@@ -2348,7 +2372,9 @@ workflow_template:
 """,
         encoding="utf-8",
     )
-    bundle = create_workflow_bundle(template_dir, tmp_path / "with_editor_ref.parosol-workflow")
+    bundle = create_workflow_bundle(
+        template_dir, tmp_path / "with_editor_ref.parosol-workflow"
+    )
     loaded, source = load_workflow_template(bundle)
 
     applied = apply_workflow_template(

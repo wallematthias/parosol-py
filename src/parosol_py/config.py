@@ -14,7 +14,12 @@ except ModuleNotFoundError:
 
 from .api import SolveResult, solve, solve_aim
 from .core import Model
-from .images import coarsen_array, largest_connected_component, normalize_array
+from .images import (
+    coarsen_array,
+    export_scalar_image,
+    largest_connected_component,
+    normalize_array,
+)
 from .load_cases import (
     Bending,
     BodyWeightCompression,
@@ -185,9 +190,7 @@ def run_case_config(
         "crawford_coefficient": float(
             failure_load_cfg.get("crawford_coefficient", 0.0068)
         ),
-        "linear_failure_estimates": _linear_failure_estimates_enabled(
-            postprocess_cfg
-        ),
+        "linear_failure_estimates": _linear_failure_estimates_enabled(postprocess_cfg),
         "dry_run": dry,
     }
 
@@ -338,7 +341,16 @@ def run_case_config(
             base_dir=base_dir,
             boundary_conditions=debug_boundary_conditions,
         )
+        material_exports = _export_material_image(
+            material,
+            spacing=spacing,
+            origin=origin,
+            output_cfg=output_cfg,
+            base_dir=base_dir,
+            run_dir=run_dir,
+        )
         result = solve(material=material, array_order="zyx", **common)
+        result.exported.update(material_exports)
         result.exported.update(set_exports)
         result.exported.update(
             _export_overview(
@@ -357,7 +369,10 @@ def run_case_config(
 
     load_type = str(load_case_cfg.get("type", "constrained_axial")).strip().lower()
     load_case_summary = _load_case_summary(
-        load_case_cfg, load_type=load_type, axis=common["test_axis"], strain=common["strain"]
+        load_case_cfg,
+        load_type=load_type,
+        axis=common["test_axis"],
+        strain=common["strain"],
     )
     extra: dict[str, Any] = {
         "case": {"name": case_name},
@@ -460,7 +475,10 @@ def _input_postprocess_mask(
     mask_path = input_cfg.get("mask", input_cfg.get("segmentation"))
     if not mask_path:
         return None
-    mask = np.asarray(_read_image_array_zyx(_resolve_path(mask_path, base_dir=base_dir))) != 0
+    mask = (
+        np.asarray(_read_image_array_zyx(_resolve_path(mask_path, base_dir=base_dir)))
+        != 0
+    )
     if mask.shape != tuple(material_shape):
         raise ValueError(
             f"input.mask shape {mask.shape} does not match material shape {tuple(material_shape)}"
@@ -484,9 +502,10 @@ def _input_density_active_mask(
     )
     if not mask_path:
         return None
-    return np.asarray(
-        _read_image_array_zyx(_resolve_path(mask_path, base_dir=base_dir))
-    ) != 0
+    return (
+        np.asarray(_read_image_array_zyx(_resolve_path(mask_path, base_dir=base_dir)))
+        != 0
+    )
 
 
 def _coarsen_material(
@@ -551,6 +570,34 @@ def _export_debug_sets(
             )
         )
     return out
+
+
+def _export_material_image(
+    material_zyx: np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    output_cfg: dict[str, Any],
+    base_dir: Path,
+    run_dir: Path,
+) -> dict[str, Path]:
+    path_value = output_cfg.get("material_image")
+    if path_value is None:
+        if not output_cfg.get("export_material_image", False):
+            return {}
+        path_value = run_dir / "model" / "material.nii.gz"
+    if path_value is False:
+        return {}
+    if isinstance(path_value, bool):
+        path_value = run_dir / "model" / "material.nii.gz"
+    material_path = _resolve_path(path_value, base_dir=base_dir)
+    grid = normalize_array(
+        material_zyx,
+        spacing=spacing,
+        origin=origin,
+        array_order="zyx",
+    )
+    return {"material_image": export_scalar_image(grid, material_path)}
 
 
 def _export_overview(
@@ -890,7 +937,9 @@ def _boundary_conditions_from_config(
         base_dir=base_dir,
     )
     percent_reference_lengths_mm = {
-        axis: _occupied_axis_length_mm(material_grid.array_xyz, axis=axis, spacing=material_grid.spacing)
+        axis: _occupied_axis_length_mm(
+            material_grid.array_xyz, axis=axis, spacing=material_grid.spacing
+        )
         for axis in ("x", "y", "z")
     }
     return boundary_conditions_from_nodesets(
@@ -1028,7 +1077,9 @@ def _load_case_center(load_case_cfg: dict[str, Any]) -> tuple[float, float] | No
     return tuple(float(v) for v in value)
 
 
-def _effective_load_case_center(load_case_cfg: dict[str, Any]) -> tuple[float, float] | None:
+def _effective_load_case_center(
+    load_case_cfg: dict[str, Any],
+) -> tuple[float, float] | None:
     center = _load_case_center(load_case_cfg)
     if center is not None:
         return center
@@ -1145,9 +1196,11 @@ def _effective_strain_for_displacement(
     displacement = _load_case_displacement(load_case_cfg)
     if displacement is None:
         return fallback
-    axis_token = str(
-        axis if axis is not None else load_case_cfg.get("axis", "z")
-    ).strip().lower()
+    axis_token = (
+        str(axis if axis is not None else load_case_cfg.get("axis", "z"))
+        .strip()
+        .lower()
+    )
     axis_index = {"x": 0, "y": 1, "z": 2}[axis_token]
     grid = normalize_array(
         material_zyx,

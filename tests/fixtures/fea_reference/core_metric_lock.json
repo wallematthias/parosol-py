@@ -1,0 +1,677 @@
+{
+  "description": "Locked real-world core metrics for mini FE workflow reference tests.",
+  "records": [
+    {
+      "applied_displacement_mm": -0.0485592007637024,
+      "bottom_node_count": 4054,
+      "critical_strain": 0.007,
+      "critical_volume_percent": 2.0,
+      "ees_at_critical_volume": 0.013296921948297924,
+      "engine": "parosol-py",
+      "fixture": "xtremect_tibia_mini",
+      "generalized_load_n": -623.1452555168482,
+      "metric_family": "xtremect_pistoia",
+      "name": "xtremect_tibia_mini_XtremeCTI",
+      "pistoia_factor": 0.5264376242274654,
+      "pistoia_failure_load_n": -328.0471078629065,
+      "profile": "XtremeCTI",
+      "reaction_force_n": -623.1452555168481,
+      "status": "passed",
+      "stiffness_n_per_mm": 12832.691760088526,
+      "target_axis": "z",
+      "target_deformation_percent": 1.0,
+      "top_node_count": 4234
+    },
+    {
+      "applied_displacement_mm": -0.0485592007637024,
+      "bottom_node_count": 4054,
+      "critical_strain": 0.007,
+      "critical_volume_percent": 2.0,
+      "ees_at_critical_volume": 0.013297115112376651,
+      "engine": "parosol-py",
+      "fixture": "xtremect_tibia_mini",
+      "generalized_load_n": -798.252808241868,
+      "metric_family": "xtremect_pistoia",
+      "name": "xtremect_tibia_mini_XtremeCTII",
+      "pistoia_factor": 0.5264299767913238,
+      "pistoia_failure_load_n": -420.2242073163756,
+      "profile": "XtremeCTII",
+      "reaction_force_n": -798.2528082418661,
+      "status": "passed",
+      "stiffness_n_per_mm": 16438.755080140352,
+      "target_axis": "z",
+      "target_deformation_percent": 1.0,
+      "top_node_count": 4234
+    },
+    {
+      "applied_displacement_mm": -0.2924000024795532,
+      "bottom_node_count": 1711,
+      "engine": "parosol-py",
+      "fixture": "vertebra_l4_mini",
+      "generalized_load_n": -6830.066147609896,
+      "metric_family": "reference_deformation",
+      "name": "vertebra_l4_mini_spine_compression",
+      "pistoia_factor": null,
+      "pistoia_failure_load_n": null,
+      "profile": "spine-compression",
+      "reaction_force_n": -6830.066147609893,
+      "reference_length_mm": 43.0,
+      "status": "passed",
+      "stiffness_n_per_mm": 23358.63915762964,
+      "target_axis": "z",
+      "target_deformation_percent": 0.6800000057664028,
+      "top_node_count": 1711
+    },
+    {
+      "applied_displacement_mm": -3.5199999809265137,
+      "bottom_node_count": 1035,
+      "engine": "parosol-py",
+      "fixture": "femur_left_mini",
+      "generalized_load_n": -5684.770783651632,
+      "metric_family": "reference_deformation",
+      "name": "femur_left_mini_hip_sideways_fall",
+      "pistoia_factor": 0.1056883626771452,
+      "pistoia_failure_load_n": -600.8141163190126,
+      "profile": "hip-sideways-fall-left",
+      "reaction_force_n": -5684.770783651632,
+      "reference_length_mm": 88.0,
+      "status": "passed",
+      "stiffness_n_per_mm": 1614.9917086520325,
+      "target_axis": "y",
+      "target_deformation_percent": 3.9999999783255835,
+      "top_node_count": 704
+    },
+    {
+      "engine": "parosol-py",
+      "estimated_loads": [
+        {
+          "case": "xtremect_tibia_mini_load_history_3_compression_z",
+          "component": "z",
+          "load_type": "force",
+          "units": "N",
+          "value": -134.72076137441476,
+          "vector": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -134.72076137441476
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_3_shear_zx",
+          "component": "x",
+          "load_type": "force",
+          "units": "N",
+          "value": -31.213508629211304,
+          "vector": {
+            "x": -31.213508629211304,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_3_shear_zy",
+          "component": "y",
+          "load_type": "force",
+          "units": "N",
+          "value": -33.17960088615304,
+          "vector": {
+            "x": 0.0,
+            "y": -33.17960088615304,
+            "z": 0.0
+          }
+        }
+      ],
+      "estimated_total_force_magnitude_n": 142.21410823547805,
+      "estimated_total_force_vector_n": {
+        "x": -31.213508629211304,
+        "y": -33.17960088615304,
+        "z": -134.72076137441476
+      },
+      "estimated_total_moment_magnitude_nmm": 0.0,
+      "estimated_total_moment_vector_nmm": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "failure_loads": [
+        {
+          "case": "xtremect_tibia_mini_load_history_3_compression_z",
+          "component": "z",
+          "load_type": "force",
+          "units": "N",
+          "value": -375.4099998848284,
+          "vector": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -375.4099998848284
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_3_shear_zx",
+          "component": "x",
+          "load_type": "force",
+          "units": "N",
+          "value": -86.97889732326499,
+          "vector": {
+            "x": -86.97889732326499,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_3_shear_zy",
+          "component": "y",
+          "load_type": "force",
+          "units": "N",
+          "value": -92.45756806726979,
+          "vector": {
+            "x": 0.0,
+            "y": -92.45756806726979,
+            "z": 0.0
+          }
+        }
+      ],
+      "failure_total_force_magnitude_n": 396.29080040547467,
+      "failure_total_force_vector_n": {
+        "x": -86.97889732326499,
+        "y": -92.45756806726979,
+        "z": -375.4099998848284
+      },
+      "failure_total_moment_magnitude_nmm": 0.0,
+      "failure_total_moment_vector_nmm": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "final_rerun": {
+        "pistoia_factor": null,
+        "pistoia_failure_load_n": null,
+        "reaction_force_n": null,
+        "status": "not_run",
+        "stiffness_n_per_mm": null
+      },
+      "fixture": "xtremect_tibia_mini",
+      "load_history_case_count": 3,
+      "load_history_cases": [
+        "compression_z",
+        "shear_zx",
+        "shear_zy"
+      ],
+      "load_history_ees_at_critical_volume": 0.0025120410482145365,
+      "load_history_failure_status": "computed",
+      "load_history_input_load_amplitudes": [
+        798.4077347978715,
+        141.09941825856413,
+        135.69820602395055
+      ],
+      "load_history_load_amplitudes": [
+        134.72076137441476,
+        31.213508629211304,
+        33.17960088615304
+      ],
+      "load_history_mean": 0.01529187797526902,
+      "load_history_method": "nnls",
+      "load_history_pistoia_factor": 2.7865786687583527,
+      "load_history_residual": 4.801745866801947,
+      "load_history_scaling_factors": [
+        18149.683545302003,
+        974.2831209458486,
+        1100.8859149644074
+      ],
+      "load_history_std": 0.008146492004623038,
+      "metric_family": "load_history",
+      "name": "xtremect_tibia_mini_load_history_3",
+      "profile": "load_history_3",
+      "status": "passed"
+    },
+    {
+      "engine": "parosol-py",
+      "estimated_loads": [
+        {
+          "case": "xtremect_tibia_mini_load_history_6_compression_z",
+          "component": "z",
+          "load_type": "force",
+          "units": "N",
+          "value": -134.72076137441476,
+          "vector": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -134.72076137441476
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_6_shear_zx",
+          "component": "x",
+          "load_type": "force",
+          "units": "N",
+          "value": -31.213508629211212,
+          "vector": {
+            "x": -31.213508629211212,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_6_shear_zy",
+          "component": "y",
+          "load_type": "force",
+          "units": "N",
+          "value": -33.17960088615417,
+          "vector": {
+            "x": 0.0,
+            "y": -33.17960088615417,
+            "z": 0.0
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_6_bending_x",
+          "component": "z",
+          "load_type": "moment",
+          "units": "N*mm",
+          "value": 0.0,
+          "vector": {
+            "x": 0.0,
+            "y": -0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_6_bending_y",
+          "component": "z",
+          "load_type": "moment",
+          "units": "N*mm",
+          "value": 0.0,
+          "vector": {
+            "x": -0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_6_torsion_z",
+          "component": "z",
+          "load_type": "moment",
+          "units": "N*mm",
+          "value": -0.0,
+          "vector": {
+            "x": -0.0,
+            "y": 0.0,
+            "z": -0.0
+          }
+        }
+      ],
+      "estimated_total_force_magnitude_n": 142.21410823547828,
+      "estimated_total_force_vector_n": {
+        "x": -31.213508629211212,
+        "y": -33.17960088615417,
+        "z": -134.72076137441476
+      },
+      "estimated_total_moment_magnitude_nmm": 0.0,
+      "estimated_total_moment_vector_nmm": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "failure_loads": [
+        {
+          "case": "xtremect_tibia_mini_load_history_6_compression_z",
+          "component": "z",
+          "load_type": "force",
+          "units": "N",
+          "value": -375.4099998848269,
+          "vector": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -375.4099998848269
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_6_shear_zx",
+          "component": "x",
+          "load_type": "force",
+          "units": "N",
+          "value": -86.97889732326439,
+          "vector": {
+            "x": -86.97889732326439,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_6_shear_zy",
+          "component": "y",
+          "load_type": "force",
+          "units": "N",
+          "value": -92.45756806727258,
+          "vector": {
+            "x": 0.0,
+            "y": -92.45756806727258,
+            "z": 0.0
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_6_bending_x",
+          "component": "z",
+          "load_type": "moment",
+          "units": "N*mm",
+          "value": 0.0,
+          "vector": {
+            "x": 0.0,
+            "y": -0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_6_bending_y",
+          "component": "z",
+          "load_type": "moment",
+          "units": "N*mm",
+          "value": 0.0,
+          "vector": {
+            "x": -0.0,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_6_torsion_z",
+          "component": "z",
+          "load_type": "moment",
+          "units": "N*mm",
+          "value": -0.0,
+          "vector": {
+            "x": -0.0,
+            "y": 0.0,
+            "z": -0.0
+          }
+        }
+      ],
+      "failure_total_force_magnitude_n": 396.29080040547376,
+      "failure_total_force_vector_n": {
+        "x": -86.97889732326439,
+        "y": -92.45756806727258,
+        "z": -375.4099998848269
+      },
+      "failure_total_moment_magnitude_nmm": 0.0,
+      "failure_total_moment_vector_nmm": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "final_rerun": {
+        "pistoia_factor": null,
+        "pistoia_failure_load_n": null,
+        "reaction_force_n": null,
+        "status": "not_run",
+        "stiffness_n_per_mm": null
+      },
+      "fixture": "xtremect_tibia_mini",
+      "load_history_case_count": 6,
+      "load_history_cases": [
+        "compression_z",
+        "shear_zx",
+        "shear_zy",
+        "bending_x",
+        "bending_y",
+        "torsion_z"
+      ],
+      "load_history_ees_at_critical_volume": 0.0025120410482145465,
+      "load_history_failure_status": "computed",
+      "load_history_input_load_amplitudes": [
+        798.4077347978715,
+        141.09941825856413,
+        135.69820602395055,
+        0.005580843728765777,
+        0.00514216877960674,
+        813.0601001344406
+      ],
+      "load_history_load_amplitudes": [
+        134.72076137441476,
+        31.213508629211212,
+        33.17960088615417,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "load_history_mean": 0.015291877975269215,
+      "load_history_method": "nnls",
+      "load_history_pistoia_factor": 2.7865786687583416,
+      "load_history_residual": 4.801745866801946,
+      "load_history_scaling_factors": [
+        18149.683545302007,
+        974.2831209458428,
+        1100.8859149644827,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "load_history_std": 0.00814649200462313,
+      "metric_family": "load_history",
+      "name": "xtremect_tibia_mini_load_history_6",
+      "profile": "load_history_6",
+      "status": "passed"
+    },
+    {
+      "analysis_var": "fz_ns1",
+      "applied_displacement_mm": -0.2924,
+      "engine": "ogo",
+      "fixture": "vertebra_l4_mini",
+      "metric_family": "reference_deformation",
+      "name": "vertebra_l4_mini_spine_compression",
+      "profile": "spine-compression",
+      "reaction_force_n": -6812.0,
+      "reference_length_mm": 43.0,
+      "status": "passed",
+      "stiffness_n_per_mm": 23296.853625171,
+      "target_axis": "z",
+      "target_deformation_percent": 0.6799999999999999
+    },
+    {
+      "analysis_var": "fy_ns1",
+      "applied_displacement_mm": -3.5199998474121093,
+      "engine": "ogo",
+      "fixture": "femur_left_mini",
+      "metric_family": "reference_deformation",
+      "name": "femur_left_mini_hip_sideways_fall",
+      "profile": "hip-sideways-fall-left",
+      "reaction_force_n": -5688.0,
+      "reference_length_mm": 87.99999618530273,
+      "status": "passed",
+      "stiffness_n_per_mm": 1615.9091609568666,
+      "target_axis": "y",
+      "target_deformation_percent": 4.0
+    },
+    {
+      "applied_displacement_mm": -0.0485567968711257,
+      "bottom_node_count": null,
+      "critical_strain": 0.007,
+      "critical_volume_percent": 2.0,
+      "ees_at_critical_volume": 0.013294,
+      "engine": "faim",
+      "fixture": "xtremect_tibia_mini",
+      "generalized_load_n": -623.0,
+      "metric_family": "xtremect_pistoia",
+      "name": "xtremect_tibia_mini_XtremeCTI",
+      "pistoia_factor": 0.5265810593900482,
+      "pistoia_failure_load_n": -328.06,
+      "profile": "XtremeCTI",
+      "reaction_force_n": -623.0,
+      "status": "passed",
+      "stiffness_n_per_mm": 12830.33560993532,
+      "target_axis": "z",
+      "target_deformation_percent": 1.0,
+      "top_node_count": null
+    },
+    {
+      "applied_displacement_mm": -0.0485567968711257,
+      "bottom_node_count": null,
+      "critical_strain": 0.007,
+      "critical_volume_percent": 2.0,
+      "ees_at_critical_volume": 0.013294,
+      "engine": "faim",
+      "fixture": "xtremect_tibia_mini",
+      "generalized_load_n": -798.1,
+      "metric_family": "xtremect_pistoia",
+      "name": "xtremect_tibia_mini_XtremeCTII",
+      "pistoia_factor": 0.5265505575742389,
+      "pistoia_failure_load_n": -420.24,
+      "profile": "XtremeCTII",
+      "reaction_force_n": -798.1,
+      "status": "passed",
+      "stiffness_n_per_mm": 16436.421910576853,
+      "target_axis": "z",
+      "target_deformation_percent": 1.0,
+      "top_node_count": null
+    },
+    {
+      "engine": "faim",
+      "estimated_loads": [
+        {
+          "case": "xtremect_tibia_mini_load_history_3_compression_z",
+          "component": "z",
+          "load_type": "force",
+          "units": "N",
+          "value": 798.1,
+          "vector": {
+            "x": null,
+            "y": null,
+            "z": 798.1
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_3_shear_zx",
+          "component": "x",
+          "load_type": "force",
+          "units": "N",
+          "value": 141.1,
+          "vector": {
+            "x": 141.1,
+            "y": null,
+            "z": null
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_3_shear_zy",
+          "component": "y",
+          "load_type": "force",
+          "units": "N",
+          "value": 135.7,
+          "vector": {
+            "x": null,
+            "y": 135.7,
+            "z": null
+          }
+        }
+      ],
+      "estimated_total_force_magnitude_n": 821.7586689533613,
+      "estimated_total_force_vector_n": {
+        "x": 141.1,
+        "y": 135.7,
+        "z": 798.1
+      },
+      "estimated_total_moment_magnitude_nmm": 0.0,
+      "estimated_total_moment_vector_nmm": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "failure_loads": [
+        {
+          "case": "xtremect_tibia_mini_load_history_3_compression_z",
+          "component": "z",
+          "load_type": "force",
+          "units": "N",
+          "value": 420.24,
+          "vector": {
+            "x": null,
+            "y": null,
+            "z": 420.24
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_3_shear_zx",
+          "component": "x",
+          "load_type": "force",
+          "units": "N",
+          "value": 282.79,
+          "vector": {
+            "x": 282.79,
+            "y": null,
+            "z": null
+          }
+        },
+        {
+          "case": "xtremect_tibia_mini_load_history_3_shear_zy",
+          "component": "y",
+          "load_type": "force",
+          "units": "N",
+          "value": 273.2,
+          "vector": {
+            "x": null,
+            "y": 273.2,
+            "z": null
+          }
+        }
+      ],
+      "failure_total_force_magnitude_n": 575.5085418132384,
+      "failure_total_force_vector_n": {
+        "x": 282.79,
+        "y": 273.2,
+        "z": 420.24
+      },
+      "failure_total_moment_magnitude_nmm": 0.0,
+      "failure_total_moment_vector_nmm": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "final_rerun": {
+        "case_name": null,
+        "pistoia_factor": null,
+        "pistoia_failure_load_n": null,
+        "reaction_force_n": null,
+        "status": "not_run",
+        "stiffness_n_per_mm": null
+      },
+      "fixture": "xtremect_tibia_mini",
+      "load_history_case_count": 3,
+      "load_history_cases": [
+        "compression_z",
+        "shear_zx",
+        "shear_zy"
+      ],
+      "load_history_ees_at_critical_volume": null,
+      "load_history_failure_status": "unit_cases_only",
+      "load_history_input_load_amplitudes": [
+        798.1,
+        141.1,
+        135.7
+      ],
+      "load_history_load_amplitudes": [
+        798.1,
+        141.1,
+        135.7
+      ],
+      "load_history_mean": 358.3,
+      "load_history_method": "faim_template_unit_cases",
+      "load_history_pistoia_factor": null,
+      "load_history_residual": null,
+      "load_history_scaling_factors": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "load_history_std": 310.99337613524824,
+      "metric_family": "load_history",
+      "name": "xtremect_tibia_mini_load_history_3",
+      "profile": "load_history_3",
+      "status": "passed"
+    }
+  ],
+  "schema_version": 1,
+  "source": {
+    "core_metric_source": "core_metrics.json",
+    "locked_on": "2026-07-15",
+    "run_label": "reference_workflow_runs_20260715_current"
+  }
+}

@@ -1,0 +1,223 @@
+{
+  "anatomy": "vertebra_l4",
+  "arrays": {
+    "density": "density.npz",
+    "labels": "labels.npz"
+  },
+  "grid": {
+    "array_order": "zyx",
+    "coordinate_system": "RAS",
+    "direction_ras": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "origin_ras": [
+      -394.6617736816406,
+      3.39208984375,
+      295.07342529296875
+    ],
+    "shape_zyx": [
+      64,
+      102,
+      98
+    ],
+    "spacing_xyz": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "units": "mm"
+  },
+  "labels": {
+    "20": "vertebral body",
+    "48": "posterior process"
+  },
+  "name": "vertebra_l4_mini",
+  "provenance": {
+    "crop": {
+      "crop_lower_zyx": [
+        15,
+        1,
+        1
+      ],
+      "crop_upper_zyx": [
+        79,
+        103,
+        99
+      ],
+      "source_shape_zyx": [
+        94,
+        103,
+        101
+      ]
+    },
+    "density_max": 1610.1639404296875,
+    "density_mean_in_labels": 241.8697052001953,
+    "density_min": -17.14166831970215,
+    "derived_fixture": true,
+    "label_values": [
+      0,
+      20,
+      48
+    ],
+    "nonzero_label_voxels": 66569,
+    "source_files": [
+      "/Users/matthias.walle/Downloads/n88_ogo_reference_test_bundle_20260625/spine-sub-001/input/density.nii.gz",
+      "/Users/matthias.walle/Documents/fea/final_lockdown_20260714_current/fresh/inputs/spine_segmentation_20_48.nii.gz"
+    ],
+    "source_sha256": {
+      "/Users/matthias.walle/Documents/fea/final_lockdown_20260714_current/fresh/inputs/spine_segmentation_20_48.nii.gz": "8edf8c46b7f12ce80848b980beb20d4fd0227f6fb9c39d5f2bd2f908d97916c6",
+      "/Users/matthias.walle/Downloads/n88_ogo_reference_test_bundle_20260625/spine-sub-001/input/density.nii.gz": "7b59609a3a0482625bd13a2248af5551b3f2f3e89c738bf9cfbc863c5a679236"
+    }
+  },
+  "transform_chain": [
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "source_image_to_input_ras",
+      "note": "Axis-aligned source image converted to canonical RAS-positive array order.",
+      "source_space": "source_image_physical_space",
+      "target_space": "input_ras"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "input_ras_to_preprocessed_ras",
+      "note": "Fixture crop preserves spacing and records the updated RAS origin.",
+      "source_space": "input_ras",
+      "target_space": "preprocessed_ras"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "preprocessed_ras_to_solver_grid",
+      "note": "Mini fixture does not run solver preprocessing during ordinary tests.",
+      "source_space": "preprocessed_ras",
+      "target_space": "solver_grid"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "solver_grid_to_visualization_ras_grid",
+      "note": "Visual reports are generated on the same RAS grid unless explicitly resampled.",
+      "source_space": "solver_grid",
+      "target_space": "visualization_ras_grid"
+    }
+  ],
+  "workflows": [
+    "spine-compression"
+  ]
+}

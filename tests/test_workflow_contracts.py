@@ -394,6 +394,30 @@ def test_validator_requires_load_history_suffix_order(profile, expected_suffixes
     assert any(issue.code == "invalid_batch_name_suffixes" for issue in issues)
 
 
+def test_validator_requires_load_history_3_locked_materials():
+    issues = validate_workflow_config(
+        {
+            "materials": {
+                "labels": {
+                    100: {"E": 6829, "nu": 0.3},
+                    127: {"E": 6829, "nu": 0.3},
+                }
+            },
+            "batch": {
+                "cases": [
+                    {"name_suffix": "compression_z"},
+                    {"name_suffix": "shear_zx"},
+                    {"name_suffix": "shear_zy"},
+                ]
+            },
+        },
+        profile="load_history_3",
+        bundle_members=(),
+    )
+
+    assert any(issue.code == "invalid_load_history_material" for issue in issues)
+
+
 def _workflow_bundle(
     tmp_path,
     *,

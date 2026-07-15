@@ -38,7 +38,9 @@ def load_workflow_template(path: str | Path) -> tuple[dict[str, Any], Path]:
     loaded = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
     if not isinstance(loaded, dict):
         raise ValueError(f"workflow template must be a mapping: {workflow_path}")
-    return _resolve_template_paths(copy.deepcopy(loaded), workflow_path.parent), source_path
+    return _resolve_template_paths(
+        copy.deepcopy(loaded), workflow_path.parent
+    ), source_path
 
 
 def create_workflow_bundle(source: str | Path, output_path: str | Path) -> Path:
@@ -64,7 +66,9 @@ def create_workflow_bundle(source: str | Path, output_path: str | Path) -> Path:
         "files": [path.relative_to(base_dir).as_posix() for path in files],
     }
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(WORKFLOW_MANIFEST, json.dumps(manifest, indent=2, sort_keys=True))
+        archive.writestr(
+            WORKFLOW_MANIFEST, json.dumps(manifest, indent=2, sort_keys=True)
+        )
         for path in files:
             archive.write(path, path.relative_to(base_dir).as_posix())
     return out
@@ -127,13 +131,21 @@ def apply_workflow_template(
             replay_cfg = model_cfg.setdefault("workflow_replay", {})
             replay_cfg["enabled"] = True
             replay_cfg["disk_labels"] = str(
-                resolve_path(reference_cfg["disk_labels"], base_dir=Path(template_path).expanduser().resolve().parent)
+                resolve_path(
+                    reference_cfg["disk_labels"],
+                    base_dir=Path(template_path).expanduser().resolve().parent,
+                )
             )
             replay_cfg["nodesets"] = str(
-                resolve_path(reference_cfg["nodesets"], base_dir=Path(template_path).expanduser().resolve().parent)
+                resolve_path(
+                    reference_cfg["nodesets"],
+                    base_dir=Path(template_path).expanduser().resolve().parent,
+                )
             )
             registration_cfg = model_cfg.get("registration", {})
-            if isinstance(registration_cfg, dict) and registration_cfg.get("reference_points"):
+            if isinstance(registration_cfg, dict) and registration_cfg.get(
+                "reference_points"
+            ):
                 replay_cfg["reference_points"] = registration_cfg["reference_points"]
                 reference_dir = (
                     Path(str(registration_cfg["reference_points"])).resolve().parent
@@ -148,7 +160,11 @@ def apply_workflow_template(
                             sibling_editor_reference
                         )
                         break
-            target = registration_cfg.get("target") if isinstance(registration_cfg, dict) else None
+            target = (
+                registration_cfg.get("target")
+                if isinstance(registration_cfg, dict)
+                else None
+            )
             if target:
                 replay_cfg["registration_target"] = target
         model_outputs = model_cfg.setdefault("outputs", {})
@@ -162,12 +178,25 @@ def apply_workflow_template(
         model_outputs["qc_image"] = str(model_dir / "qc.png")
 
     output_cfg = _section(config, "output")
-    output_cfg["result"] = str(out / case_name / "result.json" if is_batch_workflow else out / "result.json")
+    output_cfg["result"] = str(
+        out / case_name / "result.json" if is_batch_workflow else out / "result.json"
+    )
     output_cfg["summary"] = output_cfg["result"]
-    output_cfg["run_summary"] = str(out / case_name / "summary.json" if is_batch_workflow else out / "summary.json")
+    output_cfg["run_summary"] = str(
+        out / case_name / "summary.json" if is_batch_workflow else out / "summary.json"
+    )
     output_cfg.setdefault("fields", ["sed"])
-    output_cfg["fields_dir"] = str(out / case_name / "fields" if is_batch_workflow else out / "fields")
-    output_cfg["visualization"] = str(out / case_name / "overview.png" if is_batch_workflow else out / "overview.png")
+    output_cfg["fields_dir"] = str(
+        out / case_name / "fields" if is_batch_workflow else out / "fields"
+    )
+    output_cfg["material_image"] = str(
+        out / case_name / "model" / "material.nii.gz"
+        if is_batch_workflow
+        else out / "model" / "material.nii.gz"
+    )
+    output_cfg["visualization"] = str(
+        out / case_name / "overview.png" if is_batch_workflow else out / "overview.png"
+    )
 
     if is_batch_workflow:
         batch_cfg = _section(config, "batch")
@@ -215,7 +244,9 @@ def _extract_workflow_bundle(path: Path) -> Path:
         if WORKFLOW_MANIFEST in names:
             manifest = json.loads(archive.read(WORKFLOW_MANIFEST))
             if manifest.get("format") != WORKFLOW_BUNDLE_FORMAT:
-                raise ValueError(f"unsupported workflow bundle format: {manifest.get('format')!r}")
+                raise ValueError(
+                    f"unsupported workflow bundle format: {manifest.get('format')!r}"
+                )
         for member in archive.infolist():
             target = (stage / member.filename).resolve()
             if not str(target).startswith(str(stage.resolve())):
@@ -242,16 +273,21 @@ def _resolve_paths_in_mapping(value: dict[str, Any], base_dir: Path) -> None:
     for key, item in list(value.items()):
         if isinstance(item, dict):
             _resolve_paths_in_mapping(item, base_dir)
-        elif key in {
-            "image",
-            "mask",
-            "density_image",
-            "mask_image",
-            "reference_points",
-            "editor_reference_points",
-            "disk_labels",
-            "nodesets",
-        } and isinstance(item, str) and item:
+        elif (
+            key
+            in {
+                "image",
+                "mask",
+                "density_image",
+                "mask_image",
+                "reference_points",
+                "editor_reference_points",
+                "disk_labels",
+                "nodesets",
+            }
+            and isinstance(item, str)
+            and item
+        ):
             path = Path(item).expanduser()
             if not path.is_absolute():
                 value[key] = str((base_dir / path).resolve())
