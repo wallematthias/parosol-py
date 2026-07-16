@@ -80,7 +80,8 @@ def test_pyproject_declares_native_wheel_build_settings():
     ).read_text(encoding="utf-8")
     assert "MaxAttempts" in windows_deps
     assert "Start-Sleep" in windows_deps
-    assert "hdf5[cpp]:x64-windows" in windows_deps
+    assert "hdf5[core,cpp,zlib]:x64-windows" in windows_deps
+    assert "hdf5[cpp]:x64-windows" not in windows_deps
 
 
 def test_packaged_mpi_verifier_does_not_import_package_init():
@@ -123,6 +124,10 @@ def test_github_workflows_build_test_and_wheels():
     assert "cibuildwheel" in str(wheels)
     assert "actions/upload-artifact" in str(wheels)
     assert "windows-latest" in str(wheels)
+    assert any(
+        entry["os"] == "macos-15" and entry["artifact"] == "macos-arm64"
+        for entry in wheels["jobs"]["build_wheels"]["strategy"]["matrix"]["include"]
+    )
     assert "macos-15-intel" in str(wheels)
     assert "Download artifacts from source runs" in str(wheels)
     assert "pypa/gh-action-pypi-publish" in str(wheels)

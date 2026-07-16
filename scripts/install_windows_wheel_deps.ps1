@@ -27,7 +27,7 @@ Invoke-Checked C:\vcpkg\bootstrap-vcpkg.bat
 
 $packages = @(
     "eigen3:x64-windows",
-    "hdf5[cpp]:x64-windows",
+    "hdf5[core,cpp,zlib]:x64-windows",
     "msmpi:x64-windows"
 )
 $MaxAttempts = 5

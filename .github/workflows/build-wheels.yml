@@ -39,7 +39,7 @@ jobs:
             artifact: windows-amd64
             cibw_arch: AMD64
             target: windows
-          - os: macos-latest
+          - os: macos-15
             artifact: macos-arm64
             cibw_arch: arm64
             target: macos
