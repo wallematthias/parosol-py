@@ -1,9 +1,10 @@
 import json
 
 import numpy as np
+import SimpleITK as sitk
 
 from parosol_py.cli import main
-from parosol_py.load_history import estimate_load_history
+from parosol_py.load_history import estimate_load_history, estimate_load_history_from_files
 from parosol_py.nodesets import boundary_conditions_from_nodesets
 
 
@@ -71,6 +72,44 @@ def test_cli_load_history_writes_summary_and_output(tmp_path):
     assert "load_amplitudes" in summary["load_history"]["results"]
     assert "scaling_factors" in summary["load_history"]["details"]
     assert (tmp_path / "history.npy").exists()
+
+
+def test_load_history_nifti_output_preserves_source_field_geometry(tmp_path):
+    sed_a = np.ones((2, 3, 4), dtype=np.float32)
+    sed_b = np.ones((2, 3, 4), dtype=np.float32) * 2.0
+    mask = np.ones((2, 3, 4), dtype=np.uint8)
+    spacing = (0.7, 1.2, 1.5)
+    origin = (12.5, -33.25, 44.75)
+    direction = (-1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0)
+
+    paths = []
+    for name, array in (
+        ("sed_a.nii.gz", sed_a),
+        ("sed_b.nii.gz", sed_b),
+        ("mask.nii.gz", mask),
+    ):
+        image = sitk.GetImageFromArray(array)
+        image.SetSpacing(spacing)
+        image.SetOrigin(origin)
+        image.SetDirection(direction)
+        path = tmp_path / name
+        sitk.WriteImage(image, str(path))
+        paths.append(path)
+
+    output_path = tmp_path / "estimated_sed.nii.gz"
+    estimate_load_history_from_files(
+        paths[:2],
+        bone_mask_path=paths[2],
+        output_path=output_path,
+        target_average=1.0,
+    )
+
+    reference = sitk.ReadImage(str(paths[0]))
+    output = sitk.ReadImage(str(output_path))
+    assert output.GetSize() == reference.GetSize()
+    assert output.GetSpacing() == reference.GetSpacing()
+    assert output.GetOrigin() == reference.GetOrigin()
+    assert output.GetDirection() == reference.GetDirection()
 
 
 def test_nodeset_prescribed_specs_accumulate_on_same_dof():

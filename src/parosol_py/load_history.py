@@ -136,6 +136,7 @@ def estimate_load_history_from_files(
     critical_volume_percent: float = 2.0,
     input_load_amplitudes=None,
 ) -> LoadHistoryResult:
+    load_case_paths = [Path(path).expanduser().resolve() for path in load_case_paths]
     load_cases = [_read_array(path) for path in load_case_paths]
     if bone_mask_path is None:
         bone_mask = np.logical_or.reduce([np.asarray(case) > 0 for case in load_cases])
@@ -153,7 +154,11 @@ def estimate_load_history_from_files(
         input_load_amplitudes=input_load_amplitudes,
     )
     if output_path is not None:
-        _write_array(output_path, result.loading_history)
+        _write_array(
+            output_path,
+            result.loading_history,
+            reference_path=_first_image_path(load_case_paths),
+        )
     if summary_path is not None:
         from .reports import write_summary_json
 
@@ -271,7 +276,12 @@ def _read_stiffness(path: str | Path) -> np.ndarray:
     return _read_array(p)
 
 
-def _write_array(path: str | Path, array: np.ndarray) -> Path:
+def _write_array(
+    path: str | Path,
+    array: np.ndarray,
+    *,
+    reference_path: str | Path | None = None,
+) -> Path:
     p = Path(path).expanduser().resolve()
     p.parent.mkdir(parents=True, exist_ok=True)
     suffixes = "".join(p.suffixes).lower()
@@ -282,7 +292,36 @@ def _write_array(path: str | Path, array: np.ndarray) -> Path:
     else:
         import SimpleITK as sitk
 
-        sitk.WriteImage(
-            sitk.GetImageFromArray(np.asarray(array, dtype=np.float32)), str(p)
-        )
+        image = sitk.GetImageFromArray(np.asarray(array, dtype=np.float32))
+        reference_image = _read_output_reference_image(reference_path)
+        if reference_image is not None:
+            if image.GetSize() != reference_image.GetSize():
+                raise ValueError(
+                    "reference image geometry does not match load-history output shape"
+                )
+            image.CopyInformation(reference_image)
+        sitk.WriteImage(image, str(p))
     return p
+
+
+def _first_image_path(paths: list[Path]) -> Path | None:
+    for path in paths:
+        if _is_simpleitk_image_path(path):
+            return path
+    return None
+
+
+def _read_output_reference_image(path: str | Path | None):
+    if path is None:
+        return None
+    p = Path(path).expanduser().resolve()
+    if not _is_simpleitk_image_path(p):
+        return None
+    from parosol_py.modeling.io import read_slicer_oriented_sitk_image
+
+    return read_slicer_oriented_sitk_image(p)
+
+
+def _is_simpleitk_image_path(path: str | Path) -> bool:
+    suffixes = "".join(Path(path).suffixes).lower()
+    return suffixes.endswith((".mha", ".mhd", ".nii", ".nii.gz"))
