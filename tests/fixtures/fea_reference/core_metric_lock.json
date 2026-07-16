@@ -82,6 +82,25 @@
       "top_node_count": 704
     },
     {
+      "applied_displacement_mm": -1.0,
+      "bottom_node_count": 1306,
+      "engine": "parosol-py",
+      "fixture": "femur_left_mini",
+      "generalized_load_n": -1633.8266426868377,
+      "metric_family": "reference_deformation",
+      "name": "femur_left_mini_hip_compression_manual",
+      "pistoia_factor": null,
+      "pistoia_failure_load_n": null,
+      "profile": "hip-compression-manual",
+      "reaction_force_n": -1633.8266426868388,
+      "reference_length_mm": null,
+      "status": "passed",
+      "stiffness_n_per_mm": 1633.8266426868377,
+      "target_axis": "z",
+      "target_deformation_percent": null,
+      "top_node_count": 451
+    },
+    {
       "engine": "parosol-py",
       "estimated_loads": [
         {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import warnings
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,18 +25,61 @@ from .io import read_image_zyx, resolve_path
 AXIS_TO_INDEX = {"x": 0, "y": 1, "z": 2}
 
 
+@dataclass(frozen=True)
+class PreprocessedInputsPreview:
+    density_zyx: np.ndarray
+    mask_zyx: np.ndarray
+    spacing: tuple[float, float, float]
+    origin: tuple[float, float, float]
+    metadata: dict[str, Any]
+
+
+def build_preprocessed_inputs_preview(
+    model_config: dict[str, Any],
+    *,
+    base_dir: Path,
+    preprocessing_config: dict[str, Any] | None = None,
+) -> PreprocessedInputsPreview:
+    """Return the shared pre-boundary-condition input grid."""
+
+    density_zyx, mask_zyx, spacing, origin = load_density_and_mask(
+        model_config,
+        base_dir=base_dir,
+        preprocessing_config=preprocessing_config,
+        allow_foreground_mask=True,
+    )
+    return PreprocessedInputsPreview(
+        density_zyx=np.asarray(density_zyx, dtype=np.float64),
+        mask_zyx=np.asarray(mask_zyx),
+        spacing=tuple(float(value) for value in spacing),
+        origin=tuple(float(value) for value in origin),
+        metadata={
+            "model_space": "sample",
+            "preprocessing": dict(preprocessing_config or {}),
+        },
+    )
+
+
 def load_density_and_mask(
     model_config: dict[str, Any],
     *,
     base_dir: Path,
     preprocessing_config: dict[str, Any] | None = None,
+    allow_foreground_mask: bool = False,
 ) -> tuple[
     np.ndarray, np.ndarray, tuple[float, float, float], tuple[float, float, float]
 ]:
     density_path = resolve_path(model_config["density_image"], base_dir=base_dir)
-    mask_path = resolve_path(model_config["mask_image"], base_dir=base_dir)
     density_zyx, spacing, origin = read_image_zyx(density_path)
-    mask_zyx, mask_spacing, _mask_origin = read_image_zyx(mask_path)
+    mask_path_value = model_config.get("mask_image")
+    if mask_path_value:
+        mask_path = resolve_path(mask_path_value, base_dir=base_dir)
+        mask_zyx, mask_spacing, _mask_origin = read_image_zyx(mask_path)
+    elif allow_foreground_mask:
+        mask_zyx = np.asarray(density_zyx != 0, dtype=np.uint8)
+        mask_spacing = spacing
+    else:
+        raise KeyError("mask_image")
     if density_zyx.shape != mask_zyx.shape:
         raise ValueError(
             f"density image shape {density_zyx.shape} does not match mask shape {mask_zyx.shape}"

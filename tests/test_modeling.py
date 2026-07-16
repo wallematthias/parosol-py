@@ -9,6 +9,7 @@ from parosol_py.config import _image_metadata, _read_image_array_zyx
 from parosol_py.modeling import build_model
 from parosol_py.modeling.common import (
     _shift_boundary_conditions_for_crop,
+    build_preprocessed_inputs_preview,
     load_density_and_mask,
     material_from_density,
     occupied_length_mm,
@@ -33,6 +34,7 @@ from parosol_py.modeling.workflow_replay import (
     _scale_reference_points_preserving_pose,
     _workflow_active_mask,
     _workflow_model_mask,
+    build_workflow_replay_preview,
     build_workflow_replay_model,
 )
 from parosol_py.nodesets import nodes_from_labeled_voxels
@@ -509,6 +511,51 @@ def test_model_preprocessing_smooths_density_and_labels_together(tmp_path: Path)
     assert 0.0 < smoothed_density[4, 4, 3] < 100.0
     assert smoothed_density[4, 4, 4] < 100.0
     assert np.count_nonzero(smoothed_mask == 2) > 1
+
+
+def test_preprocessed_inputs_preview_uses_shared_model_preprocessing(tmp_path: Path):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    density[2:5, 2:5, 2:5] = 100.0
+    density[7, 7, 7] = 200.0
+    mask = np.zeros_like(density, dtype=np.uint8)
+    mask[2:5, 2:5, 2:5] = 20
+    mask[7, 7, 7] = 20
+
+    density_img = sitk.GetImageFromArray(density)
+    mask_img = sitk.GetImageFromArray(mask)
+    for image in (density_img, mask_img):
+        image.SetSpacing((1.0, 1.0, 1.0))
+        image.SetOrigin((0.0, 0.0, 0.0))
+    sitk.WriteImage(density_img, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_img, str(tmp_path / "mask.nii.gz"))
+
+    model_config = {
+        "density_image": "density.nii.gz",
+        "mask_image": "mask.nii.gz",
+    }
+    preprocessing_config = {
+        "largest_cc": True,
+        "crop_to_bb": {"enabled": True, "margin_voxels": 0},
+    }
+    preview = build_preprocessed_inputs_preview(
+        model_config,
+        base_dir=tmp_path,
+        preprocessing_config=preprocessing_config,
+    )
+    expected_density, expected_mask, expected_spacing, expected_origin = load_density_and_mask(
+        model_config,
+        base_dir=tmp_path,
+        preprocessing_config=preprocessing_config,
+    )
+
+    assert preview.density_zyx.shape == (3, 3, 3)
+    assert preview.mask_zyx.shape == (3, 3, 3)
+    np.testing.assert_allclose(preview.density_zyx, expected_density)
+    np.testing.assert_array_equal(preview.mask_zyx, expected_mask)
+    assert tuple(preview.spacing) == expected_spacing
+    assert tuple(preview.origin) == expected_origin
+    assert set(np.unique(preview.mask_zyx).astype(int)) == {20}
+    assert preview.metadata["preprocessing"]["largest_cc"] is True
 
 
 def test_model_preprocessing_smooth_spacing_guard(tmp_path: Path):
@@ -2057,6 +2104,111 @@ def test_workflow_replay_reference_model_space_keeps_reference_plane_axial(
     assert built.metadata["model"]["registration"]["applied_to_model_grid"] is True
     z_values = [node[2] for node in built.node_sets["superior_disk"]]
     assert max(z_values) - min(z_values) <= 2
+
+
+def test_workflow_replay_preview_uses_same_reference_grid_as_model_builder(
+    tmp_path: Path,
+):
+    density = np.zeros((10, 10, 10), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[3:7, 3:7, 3:7] = 700.0
+    mask[3:7, 3:7, 3:7] = 20
+
+    density_img = sitk.GetImageFromArray(density)
+    mask_img = sitk.GetImageFromArray(mask)
+    for image in (density_img, mask_img):
+        image.SetSpacing((1.0, 1.0, 1.0))
+        image.SetOrigin((0.0, 0.0, 0.0))
+    sitk.WriteImage(density_img, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_img, str(tmp_path / "mask.nii.gz"))
+
+    reference_points = _canonical_surface_points_from_mask_image(
+        tmp_path / "mask.nii.gz",
+        20,
+    )
+    np.savez(tmp_path / "reference_points.npz", points=reference_points)
+
+    model_config = {
+        "type": "workflow_replay",
+        "density_image": "density.nii.gz",
+        "mask_image": "mask.nii.gz",
+        "labels": {"body": 20},
+        "workflow_replay": {
+            "enabled": True,
+            "model_space": "reference",
+            "reference_points": "reference_points.npz",
+        },
+        "registration": {
+            "enabled": True,
+            "reference_points": "reference_points.npz",
+            "initialization": "centroid",
+            "max_points": 2000,
+            "iterations": 5,
+        },
+        "slicer_editor": {
+            "planes": [
+                {
+                    "name": "Superior disk",
+                    "reference_space": True,
+                    "contact": "Material disks",
+                    "surface_mode": "project_bounded",
+                    "shape": "anatomy",
+                    "thickness_mm": 2.0,
+                    "intrusion_depth_mm": 1.0,
+                    "use_plane_size": True,
+                    "center_ras": [-4.5, -4.5, 8.0],
+                    "normal_ras": [0.0, 0.0, -1.0],
+                    "u_axis_ras": [1.0, 0.0, 0.0],
+                    "v_axis_ras": [0.0, 1.0, 0.0],
+                    "size_mm": [4.0, 4.0],
+                }
+            ]
+        },
+    }
+
+    preview = build_workflow_replay_preview(
+        model_config,
+        base_dir=tmp_path,
+    )
+    built = build_workflow_replay_model(
+        model_config,
+        base_dir=tmp_path,
+        material_config={
+            "density": {"equation": "linear", "slope": 10.0},
+            "poisson_ratio": 0.3,
+            "pmma": {"E": 2500, "nu": 0.3},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "prescribed": [{"nodeset": "superior_disk", "dof": "z", "value": -1.0}],
+        },
+        nodeset_config={
+            "superior_disk": {
+                "type": "label_image",
+                "label": 201,
+                "selection": "surface_nodes",
+            }
+        },
+    )
+
+    assert preview.metadata["model_space"] == "reference"
+    assert preview.metadata["registration"]["applied_to_model_grid"] is True
+    assert preview.spacing == pytest.approx(built.spacing)
+    offset_xyz = np.rint(
+        (np.asarray(built.origin) - np.asarray(preview.origin))
+        / np.asarray(preview.spacing)
+    ).astype(int)
+    assert np.all(offset_xyz >= 0)
+    offset_zyx = offset_xyz[::-1]
+    shape_zyx = np.asarray(built.postprocess_mask.shape)
+    upper_zyx = offset_zyx + shape_zyx
+    assert np.all(upper_zyx <= np.asarray(preview.model_mask_zyx.shape))
+    preview_subset = preview.model_mask_zyx[
+        offset_zyx[0] : upper_zyx[0],
+        offset_zyx[1] : upper_zyx[1],
+        offset_zyx[2] : upper_zyx[2],
+    ]
+    np.testing.assert_array_equal(preview_subset, built.postprocess_mask)
 
 
 def test_workflow_replay_without_registration_stays_in_sample_space(tmp_path: Path):

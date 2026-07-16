@@ -118,9 +118,9 @@
       "batch_case_count": 0,
       "bundle_member_sha256": {
         "reference/slicer_reference_points.npy": "a759e487b10a73217424f3e559d59c7d9b948dacdd07aca8c6e262c6e5d198a1",
-        "workflow.yaml": "11af77af8413a2cebe381b73cec2e41b1b9e77f828660e7f44bec161d407898a"
+        "workflow.yaml": "efe755ea61eecd18b8ca6550ddbae66c9dbe92508f9ac1d8301fd19e053d5d90"
       },
-      "config_sha256": "72bf7b9a99a21faa8f94cc4e5f35377f65291808ebeb005f251a9dac6dffa608",
+      "config_sha256": "a769022b95d34e2f2d421d0d721d253810b766c46e6a3354a416d173775f0757",
       "load_case_type": "nodeset",
       "load_count": 2,
       "model_type": "workflow_replay",

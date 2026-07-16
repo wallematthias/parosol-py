@@ -156,15 +156,20 @@ def test_spine_workflow_cap_geometry_matches_locked_settings():
     disk = loaded["model"]["geometry"]["disk"]
     smooth = loaded["preprocessing"]["smooth"]
     density = loaded["materials"]["density"]
+    planes = loaded["slicer_editor"]["planes"]
 
     assert smooth["enabled"] is True
     assert smooth["labels"] is True
     assert smooth["density"] is False
     assert density["input_transform"] == {"equation": "linear", "clamp_min": -31.0}
     assert density["E"]["floor_e_mpa"] == 0.0001
+    assert loaded["solver"]["outputs"] == ["sed"]
+    assert loaded["output"]["fields"] == ["sed"]
     assert disk["thickness_mm"] == 10.0
     assert disk["intrusion_depth_mm"] == 6.0
-    for plane in loaded["slicer_editor"]["planes"]:
+    assert planes[0]["center_fraction"] == [0.5, 0.5, 1.25]
+    assert planes[1]["center_fraction"] == [0.5, 0.5, -0.25]
+    for plane in planes:
         if plane["contact"] == "Material disks":
             assert plane["thickness_mm"] == 10.0
             assert plane["intrusion_depth_mm"] == 6.0

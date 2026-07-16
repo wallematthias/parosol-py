@@ -52,15 +52,29 @@ class _CroppedWorkflowModel:
     crop: dict[str, Any]
 
 
-def build_workflow_replay_model(
+@dataclass(slots=True)
+class WorkflowReplayPreview:
+    density_zyx: np.ndarray
+    mask_zyx: np.ndarray
+    registration_mask_zyx: np.ndarray
+    projection_mask_zyx: np.ndarray
+    model_mask_zyx: np.ndarray
+    spacing: tuple[float, float, float]
+    origin: tuple[float, float, float]
+    registration_config: dict[str, Any]
+    transform: dict[str, Any]
+    metadata: dict[str, Any]
+    reference_points: np.ndarray | None = None
+
+
+def build_workflow_replay_preview(
     model_config: dict[str, Any],
     *,
     base_dir: Path,
-    material_config: dict[str, Any],
-    load_case_config: dict[str, Any] | None = None,
     preprocessing_config: dict[str, Any] | None = None,
-    nodeset_config: dict[str, Any] | None = None,
-) -> BuiltModel:
+) -> WorkflowReplayPreview:
+    """Build the shared pre-boundary-condition replay grid."""
+
     replay_cfg = model_config.get("workflow_replay", {})
     if not isinstance(replay_cfg, dict) or not replay_cfg.get("enabled", False):
         raise ValueError("workflow replay requires model.workflow_replay.enabled=true")
@@ -107,6 +121,7 @@ def build_workflow_replay_model(
     registration_mask_zyx = np.asarray(padded["registration"], dtype=bool)
     projection_mask_zyx = np.asarray(padded["projection"], dtype=bool)
     model_mask_zyx = np.asarray(padded["model"], dtype=bool)
+
     registration_cfg = _workflow_registration_config(model_config, replay_cfg)
     if _workflow_registration_enabled(registration_cfg):
         registration_meta, transform = _estimate_reference_to_sample_transform(
@@ -124,7 +139,9 @@ def build_workflow_replay_model(
             "iterations": 0,
             "mean_distance": 0.0,
         }
+
     model_space = _workflow_model_space(replay_cfg, registration_cfg)
+    reference_points = None
     if model_space == "reference":
         aligned = _align_workflow_arrays_to_reference(
             density_zyx=density_zyx,
@@ -144,6 +161,7 @@ def build_workflow_replay_model(
         model_mask_zyx = aligned["model"]
         origin = aligned["origin"]
         registration_meta = aligned["metadata"]
+        reference_points = aligned.get("reference_points")
         transform = {
             "rotation": np.eye(3),
             "translation": np.zeros(3),
@@ -168,6 +186,50 @@ def build_workflow_replay_model(
         registration_mask_zyx = np.asarray(padded_for_planes["registration"], dtype=bool)
         projection_mask_zyx = np.asarray(padded_for_planes["projection"], dtype=bool)
         model_mask_zyx = np.asarray(padded_for_planes["model"], dtype=bool)
+
+    return WorkflowReplayPreview(
+        density_zyx=np.asarray(density_zyx, dtype=np.float64),
+        mask_zyx=np.asarray(mask_zyx),
+        registration_mask_zyx=np.asarray(registration_mask_zyx, dtype=bool),
+        projection_mask_zyx=np.asarray(projection_mask_zyx, dtype=bool),
+        model_mask_zyx=np.asarray(model_mask_zyx, dtype=bool),
+        spacing=tuple(float(value) for value in spacing),
+        origin=tuple(float(value) for value in origin),
+        registration_config=registration_cfg,
+        transform=transform,
+        metadata={
+            "model_space": model_space,
+            "registration": registration_meta,
+        },
+        reference_points=reference_points,
+    )
+
+
+def build_workflow_replay_model(
+    model_config: dict[str, Any],
+    *,
+    base_dir: Path,
+    material_config: dict[str, Any],
+    load_case_config: dict[str, Any] | None = None,
+    preprocessing_config: dict[str, Any] | None = None,
+    nodeset_config: dict[str, Any] | None = None,
+) -> BuiltModel:
+    preview = build_workflow_replay_preview(
+        model_config,
+        base_dir=base_dir,
+        preprocessing_config=preprocessing_config,
+    )
+    replay_cfg = model_config.get("workflow_replay", {})
+    density_zyx = preview.density_zyx
+    projection_mask_zyx = preview.projection_mask_zyx
+    model_mask_zyx = preview.model_mask_zyx
+    spacing = preview.spacing
+    origin = preview.origin
+    registration_cfg = preview.registration_config
+    registration_meta = dict(preview.metadata.get("registration", {}))
+    model_space = str(preview.metadata.get("model_space", "sample"))
+    transform = preview.transform
+    editor = model_config.get("slicer_editor")
 
     bone_mpa_zyx, poisson_ratio = material_from_density(
         density_zyx,
@@ -1569,6 +1631,7 @@ def _align_workflow_arrays_to_reference(
             "icp_direction": icp_direction,
             "applied_to_model_grid": True,
         },
+        "reference_points": reference_points,
     }
 
 

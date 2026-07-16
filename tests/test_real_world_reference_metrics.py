@@ -28,6 +28,7 @@ def test_real_world_core_metric_lock_is_complete_and_discoverable():
         ("parosol-py", "xtremect_tibia_mini", "load_history_6"),
         ("parosol-py", "vertebra_l4_mini", "spine-compression"),
         ("parosol-py", "femur_left_mini", "hip-sideways-fall-left"),
+        ("parosol-py", "femur_left_mini", "hip-compression-manual"),
         ("ogo", "vertebra_l4_mini", "spine-compression"),
         ("ogo", "femur_left_mini", "hip-sideways-fall-left"),
         ("faim", "xtremect_tibia_mini", "XtremeCTI"),
@@ -64,6 +65,12 @@ def test_real_world_canonical_metric_values_are_locked():
     assert records[
         ("parosol-py", "femur_left_mini", "hip-sideways-fall-left")
     ]["stiffness_n_per_mm"] == pytest.approx(1614.9917086520325)
+    assert records[
+        ("parosol-py", "femur_left_mini", "hip-compression-manual")
+    ]["stiffness_n_per_mm"] == pytest.approx(1633.8266426868377)
+    assert records[
+        ("parosol-py", "femur_left_mini", "hip-compression-manual")
+    ]["applied_displacement_mm"] == pytest.approx(-1.0)
     assert records[
         ("parosol-py", "vertebra_l4_mini", "spine-compression")
     ]["target_deformation_percent"] == pytest.approx(0.6800000057664028)
