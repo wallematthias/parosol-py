@@ -24,6 +24,7 @@ def _load_runner_module():
 
 
 _runner = _load_runner_module()
+_runner._package_bin_dir = lambda: ROOT / "src" / "parosol_py" / "bin"
 mpi_runtime_environment = _runner.mpi_runtime_environment
 packaged_mpi_launcher = _runner.packaged_mpi_launcher
 resolve_mpi_launcher = _runner.resolve_mpi_launcher

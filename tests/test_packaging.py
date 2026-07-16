@@ -71,6 +71,16 @@ def test_pyproject_declares_native_wheel_build_settings():
     assert "DESTINATION parosol_py/bin" in cmake
     assert "install(PROGRAMS ${PAROSOL_MPI_RUNTIME_PROGRAMS}" in cmake
     assert "PAROSOL_WINDOWS_RUNTIME_DLLS" in cmake
+    assert (
+        pyproject["tool"]["cibuildwheel"]["windows"]["before-all"]
+        == "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_windows_wheel_deps.ps1"
+    )
+    windows_deps = (
+        ROOT / "scripts" / "install_windows_wheel_deps.ps1"
+    ).read_text(encoding="utf-8")
+    assert "MaxAttempts" in windows_deps
+    assert "Start-Sleep" in windows_deps
+    assert "hdf5[cpp]:x64-windows" in windows_deps
 
 
 def test_packaged_mpi_verifier_does_not_import_package_init():
@@ -79,6 +89,7 @@ def test_packaged_mpi_verifier_does_not_import_package_init():
     )
 
     assert "importlib.util.spec_from_file_location" in script
+    assert '_package_bin_dir = lambda: ROOT / "src" / "parosol_py" / "bin"' in script
     assert "from parosol_py.runner import" not in script
 
 

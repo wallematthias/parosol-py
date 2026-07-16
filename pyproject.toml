@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "parosol-py"
-version = "0.1.15"
+version = "0.1.16"
 description = "Python package and API wrapper for the ParOSol micro-FE solver"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -62,7 +62,7 @@ repair-wheel-command = "python -m pip install delocate && delocate-wheel --requi
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
-before-all = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$ErrorActionPreference = 'Stop'; winget install --id Microsoft.msmpi --exact --silent --accept-package-agreements --accept-source-agreements; if (-not (Test-Path 'C:\\Program Files\\Microsoft MPI\\Bin\\mpiexec.exe')) { throw 'MS-MPI redistributable install did not produce mpiexec.exe' }; if (-not (Test-Path 'C:\\vcpkg')) { git clone --depth 1 https://github.com/microsoft/vcpkg C:\\vcpkg }; & C:\\vcpkg\\bootstrap-vcpkg.bat; & C:\\vcpkg\\vcpkg.exe install eigen3:x64-windows hdf5[cpp]:x64-windows msmpi:x64-windows --disable-metrics\""
+before-all = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_windows_wheel_deps.ps1"
 environment = { CMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake", VCPKG_TARGET_TRIPLET="x64-windows" }
 repair-wheel-command = "python -m pip install delvewheel && delvewheel repair -w {dest_dir} {wheel}"
 
