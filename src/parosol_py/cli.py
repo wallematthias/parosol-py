@@ -245,6 +245,9 @@ def _run(args: argparse.Namespace) -> int:
         result = run_case_config(
             args.config, dry_run=True if args.dry_run else None, work_dir=args.work_dir
         )
+    if isinstance(result, dict) and isinstance(result.get("batch"), dict):
+        print(f"summary: {result['batch']['summary']}")
+        return 0
     print(f"input: {result.input_file}")
     if result.exported:
         for name, path in sorted(result.exported.items()):

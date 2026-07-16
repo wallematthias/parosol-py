@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .batch import run_batch_config
 from .config import run_case_config
 from .paths import suffix_text
 
@@ -119,6 +120,8 @@ def run_bundle(
     _prepare_runtime_outputs(config, output_dir=out, bundle_path=bundle)
     runtime_config = out / BUNDLE_CONFIG
     runtime_config.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    if _is_batch_config(config):
+        return run_batch_config(runtime_config, dry_run=dry_run, work_dir=out)
     return run_case_config(runtime_config, dry_run=dry_run, work_dir=out)
 
 
@@ -130,18 +133,26 @@ def _portable_config(config: dict[str, Any]) -> dict[str, Any]:
     import copy
 
     portable = copy.deepcopy(config)
+    is_batch = _is_batch_config(portable)
     case_cfg = _section(portable, "case")
-    case_cfg["work_dir"] = "."
+    case_name = str(case_cfg.get("name") or "parosol_case")
+    case_cfg["work_dir"] = case_name if is_batch else "."
     output_cfg = _section(portable, "output")
-    output_cfg["result"] = "result.json"
-    output_cfg["summary"] = "result.json"
-    output_cfg["run_summary"] = "summary.json"
-    output_cfg["fields_dir"] = "fields"
+    case_prefix = f"{case_name}/" if is_batch else ""
+    output_cfg["result"] = f"{case_prefix}result.json"
+    output_cfg["summary"] = output_cfg["result"]
+    output_cfg["run_summary"] = f"{case_prefix}summary.json"
+    output_cfg["fields_dir"] = f"{case_prefix}fields"
     if output_cfg.get("visualization", True) is not False:
-        output_cfg["visualization"] = "overview.png"
+        output_cfg["visualization"] = f"{case_prefix}overview.png"
+    if is_batch:
+        batch_cfg = _section(portable, "batch")
+        batch_cfg["work_dir"] = "."
+        batch_cfg["summary"] = "result.json"
+        _set_load_history_outputs(portable, output_dir=PurePosixPath("."), portable=True)
     execution = portable.setdefault("execution", {})
     if isinstance(execution, dict):
-        execution["interface"] = "bundle"
+        execution["interface"] = "bundle-batch" if is_batch else "bundle"
     return portable
 
 
@@ -284,24 +295,69 @@ def _prepare_runtime_outputs(
     output_dir: Path,
     bundle_path: Path,
 ) -> None:
+    is_batch = _is_batch_config(config)
     case_cfg = _section(config, "case")
-    case_cfg["work_dir"] = str(output_dir)
+    case_name = str(case_cfg.get("name") or "parosol_case")
+    case_dir = output_dir / case_name if is_batch else output_dir
+    case_cfg["work_dir"] = str(case_dir)
     output_cfg = _section(config, "output")
-    output_cfg["result"] = str(output_dir / "result.json")
+    output_cfg["result"] = str(case_dir / "result.json")
     output_cfg["summary"] = output_cfg["result"]
-    output_cfg["run_summary"] = str(output_dir / "summary.json")
-    output_cfg["fields_dir"] = str(output_dir / "fields")
+    output_cfg["run_summary"] = str(case_dir / "summary.json")
+    output_cfg["fields_dir"] = str(case_dir / "fields")
     if output_cfg.get("visualization", True) is not False:
-        output_cfg["visualization"] = str(output_dir / "overview.png")
+        output_cfg["visualization"] = str(case_dir / "overview.png")
+    if is_batch:
+        batch_cfg = _section(config, "batch")
+        batch_cfg["work_dir"] = str(output_dir)
+        batch_cfg["summary"] = str(output_dir / "result.json")
+        _set_load_history_outputs(config, output_dir=output_dir, portable=False)
     execution = config.setdefault("execution", {})
     if isinstance(execution, dict):
         execution.update(
             {
-                "interface": "bundle",
+                "interface": "bundle-batch" if is_batch else "bundle",
                 "bundle": str(bundle_path),
                 "output_dir": str(output_dir),
             }
         )
+
+
+def _is_batch_config(config: dict[str, Any]) -> bool:
+    return isinstance(config.get("batch"), dict)
+
+
+def _set_load_history_outputs(
+    config: dict[str, Any],
+    *,
+    output_dir: Path | PurePosixPath,
+    portable: bool,
+) -> None:
+    postprocess = config.get("postprocess")
+    if not isinstance(postprocess, dict):
+        return
+    load_history = postprocess.get("load_history")
+    if not isinstance(load_history, dict):
+        return
+
+    def path_text(path: Path | PurePosixPath) -> str:
+        return path.as_posix() if portable and hasattr(path, "as_posix") else str(path)
+
+    summary_name = Path(str(load_history.get("summary") or "load_history_summary.json")).name
+    output_name = Path(
+        str(load_history.get("output") or "load_history_estimated_sed.nii.gz")
+    ).name
+    load_history["summary"] = path_text(output_dir / summary_name)
+    load_history["output"] = path_text(output_dir / "fields" / output_name)
+
+    final_rerun = load_history.get("final_rerun")
+    if isinstance(final_rerun, dict) and (
+        final_rerun.get("enabled", False) or final_rerun.get("output")
+    ):
+        final_name = Path(
+            str(final_rerun.get("output") or "load_history_final_sed.nii.gz")
+        ).name
+        final_rerun["output"] = path_text(output_dir / "fields" / final_name)
 
 
 def _section(config: dict[str, Any], name: str) -> dict[str, Any]:
