@@ -53,6 +53,7 @@ class BoundaryConditionSet:
         default_factory=lambda: np.zeros((0,), dtype=np.float32)
     )
     node_sets: dict[str, list[tuple[int, int, int]]] = field(default_factory=dict)
+    reference_lengths_mm: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -88,6 +89,10 @@ class BoundaryConditionSet:
                 name: [list(coord) for coord in coords]
                 for name, coords in self.node_sets.items()
             },
+            "reference_lengths_mm": {
+                str(axis): float(value)
+                for axis, value in self.reference_lengths_mm.items()
+            },
         }
 
     @classmethod
@@ -102,6 +107,10 @@ class BoundaryConditionSet:
             node_sets={
                 name: [tuple(int(v) for v in coord) for coord in coords]
                 for name, coords in data.get("node_sets", {}).items()
+            },
+            reference_lengths_mm={
+                str(axis): float(value)
+                for axis, value in data.get("reference_lengths_mm", {}).items()
             },
         )
 

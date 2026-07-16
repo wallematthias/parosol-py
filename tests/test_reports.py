@@ -10,6 +10,7 @@ from parosol_py.reports import (
     parse_legacy_analysis_file,
     parse_pistoia_file,
     solve_summary_dict,
+    write_results_csv,
     write_summary_json,
 )
 from parosol_py.api import SolveResult, SolveSummary
@@ -119,3 +120,65 @@ def test_compact_summary_uses_model_stiffness_as_primary_result():
     assert compact["results"]["generalized_stiffness"]["value"] == pytest.approx(40.0)
     assert compact["results"]["interface_stiffness"]["value"] == pytest.approx(80.0)
     assert compact["results"]["stiffness_by_axis"]["z"] == pytest.approx(40.0)
+
+
+def test_write_results_csv_exports_compact_single_row(tmp_path: Path):
+    summary = {
+        "case": {"name": "sample"},
+        "load_case": {"type": "constrained_axial", "axis": "z"},
+        "mechanics": {
+            "load_direction": "z",
+            "reaction_force": {"x": 1.0, "y": 2.0, "z": -10.0},
+            "stiffness": {"x": None, "y": None, "z": 50.0},
+            "generalized_load": {"name": "force", "value": -10.0, "units": "N"},
+            "generalized_stiffness": {
+                "name": "stiffness",
+                "value": 50.0,
+                "units": "N/mm",
+            },
+        },
+        "failure": {
+            "criterion": "pistoia",
+            "factor": 0.5,
+            "critical_strain": 0.007,
+            "critical_volume_percent": 2.0,
+            "ees_at_critical_volume": 0.01,
+            "failure_load": {"x": None, "y": None, "z": -5.0},
+            "failure_generalized_load": {"name": "force", "value": -5.0, "units": "N"},
+        },
+        "solver": {"iterations": 20, "relative_residual": 1.0e-6, "runtime_seconds": 3.5},
+    }
+
+    path = write_results_csv(tmp_path / "results.csv", summary)
+    text = path.read_text(encoding="utf-8")
+
+    assert "case_name,load_case_type,load_axis,load_direction" in text
+    assert "sample,constrained_axial,z,z,1.0,2.0,-10.0" in text
+    assert "pistoia" in text
+
+
+def test_write_results_csv_includes_model_crop_warnings(tmp_path: Path):
+    summary = {
+        "case": {"name": "hip_sample"},
+        "load_case": {"type": "sideways_fall", "axis": "y"},
+        "mechanics": {},
+        "failure": {},
+        "solver": {},
+        "model": {
+            "type": "hip-sideways-fall-left",
+            "shaft_standardization": {
+                "cut_mode": "proportional_length",
+                "retain_multiplier": 1.35,
+                "warnings": [
+                    "requested retained length exceeds occupied length along the cut axis; crop collapses to full extent"
+                ],
+            },
+        },
+    }
+
+    path = write_results_csv(tmp_path / "results.csv", summary)
+    text = path.read_text(encoding="utf-8")
+
+    assert "model_warning_count" in text
+    assert "model_warnings" in text
+    assert "crop collapses to full extent" in text

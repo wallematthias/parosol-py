@@ -54,9 +54,9 @@ def run_batch_config(
         )
         full_case_configs.append(case_config)
         run_case_config(case_path, dry_run=dry_run, work_dir=None)
-        case_summary_path = case_config["output"].get("result") or case_config[
-            "output"
-        ]["summary"]
+        case_summary_path = (
+            case_config["output"].get("result") or case_config["output"]["summary"]
+        )
         case_summary = _read_case_summary(Path(case_summary_path))
         full_case_summaries.append(case_summary)
         case_summaries.append(_compact_case_summary(case_summary))
@@ -147,12 +147,12 @@ def _run_batch_postprocess(
         critical_volume_percent=float(
             load_history_cfg.get("critical_volume_percent", 2.0)
         ),
-            input_load_amplitudes=_case_input_load_amplitudes(
-                selected_case_summaries,
-                case_configs=_load_history_case_configs(
-                    case_configs, selected_summaries=selected_case_summaries
-                ),
+        input_load_amplitudes=_case_input_load_amplitudes(
+            selected_case_summaries,
+            case_configs=_load_history_case_configs(
+                case_configs, selected_summaries=selected_case_summaries
             ),
+        ),
     )
     load_history_cfg["status"] = "computed"
     load_history_cfg["input_fields"] = [str(path) for path in load_case_paths]
@@ -201,7 +201,9 @@ def _run_load_history_final_rerun(
             "load-history final rerun needs one estimated amplitude per selected unit case"
         )
     case_override = copy.deepcopy(final_cfg.get("case", {}))
-    case_override.setdefault("name_suffix", final_cfg.get("name_suffix", "final_combined"))
+    case_override.setdefault(
+        "name_suffix", final_cfg.get("name_suffix", "final_combined")
+    )
     rerun_config = _case_config(
         base_config,
         case_override,
@@ -229,7 +231,9 @@ def _run_load_history_final_rerun(
         case_name=rerun_config["case"]["name"],
     )
     run_case_config(case_path, dry_run=False, work_dir=None)
-    summary_path = rerun_config["output"].get("result") or rerun_config["output"]["summary"]
+    summary_path = (
+        rerun_config["output"].get("result") or rerun_config["output"]["summary"]
+    )
     final_summary = _read_case_summary(Path(summary_path))
     final_output = final_cfg.get("output")
     final_field = str(final_cfg.get("field", "sed"))
@@ -279,7 +283,9 @@ def _combined_nodeset_load_case(
     for index, case_config in enumerate(case_configs):
         load_case = case_config.get("load_case", {})
         if str(load_case.get("type", "")).strip().lower() not in {"nodeset", "custom"}:
-            raise ValueError("load-history final rerun currently requires nodeset unit cases")
+            raise ValueError(
+                "load-history final rerun currently requires nodeset unit cases"
+            )
         scale = _load_history_case_scale(
             load_amplitudes[index],
             input_amplitudes[index] if index < len(input_amplitudes) else 1.0,
@@ -319,7 +325,16 @@ def _scaled_load_value(value, scale: float):
     if isinstance(value, str):
         text = value.strip()
         suffix = ""
-        for candidate in ("degrees", "degree", "deg", "radians", "radian", "rad", "mm", "%"):
+        for candidate in (
+            "degrees",
+            "degree",
+            "deg",
+            "radians",
+            "radian",
+            "rad",
+            "mm",
+            "%",
+        ):
             if text.lower().endswith(candidate):
                 suffix = text[-len(candidate) :]
                 text = text[: -len(candidate)].strip()
@@ -397,10 +412,7 @@ def _generalized_load_amplitude(summary: dict[str, Any]) -> float | None:
     if str(generalized.get("name", "")).strip().lower() == "moment":
         vector = generalized.get("vector")
         if isinstance(vector, dict):
-            values = [
-                float(vector.get(axis, 0.0) or 0.0)
-                for axis in ("x", "y", "z")
-            ]
+            values = [float(vector.get(axis, 0.0) or 0.0) for axis in ("x", "y", "z")]
             magnitude = float(np.linalg.norm(values))
             if np.isfinite(magnitude) and magnitude > 0.0:
                 return magnitude
@@ -528,17 +540,24 @@ def _load_history_amplitude_entry(
     return entry
 
 
-def _scaled_generalized_vector(amplitude: float, generalized: dict[str, Any]) -> dict[str, float] | None:
+def _scaled_generalized_vector(
+    amplitude: float, generalized: dict[str, Any]
+) -> dict[str, float] | None:
     load_type = str(generalized.get("name", "")).strip().lower()
     if load_type == "moment" and isinstance(generalized.get("vector"), dict):
         source = np.asarray(
-            [float(generalized["vector"].get(axis, 0.0) or 0.0) for axis in ("x", "y", "z")],
+            [
+                float(generalized["vector"].get(axis, 0.0) or 0.0)
+                for axis in ("x", "y", "z")
+            ],
             dtype=np.float64,
         )
         norm = float(np.linalg.norm(source))
         if np.isfinite(norm) and norm > 0.0:
             scaled = source * (float(amplitude) / norm)
-            return {axis: float(scaled[index]) for index, axis in enumerate(("x", "y", "z"))}
+            return {
+                axis: float(scaled[index]) for index, axis in enumerate(("x", "y", "z"))
+            }
     if load_type == "force":
         component = str(generalized.get("component", "")).strip().lower()
         if component in {"x", "y", "z"}:
@@ -591,6 +610,10 @@ def _case_config(
     config["output"]["run_summary"] = str(case_work_dir / "summary.json")
     config["output"]["fields_dir"] = str(case_work_dir / "fields")
     config["output"]["visualization"] = str(case_work_dir / "overview.png")
+    if "material_image" in config["output"]:
+        config["output"]["material_image"] = str(
+            case_work_dir / "model" / "material.nii.gz"
+        )
     if "boundary_conditions" in config["output"]:
         config["output"]["boundary_conditions"] = str(
             case_work_dir / "boundary_conditions.json"

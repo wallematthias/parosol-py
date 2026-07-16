@@ -1,0 +1,397 @@
+{
+  "fixture": "vertebra_l4_mini",
+  "grid": {
+    "array_order": "zyx",
+    "coordinate_system": "RAS",
+    "direction_ras": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "origin_ras": [
+      -394.6617736816406,
+      3.39208984375,
+      295.07342529296875
+    ],
+    "shape_zyx": [
+      64,
+      102,
+      98
+    ],
+    "spacing_xyz": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "units": "mm"
+  },
+  "role": "reference",
+  "summary": {
+    "alignment": {
+      "method": "scaled ICP to reference vertebral body",
+      "reference_path": "/Users/matthias.walle/Documents/14_GitHub/active/Ogo/ogo/dat/L4_BODY_SPINE_COMPRESSION_REF.vtk",
+      "registration_backend": "vtk",
+      "registration_max_scale": "1.2,1.2,1.3",
+      "registration_min_scale": "0.8,0.8,0.75",
+      "registration_scale": "auto"
+    },
+    "boundary_conditions": {
+      "constraints": [
+        {
+          "axis": "z",
+          "characteristic_length_mm": 43.0,
+          "meaning": "superior PMMA cap prescribed toward inferior cap",
+          "name": "top_displacement",
+          "node_set": "body_top",
+          "target_displacement_percent": 0.68,
+          "value_mm": -0.2924,
+          "value_source": "target_displacement_percent * characteristic_length_mm / 100"
+        },
+        {
+          "axis": "z",
+          "meaning": "inferior PMMA cap fixed in compression direction",
+          "name": "bottom_fixed",
+          "node_set": "body_bottom",
+          "value_mm": 0.0
+        }
+      ],
+      "fixture_geometry": {
+        "inferior_cap": {
+          "label_id": 3,
+          "meaning": "fixed-thickness anatomy cap: pmma_thickness_mm is total cap thickness; pmma_intrusion_mm controls how far anatomy can occupy that fixed thickness without overwriting body bone",
+          "node_set": "body_bottom",
+          "pmma_intrusion_mm": 6.0,
+          "pmma_thickness_mm": 10.0,
+          "shape": "fixed-thickness anatomy cap"
+        },
+        "superior_cap": {
+          "label_id": 4,
+          "meaning": "fixed-thickness anatomy cap: pmma_thickness_mm is total cap thickness; pmma_intrusion_mm controls how far anatomy can occupy that fixed thickness without overwriting body bone",
+          "node_set": "body_top",
+          "pmma_intrusion_mm": 6.0,
+          "pmma_thickness_mm": 10.0,
+          "shape": "fixed-thickness anatomy cap"
+        }
+      }
+    },
+    "geometry": {
+      "boundary_condition_coordinates": "defined from the generated model bounding box in the same physical space",
+      "model_coordinates": "preprocessed_image_physical_space",
+      "origin_policy": "cropping and resampling update the image origin; FE meshing preserves that origin"
+    },
+    "materials": {
+      "builder": "ogo.fea.materials.build_spine_material_table",
+      "convention": "region material IDs; 0 background, 1..128 trabecular, 129..256 cortical, PMMA explicit",
+      "cortical": {
+        "elastic_E_func": "kopperdahl_trab_E",
+        "material_id_range": [
+          129,
+          256
+        ],
+        "poissons_ratio": 0.3,
+        "yield_comp_func": null,
+        "yield_tens_func": null
+      },
+      "pmma": {
+        "elastic_E_MPa": 2500.0,
+        "material_id": 5000,
+        "poissons_ratio": 0.3,
+        "yield_compression_MPa": null,
+        "yield_tension_MPa": null
+      },
+      "poissons_ratio": 0.3,
+      "trabecular": {
+        "elastic_E_func": "kopperdahl_trab_E",
+        "material_id_range": [
+          1,
+          128
+        ],
+        "yield_comp_func": null,
+        "yield_tens_func": null
+      }
+    },
+    "model": "spine-compression",
+    "source": "ogo_faim",
+    "status": "derived_from_existing_reference_run",
+    "transform_chain": [
+      {
+        "interpolation": "nearest",
+        "matrix": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "name": "source_image_to_input_ras",
+        "note": "Axis-aligned source image converted to canonical RAS-positive array order.",
+        "source_space": "source_image_physical_space",
+        "target_space": "input_ras"
+      },
+      {
+        "interpolation": "nearest",
+        "matrix": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "name": "input_ras_to_preprocessed_ras",
+        "note": "Fixture crop preserves spacing and records the updated RAS origin.",
+        "source_space": "input_ras",
+        "target_space": "preprocessed_ras"
+      },
+      {
+        "interpolation": "nearest",
+        "matrix": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "name": "preprocessed_ras_to_solver_grid",
+        "note": "Mini fixture does not run solver preprocessing during ordinary tests.",
+        "source_space": "preprocessed_ras",
+        "target_space": "solver_grid"
+      },
+      {
+        "interpolation": "nearest",
+        "matrix": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "name": "solver_grid_to_visualization_ras_grid",
+        "note": "Visual reports are generated on the same RAS grid unless explicitly resampled.",
+        "source_space": "solver_grid",
+        "target_space": "visualization_ras_grid"
+      }
+    ]
+  },
+  "transform_chain": [
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "source_image_to_input_ras",
+      "note": "Axis-aligned source image converted to canonical RAS-positive array order.",
+      "source_space": "source_image_physical_space",
+      "target_space": "input_ras"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "input_ras_to_preprocessed_ras",
+      "note": "Fixture crop preserves spacing and records the updated RAS origin.",
+      "source_space": "input_ras",
+      "target_space": "preprocessed_ras"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "preprocessed_ras_to_solver_grid",
+      "note": "Mini fixture does not run solver preprocessing during ordinary tests.",
+      "source_space": "preprocessed_ras",
+      "target_space": "solver_grid"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "solver_grid_to_visualization_ras_grid",
+      "note": "Visual reports are generated on the same RAS grid unless explicitly resampled.",
+      "source_space": "solver_grid",
+      "target_space": "visualization_ras_grid"
+    }
+  ]
+}

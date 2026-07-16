@@ -272,19 +272,45 @@ def _set_component_path_if_exists(
 def _packaged_openmpi_prefix_for_launcher(launcher: Path) -> Path | None:
     prefix = _package_bin_dir() / "openmpi"
     try:
-        launcher.resolve().relative_to(prefix.resolve())
-    except (OSError, ValueError):
+        resolved_launcher = launcher.resolve()
+    except OSError:
         return None
-    return prefix
+    try:
+        resolved_launcher.relative_to(prefix.resolve())
+    except ValueError:
+        pass
+    else:
+        return prefix
+    candidate = resolved_launcher.parent.parent
+    if (
+        candidate.name == "openmpi"
+        and candidate.parent.name == "bin"
+        and candidate.parent.parent.name == "parosol_py"
+    ):
+        return candidate
+    return None
 
 
 def _packaged_msmpi_dir_for_launcher(launcher: Path) -> Path | None:
     msmpi_dir = _package_bin_dir() / "msmpi"
     try:
-        launcher.resolve().relative_to(msmpi_dir.resolve())
-    except (OSError, ValueError):
+        resolved_launcher = launcher.resolve()
+    except OSError:
         return None
-    return msmpi_dir
+    try:
+        resolved_launcher.relative_to(msmpi_dir.resolve())
+    except ValueError:
+        pass
+    else:
+        return msmpi_dir
+    candidate = resolved_launcher.parent
+    if (
+        candidate.name == "msmpi"
+        and candidate.parent.name == "bin"
+        and candidate.parent.parent.name == "parosol_py"
+    ):
+        return candidate
+    return None
 
 
 def _package_bin_dir() -> Path:

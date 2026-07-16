@@ -6,6 +6,8 @@ from typing import Any
 
 import numpy as np
 
+from parosol_py.modeling.io import read_image_zyx
+
 
 @dataclass(frozen=True)
 class LoadHistoryResult:
@@ -253,9 +255,8 @@ def _read_array(path: str | Path) -> np.ndarray:
             raise ValueError(
                 f"NPZ must contain image, sed, or one array; got {data.files}"
             )
-    import SimpleITK as sitk
-
-    return sitk.GetArrayFromImage(sitk.ReadImage(str(p)))
+    array, _spacing, _origin = read_image_zyx(p)
+    return array
 
 
 def _read_stiffness(path: str | Path) -> np.ndarray:

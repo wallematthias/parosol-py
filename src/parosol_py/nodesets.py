@@ -39,9 +39,17 @@ def nodes_from_labeled_voxels(
         if material_mask.shape != mask.shape:
             raise ValueError("material and labels must have the same shape")
         nodes = _interface_nodes(mask, material_mask=material_mask)
+    elif token == "outer_face_nodes":
+        if material is None:
+            raise ValueError("material is required for selection='outer_face_nodes'")
+        material_mask = np.asarray(material) > 0
+        if material_mask.shape != mask.shape:
+            raise ValueError("material and labels must have the same shape")
+        nodes = _outer_face_nodes(mask, material_mask=material_mask)
     else:
         raise ValueError(
-            "selection must be one of: all_corner_nodes, surface_nodes, interface_nodes"
+            "selection must be one of: all_corner_nodes, surface_nodes, "
+            "interface_nodes, outer_face_nodes"
         )
 
     return sorted(nodes)
@@ -80,6 +88,43 @@ def nodes_from_mask_face(
     return sorted(nodes)
 
 
+def nodes_from_mask_directional_faces(mask, direction) -> list[Node]:
+    values = np.asarray(mask, dtype=bool)
+    if values.ndim != 3:
+        raise ValueError(f"mask must be 3D, got shape {values.shape}")
+    vector = np.asarray(direction, dtype=float)
+    if vector.shape != (3,) or not np.all(np.isfinite(vector)) or not np.any(vector):
+        raise ValueError("direction must be a finite non-zero 3-vector")
+
+    nodes: set[Node] = set()
+    dims = values.shape
+    selected_faces = [
+        (axis, side)
+        for axis in range(3)
+        for side in (-1, 1)
+        if side * float(vector[axis]) > 0.0
+    ]
+    for voxel_array in np.argwhere(values):
+        voxel = tuple(int(v) for v in voxel_array)
+        for axis, side in selected_faces:
+            neighbor = list(voxel)
+            neighbor[axis] += side
+            outside = (
+                neighbor[axis] < 0 or neighbor[axis] >= dims[axis]
+            )
+            if not outside and bool(values[tuple(neighbor)]):
+                continue
+            node_axis_value = voxel[axis] + (1 if side > 0 else 0)
+            lateral_axes = [idx for idx in range(3) if idx != axis]
+            for du, dv in itertools.product((0, 1), repeat=2):
+                node = list(voxel)
+                node[axis] = node_axis_value
+                node[lateral_axes[0]] += du
+                node[lateral_axes[1]] += dv
+                nodes.add(tuple(node))
+    return sorted(nodes)
+
+
 def boundary_conditions_from_nodesets(
     node_sets: dict[str, list[Node]],
     *,
@@ -88,9 +133,18 @@ def boundary_conditions_from_nodesets(
     loaded: list[dict] | tuple[dict, ...] = (),
     dimensions_xyz: tuple[int, int, int],
     spacing: tuple[float, float, float],
+    percent_reference_lengths_mm: dict[str, float] | None = None,
+    percent_reference_node_sets: dict[str, list[Node]] | None = None,
 ) -> BoundaryConditionSet:
     fixed_constraints: dict[tuple[int, int, int, int], float] = {}
     loaded_constraints: dict[tuple[int, int, int, int], float] = {}
+    nodeset_percent_reference_lengths = _nodeset_percent_reference_lengths(
+        node_sets,
+        fixed=fixed,
+        prescribed=prescribed,
+        spacing=spacing,
+        reference_node_sets=percent_reference_node_sets,
+    )
 
     for spec in fixed:
         _add_displacement_spec(
@@ -100,6 +154,8 @@ def boundary_conditions_from_nodesets(
             dimensions_xyz=dimensions_xyz,
             spacing=spacing,
             default_value=0.0,
+            percent_reference_lengths_mm=percent_reference_lengths_mm,
+            nodeset_percent_reference_lengths=nodeset_percent_reference_lengths,
         )
     for spec in prescribed:
         _add_prescribed_spec(
@@ -108,6 +164,8 @@ def boundary_conditions_from_nodesets(
             spec,
             dimensions_xyz=dimensions_xyz,
             spacing=spacing,
+            percent_reference_lengths_mm=percent_reference_lengths_mm,
+            nodeset_percent_reference_lengths=nodeset_percent_reference_lengths,
         )
     for spec in loaded:
         _add_load_spec(loaded_constraints, node_sets, spec)
@@ -130,6 +188,9 @@ def boundary_conditions_from_nodesets(
         loaded_coordinates=loaded_coords,
         loaded_values=loaded_values,
         node_sets=node_sets,
+        reference_lengths_mm=_axis_reference_lengths(
+            nodeset_percent_reference_lengths
+        ),
     )
 
 
@@ -197,6 +258,95 @@ def _interface_nodes(mask: np.ndarray, *, material_mask: np.ndarray) -> set[Node
     return nodes
 
 
+def _outer_face_nodes(mask: np.ndarray, *, material_mask: np.ndarray) -> set[Node]:
+    if not bool(np.any(mask)):
+        return set()
+    axis, side = _load_facing_face(mask, material_mask=material_mask)
+    face = _outermost_face_mask(mask, axis=axis, side=side)
+    return set(nodes_from_mask_face(face, axis=("x", "y", "z")[axis], side=side))
+
+
+def _outermost_face_mask(mask: np.ndarray, *, axis: int, side: int) -> np.ndarray:
+    face = np.zeros(mask.shape, dtype=bool)
+    voxels = np.argwhere(mask)
+    if voxels.size == 0:
+        return face
+    extreme = int(np.max(voxels[:, axis]) if side > 0 else np.min(voxels[:, axis]))
+    face_index = [slice(None)] * 3
+    face_index[axis] = extreme
+    face[tuple(face_index)] = mask[tuple(face_index)]
+    return face
+
+
+def _load_facing_face(mask: np.ndarray, *, material_mask: np.ndarray) -> tuple[int, int]:
+    best: tuple[tuple[int, int, int, int], int, int] | None = None
+    for axis in range(3):
+        for side in (-1, 1):
+            face = _face_voxel_mask(mask, axis=axis, side=side)
+            face_count = int(np.count_nonzero(face))
+            if face_count == 0:
+                continue
+            material_touch = _neighbor_material_touch_count(
+                face,
+                axis=axis,
+                side=side,
+                material_mask=material_mask,
+                label_mask=mask,
+            )
+            empty_count = face_count - material_touch
+            score = (empty_count, face_count, -material_touch, -axis)
+            if best is None or score > best[0]:
+                best = (score, axis, side)
+    if best is None:
+        return 0, 1
+    return best[1], best[2]
+
+
+def _face_voxel_mask(mask: np.ndarray, *, axis: int, side: int) -> np.ndarray:
+    face = np.zeros(mask.shape, dtype=bool)
+    src = [slice(None)] * 3
+    dst = [slice(None)] * 3
+    if side > 0:
+        src[axis] = slice(0, -1)
+        dst[axis] = slice(1, None)
+        face[tuple(src)] = mask[tuple(src)] & ~mask[tuple(dst)]
+        edge = [slice(None)] * 3
+        edge[axis] = -1
+        face[tuple(edge)] = mask[tuple(edge)]
+    else:
+        src[axis] = slice(1, None)
+        dst[axis] = slice(0, -1)
+        face[tuple(src)] = mask[tuple(src)] & ~mask[tuple(dst)]
+        edge = [slice(None)] * 3
+        edge[axis] = 0
+        face[tuple(edge)] = mask[tuple(edge)]
+    return face
+
+
+def _neighbor_material_touch_count(
+    face: np.ndarray,
+    *,
+    axis: int,
+    side: int,
+    material_mask: np.ndarray,
+    label_mask: np.ndarray,
+) -> int:
+    face_voxels = np.argwhere(face)
+    if face_voxels.size == 0:
+        return 0
+    touch_count = 0
+    dims = label_mask.shape
+    for voxel_array in face_voxels:
+        neighbor = [int(value) for value in voxel_array]
+        neighbor[axis] += side
+        if neighbor[axis] < 0 or neighbor[axis] >= dims[axis]:
+            continue
+        neighbor_tuple = tuple(neighbor)
+        if bool(material_mask[neighbor_tuple]) and not bool(label_mask[neighbor_tuple]):
+            touch_count += 1
+    return touch_count
+
+
 def _add_displacement_spec(
     constraints: dict[tuple[int, int, int, int], float],
     node_sets: dict[str, list[Node]],
@@ -205,10 +355,13 @@ def _add_displacement_spec(
     dimensions_xyz: tuple[int, int, int],
     spacing: tuple[float, float, float],
     default_value: float | None,
+    percent_reference_lengths_mm: dict[str, float] | None,
+    nodeset_percent_reference_lengths: dict[tuple[str, str], float] | None,
 ) -> None:
     value = spec.get("value", default_value)
     if value is None:
         raise ValueError("displacement specs require a value")
+    nodeset_name = str(spec["nodeset"])
     for node in _spec_nodes(node_sets, spec):
         for dof in _spec_dofs(spec):
             direction = AXIS_TO_INDEX[dof]
@@ -217,9 +370,12 @@ def _add_displacement_spec(
                 (*node, direction),
                 _displacement_value(
                     value,
+                    nodeset=nodeset_name,
                     dof=dof,
                     dimensions_xyz=dimensions_xyz,
                     spacing=spacing,
+                    percent_reference_lengths_mm=percent_reference_lengths_mm,
+                    nodeset_percent_reference_lengths=nodeset_percent_reference_lengths,
                 ),
             )
 
@@ -231,6 +387,8 @@ def _add_prescribed_spec(
     *,
     dimensions_xyz: tuple[int, int, int],
     spacing: tuple[float, float, float],
+    percent_reference_lengths_mm: dict[str, float] | None,
+    nodeset_percent_reference_lengths: dict[tuple[str, str], float] | None,
 ) -> None:
     kind = str(spec.get("kind", "uniform")).strip().lower()
     if kind in {"uniform", "constant"}:
@@ -241,6 +399,8 @@ def _add_prescribed_spec(
             dimensions_xyz=dimensions_xyz,
             spacing=spacing,
             default_value=None,
+            percent_reference_lengths_mm=percent_reference_lengths_mm,
+            nodeset_percent_reference_lengths=nodeset_percent_reference_lengths,
         )
         return
     if kind in {"bending", "bend"}:
@@ -411,15 +571,119 @@ def _spec_dofs(spec: dict) -> list[str]:
     return dofs
 
 
+def _nodeset_percent_reference_lengths(
+    node_sets: dict[str, list[Node]],
+    *,
+    fixed: list[dict] | tuple[dict, ...],
+    prescribed: list[dict] | tuple[dict, ...],
+    spacing: tuple[float, float, float],
+    reference_node_sets: dict[str, list[Node]] | None = None,
+) -> dict[tuple[str, str], float]:
+    fixed_specs = list(fixed)
+    if not fixed_specs:
+        return {}
+
+    centroid_node_sets = dict(node_sets)
+    if reference_node_sets:
+        centroid_node_sets.update(
+            {name: nodes for name, nodes in reference_node_sets.items() if nodes}
+        )
+    centroids = {
+        name: _nodeset_centroid(nodes, spacing)
+        for name, nodes in centroid_node_sets.items()
+        if nodes
+    }
+    references: dict[tuple[str, str], float] = {}
+    for spec in prescribed:
+        if not _is_percent_value(spec.get("value")):
+            continue
+        nodeset_name = str(spec["nodeset"])
+        if nodeset_name not in centroids:
+            continue
+        explicit_length = spec.get("reference_length_mm")
+        value = _percent_value(spec.get("value"))
+        for dof in _spec_dofs(spec):
+            if explicit_length is not None:
+                length = float(explicit_length)
+                if length > 0.0:
+                    references[(nodeset_name, dof)] = length
+                    continue
+            axis_index = AXIS_TO_INDEX[dof]
+            explicit_reference = spec.get("reference_nodeset")
+            candidates = []
+            if explicit_reference is not None:
+                candidates = [str(explicit_reference)]
+            else:
+                candidates = [
+                    str(candidate["nodeset"])
+                    for candidate in fixed_specs
+                    if dof in _spec_dofs(candidate)
+                ]
+            distances = []
+            load_sign = -1.0 if value < 0.0 else 1.0
+            for candidate in candidates:
+                if candidate not in centroids or candidate == nodeset_name:
+                    continue
+                delta = float(centroids[candidate][axis_index] - centroids[nodeset_name][axis_index])
+                projected = delta * load_sign
+                if explicit_reference is not None:
+                    distances.append(abs(delta))
+                elif projected > 0.0:
+                    distances.append(projected)
+            if distances:
+                references[(nodeset_name, dof)] = max(distances)
+    return references
+
+
+def _axis_reference_lengths(
+    references: dict[tuple[str, str], float],
+) -> dict[str, float]:
+    axis_lengths: dict[str, float] = {}
+    for (_nodeset, dof), value in references.items():
+        length = float(value)
+        if dof in axis_lengths and not np.isclose(axis_lengths[dof], length):
+            axis_lengths[dof] = max(axis_lengths[dof], length)
+        else:
+            axis_lengths[dof] = length
+    return axis_lengths
+
+
+def _nodeset_centroid(
+    nodes: list[Node],
+    spacing: tuple[float, float, float],
+) -> np.ndarray:
+    return _node_positions(nodes, spacing).mean(axis=0)
+
+
+def _is_percent_value(value) -> bool:
+    return isinstance(value, str) and value.strip().endswith("%")
+
+
+def _percent_value(value) -> float:
+    if isinstance(value, str) and value.strip().endswith("%"):
+        return float(value.strip()[:-1])
+    return float(value)
+
+
 def _displacement_value(
     value,
     *,
+    nodeset: str,
     dof: str,
     dimensions_xyz: tuple[int, int, int],
     spacing: tuple[float, float, float],
+    percent_reference_lengths_mm: dict[str, float] | None,
+    nodeset_percent_reference_lengths: dict[tuple[str, str], float] | None,
 ) -> float:
-    if isinstance(value, str) and value.strip().endswith("%"):
+    if _is_percent_value(value):
         fraction = float(value.strip()[:-1]) / 100.0
+        if (
+            nodeset_percent_reference_lengths is not None
+            and (nodeset, dof) in nodeset_percent_reference_lengths
+        ):
+            return fraction * float(nodeset_percent_reference_lengths[(nodeset, dof)])
+        if percent_reference_lengths_mm is not None and dof in percent_reference_lengths_mm:
+            return fraction * float(percent_reference_lengths_mm[dof])
         axis_index = AXIS_TO_INDEX[dof]
         return fraction * dimensions_xyz[axis_index] * spacing[axis_index]
     return float(value)

@@ -7,6 +7,18 @@ from collections import deque
 import numpy as np
 import SimpleITK as sitk
 
+SLICER_RAS_TO_SITK_LPS_DIRECTION = (
+    -1.0,
+    0.0,
+    0.0,
+    0.0,
+    -1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+)
+
 
 @dataclass(frozen=True)
 class ImageGrid:
@@ -64,9 +76,16 @@ def export_scalar_image(grid: ImageGrid, output_path: str | Path) -> Path:
     )
     img = sitk.GetImageFromArray(arr_zyx, isVector=False)
     img.SetSpacing(grid.spacing)
-    img.SetOrigin(grid.origin)
+    img.SetOrigin(_ras_origin_to_sitk_lps(grid.origin))
+    img.SetDirection(SLICER_RAS_TO_SITK_LPS_DIRECTION)
     sitk.WriteImage(img, str(out))
     return out
+
+
+def _ras_origin_to_sitk_lps(
+    origin: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    return (-float(origin[0]), -float(origin[1]), float(origin[2]))
 
 
 def largest_connected_component(array, *, background: int | float = 0):

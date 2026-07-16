@@ -1,0 +1,303 @@
+{
+  "anatomy": "tibia",
+  "arrays": {
+    "density": "density.npz",
+    "labels": "labels.npz"
+  },
+  "grid": {
+    "array_order": "zyx",
+    "coordinate_system": "RAS",
+    "direction_ras": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "origin_ras": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "shape_zyx": [
+      80,
+      107,
+      119
+    ],
+    "spacing_xyz": [
+      0.06069900095462799,
+      0.06069900095462799,
+      0.06069599837064743
+    ],
+    "units": "mm"
+  },
+  "labels": {
+    "100": "trabecular segmentation",
+    "127": "cortical segmentation"
+  },
+  "name": "xtremect_tibia_mini",
+  "provenance": {
+    "density_max": 9543.0,
+    "density_mean_in_labels": 5647.77099609375,
+    "density_min": -1872.0,
+    "derived_fixture": true,
+    "label_counts": {
+      "0": 766163,
+      "100": 97543,
+      "127": 154934
+    },
+    "label_values": [
+      0,
+      100,
+      127
+    ],
+    "nonzero_label_voxels": 252477,
+    "source_compartment_generation": {
+      "cortical_contour_voxels": 198536,
+      "erosion_axes": [
+        "y",
+        "x"
+      ],
+      "erosion_iterations": 8,
+      "filled_segmentation_voxels": 662744,
+      "material_assignment": "original segmentation intersected with generated contour compartments",
+      "method": "filled_segmentation_inplane_erosion",
+      "source_segmentation": "/Users/matthias.walle/Documents/Advection Modell/AdvectionModel-grayscale-tibia-density-step-40/MiniSample_DT_001_T0_T0_SEG.AIM",
+      "source_segmentation_nonzero_voxels": 252477,
+      "trabecular_contour_voxels": 464208
+    },
+    "source_compartment_masks": {
+      "cortical": {
+        "contour_voxels": 198536,
+        "fixture_voxels": 154934,
+        "generation_method": "filled_segmentation_inplane_erosion",
+        "label_value": 127,
+        "source_nonzero_voxels": 252477
+      },
+      "trabecular": {
+        "contour_voxels": 464208,
+        "fixture_voxels": 97543,
+        "generation_method": "filled_segmentation_inplane_erosion",
+        "label_value": 100,
+        "source_nonzero_voxels": 252477
+      }
+    },
+    "source_dataset": "AdvectionModel-grayscale-tibia-density-step-40/MiniSample_DT_001_T0",
+    "source_files": [
+      "/Users/matthias.walle/Documents/Advection Modell/AdvectionModel-grayscale-tibia-density-step-40/MiniSample_DT_001_T0_T0.AIM",
+      "/Users/matthias.walle/Documents/Advection Modell/AdvectionModel-grayscale-tibia-density-step-40/MiniSample_DT_001_T0_T0_SEG.AIM",
+      "/Users/matthias.walle/Documents/Advection Modell/AdvectionModel-grayscale-tibia-density-step-40/MiniSample_DT_001_T0_TRAB_COMPARTMENT_MASK.AIM",
+      "/Users/matthias.walle/Documents/Advection Modell/AdvectionModel-grayscale-tibia-density-step-40/timelapsed_input/MiniSample_TL_T1_CORT_MASK.AIM"
+    ],
+    "source_geometry": {
+      "aim_dimensions_xyz": [
+        119,
+        107,
+        80
+      ],
+      "aim_offset": [
+        0,
+        0,
+        0
+      ],
+      "aim_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "aim_position": [
+        0,
+        0,
+        0
+      ],
+      "aim_spacing_xyz": [
+        0.06069900095462799,
+        0.06069900095462799,
+        0.06069599837064743
+      ]
+    },
+    "source_mask_checks": {
+      "cortical_contour_voxels": 198536,
+      "cortical_material_voxels": 154934,
+      "filled_segmentation_voxels": 662744,
+      "provided_cortical_mask_voxels": 0,
+      "provided_trabecular_compartment_voxels": 727056,
+      "segmentation_nonzero_voxels": 252477,
+      "trabecular_contour_voxels": 464208,
+      "trabecular_material_voxels": 97543
+    },
+    "source_sha256": {
+      "/Users/matthias.walle/Documents/Advection Modell/AdvectionModel-grayscale-tibia-density-step-40/MiniSample_DT_001_T0_T0.AIM": "df9ed7d09bf4f500744eabc6decac19a563d8a362ba70758026571a98cf33093",
+      "/Users/matthias.walle/Documents/Advection Modell/AdvectionModel-grayscale-tibia-density-step-40/MiniSample_DT_001_T0_T0_SEG.AIM": "65ccd85cfd2501ca6b48f1a9a7ac179b2642b55c863d2bfaa52a2ef9957960a3",
+      "/Users/matthias.walle/Documents/Advection Modell/AdvectionModel-grayscale-tibia-density-step-40/MiniSample_DT_001_T0_TRAB_COMPARTMENT_MASK.AIM": "f60ab8334232cf7f9da6ee244d8a5d5539089309d1c56e5579bd66ff2733ca92",
+      "/Users/matthias.walle/Documents/Advection Modell/AdvectionModel-grayscale-tibia-density-step-40/timelapsed_input/MiniSample_TL_T1_CORT_MASK.AIM": "4ea9d1d6becbbe9f289a44df5fca24e39b931fa5d5b5a55c5611ec2688745e3c"
+    },
+    "fixture_correction": {
+      "method": "user_corrected_compartment_labels",
+      "source_image": "/Users/matthias.walle/Documents/fea/reference_workflow_runs_20260715_current/inputs/xtremect_tibia_mini_labels.nii.gz",
+      "updated_on": "2026-07-15",
+      "note": "Corrects the XtremeCT mini tibia trabecular/cortical segmentation offset before rerunning the locked workflows.",
+      "different_voxels_from_previous_fixture": 13154,
+      "previous_label_counts": {
+        "0": 766163,
+        "100": 84389,
+        "127": 168088
+      },
+      "updated_label_counts": {
+        "0": 766163,
+        "100": 97543,
+        "127": 154934
+      }
+    }
+  },
+  "transform_chain": [
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "source_image_to_input_ras",
+      "note": "Mini AIM arrays are axis-aligned and stored in z/y/x order; spacing is recorded as RAS x/y/z millimeters.",
+      "source_space": "source_aim_index_space",
+      "target_space": "input_ras"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "input_ras_to_preprocessed_ras",
+      "note": "No resampling or cropping is applied to the mini tibia fixture.",
+      "source_space": "input_ras",
+      "target_space": "preprocessed_ras"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "preprocessed_ras_to_solver_grid",
+      "note": "Mini fixture does not run solver preprocessing during ordinary tests.",
+      "source_space": "preprocessed_ras",
+      "target_space": "solver_grid"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "solver_grid_to_visualization_ras_grid",
+      "note": "Visual reports are generated on the same RAS grid unless explicitly resampled.",
+      "source_space": "solver_grid",
+      "target_space": "visualization_ras_grid"
+    }
+  ],
+  "workflows": [
+    "XtremeCTI",
+    "XtremeCTII",
+    "load_history_3",
+    "load_history_6"
+  ]
+}

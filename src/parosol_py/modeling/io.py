@@ -7,6 +7,8 @@ import SimpleITK as sitk
 
 from parosol_py.paths import suffix_text
 
+SLICER_CANONICAL_ORIENTATION = "RAS"
+
 
 def resolve_path(value, *, base_dir: Path) -> Path:
     path = Path(value).expanduser()
@@ -34,12 +36,11 @@ def read_image_zyx(
             origin = _npz_triple(data, "origin_xyz", "origin") or (0.0, 0.0, 0.0)
             return np.asarray(data[key]), spacing, origin
     if suffixes.endswith((".mha", ".mhd", ".nii", ".nii.gz")):
-        image = sitk.ReadImage(str(path))
-        image = sitk.DICOMOrient(image, "LPS")
+        image = read_slicer_oriented_sitk_image(path)
         return (
             sitk.GetArrayFromImage(image),
             tuple(float(v) for v in image.GetSpacing()),
-            tuple(float(v) for v in image.GetOrigin()),
+            _lps_origin_to_ras(image.GetOrigin()),
         )
     if suffixes.endswith(".aim"):
         from parosol_py.api import read_aim
@@ -49,6 +50,17 @@ def read_image_zyx(
         origin = tuple(float(v) for v in meta.get("position", (0.0, 0.0, 0.0)))
         return np.asarray(array), spacing, origin
     raise ValueError(f"Unsupported model image format: {path}")
+
+
+def read_slicer_oriented_sitk_image(path: Path) -> sitk.Image:
+    image = sitk.ReadImage(str(path))
+    return sitk.DICOMOrient(image, SLICER_CANONICAL_ORIENTATION)
+
+
+def _lps_origin_to_ras(
+    origin: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    return (-float(origin[0]), -float(origin[1]), float(origin[2]))
 
 
 def _npz_triple(data: np.lib.npyio.NpzFile, preferred: str, fallback: str):

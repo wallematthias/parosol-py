@@ -1,9 +1,0 @@
-# Override snippet for routine mechanics fields.
-output_profile: standard_fields
-
-output:
-  fields: [sed, effective_strain, von_mises]
-  export_fields: true
-
-solver:
-  outputs: [sed, effective_strain, von_mises]

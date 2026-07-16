@@ -14,7 +14,12 @@ except ModuleNotFoundError:
 
 from .api import SolveResult, solve, solve_aim
 from .core import Model
-from .images import coarsen_array, largest_connected_component, normalize_array
+from .images import (
+    coarsen_array,
+    export_scalar_image,
+    largest_connected_component,
+    normalize_array,
+)
 from .load_cases import (
     Bending,
     BodyWeightCompression,
@@ -25,6 +30,7 @@ from .load_cases import (
     UniaxialCompression,
 )
 from .materials import (
+    apply_density_input_transform,
     density_to_material_map,
     labels_to_material_map,
     linear_isotropic_materials_from_config,
@@ -32,10 +38,16 @@ from .materials import (
     poisson_ratio_from_spec,
 )
 from .modeling import build_model
+from .modeling.io import read_image_zyx
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .paths import suffix_text
 from .profiles import get_output_profile, get_solver_profile
-from .reports import compact_summary_dict, solve_summary_dict, write_summary_json
+from .reports import (
+    compact_summary_dict,
+    solve_summary_dict,
+    write_results_csv,
+    write_summary_json,
+)
 from .set_export import write_element_sets, write_node_sets
 from .visualization import dense_scalar_field, write_case_overview
 
@@ -178,20 +190,23 @@ def run_case_config(
         "crawford_coefficient": float(
             failure_load_cfg.get("crawford_coefficient", 0.0068)
         ),
-        "linear_failure_estimates": _linear_failure_estimates_enabled(
-            postprocess_cfg
-        ),
+        "linear_failure_estimates": _linear_failure_estimates_enabled(postprocess_cfg),
         "dry_run": dry,
     }
 
     built_model = None
     if model_cfg:
+        model_build_cfg = dict(model_cfg)
+        slicer_editor_cfg = config.get("slicer_editor")
+        if isinstance(slicer_editor_cfg, dict):
+            model_build_cfg["slicer_editor"] = slicer_editor_cfg
         built_model = build_model(
-            model_cfg,
+            model_build_cfg,
             base_dir=base_dir,
             material_config=material_cfg,
             load_case_config=load_case_cfg,
             preprocessing_config=preprocessing_cfg,
+            nodeset_config=nodeset_cfg,
         )
         material = built_model.material
         spacing = built_model.spacing
@@ -200,6 +215,12 @@ def run_case_config(
         common["origin"] = origin
         common["poisson_ratio"] = built_model.poisson_ratio
         model_meta = built_model.metadata.get("model", {})
+        effective_load_case_cfg = model_meta.get("effective_load_case")
+        if isinstance(effective_load_case_cfg, dict):
+            load_case_cfg = effective_load_case_cfg
+            common["load_case_type"] = _effective_load_case_type(load_case_cfg)
+            common["rotation_degrees"] = _load_case_rotation_degrees(load_case_cfg)
+            common["load_case_center"] = _effective_load_case_center(load_case_cfg)
         common["test_axis"] = str(model_meta.get("load_axis", common["test_axis"]))
         common["load_direction"] = model_meta.get(
             "load_direction", common["load_direction"]
@@ -320,7 +341,16 @@ def run_case_config(
             base_dir=base_dir,
             boundary_conditions=debug_boundary_conditions,
         )
+        material_exports = _export_material_image(
+            material,
+            spacing=spacing,
+            origin=origin,
+            output_cfg=output_cfg,
+            base_dir=base_dir,
+            run_dir=run_dir,
+        )
         result = solve(material=material, array_order="zyx", **common)
+        result.exported.update(material_exports)
         result.exported.update(set_exports)
         result.exported.update(
             _export_overview(
@@ -338,13 +368,15 @@ def run_case_config(
         )
 
     load_type = str(load_case_cfg.get("type", "constrained_axial")).strip().lower()
+    load_case_summary = _load_case_summary(
+        load_case_cfg,
+        load_type=load_type,
+        axis=common["test_axis"],
+        strain=common["strain"],
+    )
     extra: dict[str, Any] = {
         "case": {"name": case_name},
-        "load_case": {
-            "type": load_type,
-            "axis": common["test_axis"],
-            "strain": common["strain"],
-        },
+        "load_case": load_case_summary,
     }
     extra["execution"] = {
         "config": str(config_path),
@@ -373,10 +405,17 @@ def run_case_config(
     exported = summary.setdefault("outputs", {}).setdefault("exported", {})
     exported["result"] = str(result_path)
     exported["summary"] = str(summary_path)
+    results_csv_path = _resolve_path(
+        output_cfg.get("results_csv", result_path.with_name("results.csv")),
+        base_dir=base_dir,
+    )
+    exported["results_csv"] = str(results_csv_path)
     write_summary_json(summary_path, summary)
     write_summary_json(result_path, compact_summary_dict(summary))
+    write_results_csv(results_csv_path, summary)
     result.exported["result"] = result_path
     result.exported["summary"] = summary_path
+    result.exported["results_csv"] = results_csv_path
     return result
 
 
@@ -436,7 +475,10 @@ def _input_postprocess_mask(
     mask_path = input_cfg.get("mask", input_cfg.get("segmentation"))
     if not mask_path:
         return None
-    mask = np.asarray(_read_image_array_zyx(_resolve_path(mask_path, base_dir=base_dir))) != 0
+    mask = (
+        np.asarray(_read_image_array_zyx(_resolve_path(mask_path, base_dir=base_dir)))
+        != 0
+    )
     if mask.shape != tuple(material_shape):
         raise ValueError(
             f"input.mask shape {mask.shape} does not match material shape {tuple(material_shape)}"
@@ -460,9 +502,10 @@ def _input_density_active_mask(
     )
     if not mask_path:
         return None
-    return np.asarray(
-        _read_image_array_zyx(_resolve_path(mask_path, base_dir=base_dir))
-    ) != 0
+    return (
+        np.asarray(_read_image_array_zyx(_resolve_path(mask_path, base_dir=base_dir)))
+        != 0
+    )
 
 
 def _coarsen_material(
@@ -529,6 +572,34 @@ def _export_debug_sets(
     return out
 
 
+def _export_material_image(
+    material_zyx: np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    output_cfg: dict[str, Any],
+    base_dir: Path,
+    run_dir: Path,
+) -> dict[str, Path]:
+    path_value = output_cfg.get("material_image")
+    if path_value is None:
+        if not output_cfg.get("export_material_image", False):
+            return {}
+        path_value = run_dir / "model" / "material.nii.gz"
+    if path_value is False:
+        return {}
+    if isinstance(path_value, bool):
+        path_value = run_dir / "model" / "material.nii.gz"
+    material_path = _resolve_path(path_value, base_dir=base_dir)
+    grid = normalize_array(
+        material_zyx,
+        spacing=spacing,
+        origin=origin,
+        array_order="zyx",
+    )
+    return {"material_image": export_scalar_image(grid, material_path)}
+
+
 def _export_overview(
     material_zyx: np.ndarray,
     *,
@@ -590,8 +661,8 @@ def _overview_field_from_export(
 ) -> np.ndarray | None:
     if path is None or not Path(path).exists():
         return None
-    image = sitk.ReadImage(str(path))
-    field_xyz = np.transpose(sitk.GetArrayFromImage(image), (2, 1, 0))
+    field_zyx, _spacing, _origin = read_image_zyx(Path(path))
+    field_xyz = np.transpose(field_zyx, (2, 1, 0))
     if field_xyz.shape != expected_shape:
         return None
     field_xyz = np.asarray(field_xyz, dtype=np.float64)
@@ -865,6 +936,12 @@ def _boundary_conditions_from_config(
         origin=origin,
         base_dir=base_dir,
     )
+    percent_reference_lengths_mm = {
+        axis: _occupied_axis_length_mm(
+            material_grid.array_xyz, axis=axis, spacing=material_grid.spacing
+        )
+        for axis in ("x", "y", "z")
+    }
     return boundary_conditions_from_nodesets(
         node_sets,
         fixed=list(load_case_cfg.get("fixed", ())),
@@ -872,6 +949,7 @@ def _boundary_conditions_from_config(
         loaded=list(load_case_cfg.get("loaded", ())),
         dimensions_xyz=tuple(int(v) for v in material_grid.array_xyz.shape),
         spacing=material_grid.spacing,
+        percent_reference_lengths_mm=percent_reference_lengths_mm,
     )
 
 
@@ -880,6 +958,21 @@ def _load_case_displacement(load_case_cfg: dict[str, Any]) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _occupied_axis_length_mm(
+    material_xyz: np.ndarray,
+    *,
+    axis: str,
+    spacing: tuple[float, float, float],
+) -> float:
+    axis_index = {"x": 0, "y": 1, "z": 2}[axis]
+    lateral_axes = tuple(idx for idx in range(3) if idx != axis_index)
+    occupied = np.any(np.asarray(material_xyz) > 0, axis=lateral_axes)
+    indices = np.flatnonzero(occupied)
+    if indices.size == 0:
+        return float(material_xyz.shape[axis_index]) * float(spacing[axis_index])
+    return float(indices[-1] - indices[0] + 1) * float(spacing[axis_index])
 
 
 def _nodeset_load_direction(load_case_cfg: dict[str, Any]) -> str | None:
@@ -984,7 +1077,9 @@ def _load_case_center(load_case_cfg: dict[str, Any]) -> tuple[float, float] | No
     return tuple(float(v) for v in value)
 
 
-def _effective_load_case_center(load_case_cfg: dict[str, Any]) -> tuple[float, float] | None:
+def _effective_load_case_center(
+    load_case_cfg: dict[str, Any],
+) -> tuple[float, float] | None:
     center = _load_case_center(load_case_cfg)
     if center is not None:
         return center
@@ -1101,9 +1196,11 @@ def _effective_strain_for_displacement(
     displacement = _load_case_displacement(load_case_cfg)
     if displacement is None:
         return fallback
-    axis_token = str(
-        axis if axis is not None else load_case_cfg.get("axis", "z")
-    ).strip().lower()
+    axis_token = (
+        str(axis if axis is not None else load_case_cfg.get("axis", "z"))
+        .strip()
+        .lower()
+    )
     axis_index = {"x": 0, "y": 1, "z": 2}[axis_token]
     grid = normalize_array(
         material_zyx,
@@ -1151,6 +1248,12 @@ def _load_node_sets(
             selection=str(spec.get("selection", "surface_nodes")),
             material=material_xyz,
         )
+        if not nodes:
+            raise ValueError(
+                f"nodeset '{name}' label {int(spec['label'])} contains no nodes. "
+                "Check that the requested label exists in the nodeset image and "
+                "that the selected nodeset mode reaches active material."
+            )
         invalid_count = _count_nodes_without_active_material(nodes, material_xyz)
         if invalid_count:
             raise ValueError(
@@ -1229,8 +1332,12 @@ def _load_material_array(
                 material_cfg.get("poisson_ratio", material_cfg.get("nu", 0.3)),
             ),
         )
-        mapped = density_to_material_map(
+        density_values = apply_density_input_transform(
             array_zyx,
+            density_cfg.get("input_transform"),
+        )
+        mapped = density_to_material_map(
+            density_values,
             equation=str(e_cfg.get("equation", "power")),
             poisson_ratio=poisson_spec,
             mask_threshold=float(
@@ -1243,6 +1350,21 @@ def _load_material_array(
             maximum_e_mpa=_optional_float(
                 e_cfg.get("maximum_e_mpa", density_cfg.get("maximum_e_mpa"))
             ),
+            bin_material=_truthy_config_value(
+                density_cfg.get(
+                    "bin_material",
+                    e_cfg.get("bin_material", e_cfg.get("binned_material", False)),
+                )
+            ),
+            number_bins=int(
+                density_cfg.get(
+                    "number_bins",
+                    density_cfg.get(
+                        "bins",
+                        e_cfg.get("number_bins", e_cfg.get("bins", 128)),
+                    ),
+                )
+            ),
             **{
                 key: value
                 for key, value in e_cfg.items()
@@ -1254,6 +1376,10 @@ def _load_material_array(
                     "floor_mpa",
                     "floor",
                     "maximum_e_mpa",
+                    "bin_material",
+                    "binned_material",
+                    "number_bins",
+                    "bins",
                 }
             },
         )
@@ -1306,6 +1432,12 @@ def _connectivity_filter_enabled(preprocessing_cfg: dict[str, Any]) -> bool:
     )
     if isinstance(value, str):
         return value.strip().lower() in {"on", "true", "yes", "largest"}
+    return bool(value)
+
+
+def _truthy_config_value(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
 
 
@@ -1372,7 +1504,8 @@ def _read_image_array_zyx(path: Path) -> np.ndarray:
                 f"NPZ image files must contain 'labels', 'image', or one array; got {keys}"
             )
     if suffixes.endswith((".mha", ".mhd", ".nii", ".nii.gz")):
-        return sitk.GetArrayFromImage(sitk.ReadImage(str(path)))
+        array, _spacing, _origin = read_image_zyx(path)
+        return array
     if suffixes.endswith(".aim"):
         from .api import read_aim
 
@@ -1386,6 +1519,21 @@ def _section(config: dict[str, Any], name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"config section '{name}' must be a table/object")
     return value
+
+
+def _load_case_summary(
+    load_case_cfg: dict[str, Any], *, load_type: str, axis: str, strain: float
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {"type": load_type, "axis": axis}
+    explicit_strain = "strain" in load_case_cfg or "normal_strain" in load_case_cfg
+    if load_type not in {"nodeset", "custom"} or explicit_strain:
+        summary["strain"] = strain
+    if load_type in {"nodeset", "custom"}:
+        for key in ("fixed", "prescribed", "loaded"):
+            value = load_case_cfg.get(key)
+            if value:
+                summary[key] = json.loads(json.dumps(value))
+    return summary
 
 
 def _resolve_path(value, *, base_dir: Path) -> Path:
@@ -1452,10 +1600,8 @@ def _image_metadata(
             origin = _npz_metadata_triple(data, "origin_xyz", "origin")
             return spacing, origin
     if suffixes.endswith((".mha", ".mhd", ".nii", ".nii.gz")):
-        image = sitk.ReadImage(str(path))
-        return _triple(image.GetSpacing(), "image spacing"), _triple(
-            image.GetOrigin(), "image origin"
-        )
+        _array, spacing, origin = read_image_zyx(path)
+        return spacing, origin
     if suffixes.endswith(".aim"):
         from .api import read_aim
 

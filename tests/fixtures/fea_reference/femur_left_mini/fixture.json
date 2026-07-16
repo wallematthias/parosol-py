@@ -1,0 +1,221 @@
+{
+  "anatomy": "left_femur",
+  "arrays": {
+    "density": "density.npz",
+    "labels": "labels.npz"
+  },
+  "grid": {
+    "array_order": "zyx",
+    "coordinate_system": "RAS",
+    "direction_ras": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "origin_ras": [
+      75.03208887577057,
+      -46.64635789394379,
+      -429.5000123977661
+    ],
+    "shape_zyx": [
+      119,
+      95,
+      119
+    ],
+    "spacing_xyz": [
+      0.8183590173721313,
+      0.8183590173721313,
+      0.8999999761581421
+    ],
+    "units": "mm"
+  },
+  "labels": {
+    "2": "left femur"
+  },
+  "name": "femur_left_mini",
+  "provenance": {
+    "crop": {
+      "crop_lower_zyx": [
+        8,
+        9,
+        9
+      ],
+      "crop_upper_zyx": [
+        127,
+        104,
+        128
+      ],
+      "source_shape_zyx": [
+        135,
+        113,
+        137
+      ]
+    },
+    "density_max": 1448.197998046875,
+    "density_mean_in_labels": 252.260009765625,
+    "density_min": -31.371591567993164,
+    "derived_fixture": true,
+    "label_values": [
+      0,
+      2
+    ],
+    "nonzero_label_voxels": 242082,
+    "source_files": [
+      "/Users/matthias.walle/Downloads/n88_ogo_reference_test_bundle_20260625/hip-sub-RETRO2_10001/input/density.nii.gz",
+      "/Users/matthias.walle/Documents/fea/final_lockdown_20260714_current/fresh/inputs/hip_segmentation_label2.nii.gz"
+    ],
+    "source_sha256": {
+      "/Users/matthias.walle/Documents/fea/final_lockdown_20260714_current/fresh/inputs/hip_segmentation_label2.nii.gz": "30f6089356ba40e1c037e1e9927a88a258048ca791bea29d09e55e98c487d8be",
+      "/Users/matthias.walle/Downloads/n88_ogo_reference_test_bundle_20260625/hip-sub-RETRO2_10001/input/density.nii.gz": "0983071a92be47a474801e49c1f070696cb719b78d02e7ceb9ccc6799d6b96dc"
+    }
+  },
+  "transform_chain": [
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "source_image_to_input_ras",
+      "note": "Axis-aligned source image converted to canonical RAS-positive array order.",
+      "source_space": "source_image_physical_space",
+      "target_space": "input_ras"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "input_ras_to_preprocessed_ras",
+      "note": "Fixture crop preserves spacing and records the updated RAS origin.",
+      "source_space": "input_ras",
+      "target_space": "preprocessed_ras"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "preprocessed_ras_to_solver_grid",
+      "note": "Mini fixture does not run solver preprocessing during ordinary tests.",
+      "source_space": "preprocessed_ras",
+      "target_space": "solver_grid"
+    },
+    {
+      "interpolation": "nearest",
+      "matrix": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "name": "solver_grid_to_visualization_ras_grid",
+      "note": "Visual reports are generated on the same RAS grid unless explicitly resampled.",
+      "source_space": "solver_grid",
+      "target_space": "visualization_ras_grid"
+    }
+  ],
+  "workflows": [
+    "hip-sideways-fall-left"
+  ]
+}

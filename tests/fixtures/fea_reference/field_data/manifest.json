@@ -1,0 +1,371 @@
+{
+  "description": "Rediscoverable real-world field outputs for mini FE workflow reference tests.",
+  "entries": [
+    {
+      "case": "femur_left_mini_hip_sideways_fall",
+      "engine": "ogo",
+      "fields": {
+        "material": {
+          "bytes": 149478,
+          "path": "femur_left_mini/hip-sideways-fall-left/ogo/femur_left_mini_hip_sideways_fall/material.nii.gz",
+          "sha256": "6fc9c71f8aa8af9547fdd32da364e0d967ffea16614725db337a659dd2962c8d"
+        },
+        "sed": {
+          "bytes": 568883,
+          "path": "femur_left_mini/hip-sideways-fall-left/ogo/femur_left_mini_hip_sideways_fall/sed.nii.gz",
+          "sha256": "7be402b8a83a290c0595a43efff3a5c2b9751027a9caf53cb82791ca8717190c"
+        }
+      },
+      "fixture": "femur_left_mini",
+      "profile": "hip-sideways-fall-left"
+    },
+    {
+      "case": "femur_left_mini_hip_sideways_fall",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 149412,
+          "path": "femur_left_mini/hip-sideways-fall-left/parosol-py/femur_left_mini_hip_sideways_fall/material.nii.gz",
+          "sha256": "a8a0fc58a29119515b2aa7b4e1a896ef6e447fbbd53ba1ee4393b8616ae9c4a3"
+        },
+        "sed": {
+          "bytes": 525208,
+          "path": "femur_left_mini/hip-sideways-fall-left/parosol-py/femur_left_mini_hip_sideways_fall/sed.nii.gz",
+          "sha256": "4caebc0b5738723da7a6eb490e22592e46e234a3a8106392a43b77507ca9a6b2"
+        }
+      },
+      "fixture": "femur_left_mini",
+      "profile": "hip-sideways-fall-left"
+    },
+    {
+      "case": "vertebra_l4_mini_spine_compression",
+      "engine": "ogo",
+      "fields": {
+        "material": {
+          "bytes": 85233,
+          "path": "vertebra_l4_mini/spine-compression/ogo/vertebra_l4_mini_spine_compression/material.nii.gz",
+          "sha256": "8eab1e623e66596bde14b8f003f8c3a858587f59f7280dce19d91cadc74f5f08"
+        },
+        "sed": {
+          "bytes": 333964,
+          "path": "vertebra_l4_mini/spine-compression/ogo/vertebra_l4_mini_spine_compression/sed.nii.gz",
+          "sha256": "53ed50c49b10f78988ca05925e82586acf1b22df9dde337736170e86c84bc762"
+        }
+      },
+      "fixture": "vertebra_l4_mini",
+      "profile": "spine-compression"
+    },
+    {
+      "case": "vertebra_l4_mini_spine_compression",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 83852,
+          "path": "vertebra_l4_mini/spine-compression/parosol-py/vertebra_l4_mini_spine_compression/material.nii.gz",
+          "sha256": "3ca05971cea11547ab8b9c67e8ab2c3ab26d104e3904030829a4d5716d2ad454"
+        },
+        "sed": {
+          "bytes": 254942,
+          "path": "vertebra_l4_mini/spine-compression/parosol-py/vertebra_l4_mini_spine_compression/sed.nii.gz",
+          "sha256": "80311be3e009fd71a5009401678c0c1eaf9de490706a560295b5e00fb53a8c7d"
+        }
+      },
+      "fixture": "vertebra_l4_mini",
+      "profile": "spine-compression"
+    },
+    {
+      "case": "xtremect_tibia_mini_XtremeCTI",
+      "engine": "faim",
+      "fields": {
+        "material": {
+          "bytes": 80332,
+          "path": "xtremect_tibia_mini/XtremeCTI/faim/xtremect_tibia_mini_XtremeCTI/material.nii.gz",
+          "sha256": "85f1226903df64787dd95284b9b82eb11484ef54c767dea4b93b8da4fe930ed4"
+        },
+        "sed": {
+          "bytes": 997310,
+          "path": "xtremect_tibia_mini/XtremeCTI/faim/xtremect_tibia_mini_XtremeCTI/sed.nii.gz",
+          "sha256": "94567efd37d5c7649037c7449b00117c23336a68c13310485791fe1bbf626eae"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "XtremeCTI"
+    },
+    {
+      "case": "xtremect_tibia_mini_XtremeCTI",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 75510,
+          "path": "xtremect_tibia_mini/XtremeCTI/parosol-py/xtremect_tibia_mini_XtremeCTI/material.nii.gz",
+          "sha256": "fa5c1c71440a19281ea9a3f1f3f1b4e9748d2b73047685c0b288d3873d69036e"
+        },
+        "sed": {
+          "bytes": 999908,
+          "path": "xtremect_tibia_mini/XtremeCTI/parosol-py/xtremect_tibia_mini_XtremeCTI/sed.nii.gz",
+          "sha256": "5e42d24a9aea5331cd01d5e53c4f078d5f9e8cb29d98f58c5f437e8f9193b4e7"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "XtremeCTI"
+    },
+    {
+      "case": "xtremect_tibia_mini_XtremeCTII",
+      "engine": "faim",
+      "fields": {
+        "material": {
+          "bytes": 80332,
+          "path": "xtremect_tibia_mini/XtremeCTII/faim/xtremect_tibia_mini_XtremeCTII/material.nii.gz",
+          "sha256": "85f1226903df64787dd95284b9b82eb11484ef54c767dea4b93b8da4fe930ed4"
+        },
+        "sed": {
+          "bytes": 1003650,
+          "path": "xtremect_tibia_mini/XtremeCTII/faim/xtremect_tibia_mini_XtremeCTII/sed.nii.gz",
+          "sha256": "e8f8b179d616953f4a2226daca6371e012366d54d4cb01c2845674b791f03579"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "XtremeCTII"
+    },
+    {
+      "case": "xtremect_tibia_mini_XtremeCTII",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 75509,
+          "path": "xtremect_tibia_mini/XtremeCTII/parosol-py/xtremect_tibia_mini_XtremeCTII/material.nii.gz",
+          "sha256": "405e0682c1448060f238789eb90e778927ebcca212b1316d8b33567bf3e1edd7"
+        },
+        "sed": {
+          "bytes": 1006620,
+          "path": "xtremect_tibia_mini/XtremeCTII/parosol-py/xtremect_tibia_mini_XtremeCTII/sed.nii.gz",
+          "sha256": "5a001ad2fa390ed09e741128d578a0c752391b80555539ac5afde2efaa43e97c"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "XtremeCTII"
+    },
+    {
+      "case": "compression_z",
+      "engine": "faim",
+      "fields": {
+        "material": {
+          "bytes": 80332,
+          "path": "xtremect_tibia_mini/load_history_3/faim/compression_z/material.nii.gz",
+          "sha256": "85f1226903df64787dd95284b9b82eb11484ef54c767dea4b93b8da4fe930ed4"
+        },
+        "sed": {
+          "bytes": 1003650,
+          "path": "xtremect_tibia_mini/load_history_3/faim/compression_z/sed.nii.gz",
+          "sha256": "e8f8b179d616953f4a2226daca6371e012366d54d4cb01c2845674b791f03579"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "load_history_3"
+    },
+    {
+      "case": "shear_zx",
+      "engine": "faim",
+      "fields": {
+        "material": {
+          "bytes": 80332,
+          "path": "xtremect_tibia_mini/load_history_3/faim/shear_zx/material.nii.gz",
+          "sha256": "85f1226903df64787dd95284b9b82eb11484ef54c767dea4b93b8da4fe930ed4"
+        },
+        "sed": {
+          "bytes": 1016086,
+          "path": "xtremect_tibia_mini/load_history_3/faim/shear_zx/sed.nii.gz",
+          "sha256": "5e0339c64393b6a4cd158f50cefd281130b9441ec6256feb793c8193e434d366"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "load_history_3"
+    },
+    {
+      "case": "shear_zy",
+      "engine": "faim",
+      "fields": {
+        "material": {
+          "bytes": 80332,
+          "path": "xtremect_tibia_mini/load_history_3/faim/shear_zy/material.nii.gz",
+          "sha256": "85f1226903df64787dd95284b9b82eb11484ef54c767dea4b93b8da4fe930ed4"
+        },
+        "sed": {
+          "bytes": 1015559,
+          "path": "xtremect_tibia_mini/load_history_3/faim/shear_zy/sed.nii.gz",
+          "sha256": "0412a101f48d4ada00503c5c7f3876e220e93b7abee8eb5f14782cd8141a1dcb"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "load_history_3"
+    },
+    {
+      "case": "compression_z",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 75898,
+          "path": "xtremect_tibia_mini/load_history_3/parosol-py/compression_z/material.nii.gz",
+          "sha256": "fb0647eb3e038b9f76e9846e766daa5dab37cd3a3b0f1986f6aa81a6e165b29f"
+        },
+        "sed": {
+          "bytes": 1010080,
+          "path": "xtremect_tibia_mini/load_history_3/parosol-py/compression_z/sed.nii.gz",
+          "sha256": "fbdfc0a0a69f7d2d241969cca4a92e72310b24f929691a874e05f6e1330936ff"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "load_history_3"
+    },
+    {
+      "case": "shear_zx",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 75898,
+          "path": "xtremect_tibia_mini/load_history_3/parosol-py/shear_zx/material.nii.gz",
+          "sha256": "fb0647eb3e038b9f76e9846e766daa5dab37cd3a3b0f1986f6aa81a6e165b29f"
+        },
+        "sed": {
+          "bytes": 1022823,
+          "path": "xtremect_tibia_mini/load_history_3/parosol-py/shear_zx/sed.nii.gz",
+          "sha256": "db03d5f88207f95090cad2ae1fcbe1b85f57f2bedef0317135002fe6056a1cdf"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "load_history_3"
+    },
+    {
+      "case": "shear_zy",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 75898,
+          "path": "xtremect_tibia_mini/load_history_3/parosol-py/shear_zy/material.nii.gz",
+          "sha256": "fb0647eb3e038b9f76e9846e766daa5dab37cd3a3b0f1986f6aa81a6e165b29f"
+        },
+        "sed": {
+          "bytes": 1022500,
+          "path": "xtremect_tibia_mini/load_history_3/parosol-py/shear_zy/sed.nii.gz",
+          "sha256": "72a0c574dd55bc34d22008ae3695de00785adadef97bde10831d8f3e1dbba11a"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "load_history_3"
+    },
+    {
+      "case": "bending_x",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 75898,
+          "path": "xtremect_tibia_mini/load_history_6/parosol-py/bending_x/material.nii.gz",
+          "sha256": "fb0647eb3e038b9f76e9846e766daa5dab37cd3a3b0f1986f6aa81a6e165b29f"
+        },
+        "sed": {
+          "bytes": 1032603,
+          "path": "xtremect_tibia_mini/load_history_6/parosol-py/bending_x/sed.nii.gz",
+          "sha256": "2782f0c4c6df22b041790a40a25d1a38706df30fcf824d892e7796b3a397b3ea"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "load_history_6"
+    },
+    {
+      "case": "bending_y",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 75898,
+          "path": "xtremect_tibia_mini/load_history_6/parosol-py/bending_y/material.nii.gz",
+          "sha256": "fb0647eb3e038b9f76e9846e766daa5dab37cd3a3b0f1986f6aa81a6e165b29f"
+        },
+        "sed": {
+          "bytes": 1030042,
+          "path": "xtremect_tibia_mini/load_history_6/parosol-py/bending_y/sed.nii.gz",
+          "sha256": "d5cd1b3f6b85d233966af4eceeb567f925257543f41b31eb4351982131db823b"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "load_history_6"
+    },
+    {
+      "case": "compression_z",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 75898,
+          "path": "xtremect_tibia_mini/load_history_6/parosol-py/compression_z/material.nii.gz",
+          "sha256": "fb0647eb3e038b9f76e9846e766daa5dab37cd3a3b0f1986f6aa81a6e165b29f"
+        },
+        "sed": {
+          "bytes": 1010080,
+          "path": "xtremect_tibia_mini/load_history_6/parosol-py/compression_z/sed.nii.gz",
+          "sha256": "fbdfc0a0a69f7d2d241969cca4a92e72310b24f929691a874e05f6e1330936ff"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "load_history_6"
+    },
+    {
+      "case": "shear_zx",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 75898,
+          "path": "xtremect_tibia_mini/load_history_6/parosol-py/shear_zx/material.nii.gz",
+          "sha256": "fb0647eb3e038b9f76e9846e766daa5dab37cd3a3b0f1986f6aa81a6e165b29f"
+        },
+        "sed": {
+          "bytes": 1022823,
+          "path": "xtremect_tibia_mini/load_history_6/parosol-py/shear_zx/sed.nii.gz",
+          "sha256": "db03d5f88207f95090cad2ae1fcbe1b85f57f2bedef0317135002fe6056a1cdf"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "load_history_6"
+    },
+    {
+      "case": "shear_zy",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 75898,
+          "path": "xtremect_tibia_mini/load_history_6/parosol-py/shear_zy/material.nii.gz",
+          "sha256": "fb0647eb3e038b9f76e9846e766daa5dab37cd3a3b0f1986f6aa81a6e165b29f"
+        },
+        "sed": {
+          "bytes": 1022500,
+          "path": "xtremect_tibia_mini/load_history_6/parosol-py/shear_zy/sed.nii.gz",
+          "sha256": "72a0c574dd55bc34d22008ae3695de00785adadef97bde10831d8f3e1dbba11a"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "load_history_6"
+    },
+    {
+      "case": "torsion_z",
+      "engine": "parosol-py",
+      "fields": {
+        "material": {
+          "bytes": 75898,
+          "path": "xtremect_tibia_mini/load_history_6/parosol-py/torsion_z/material.nii.gz",
+          "sha256": "fb0647eb3e038b9f76e9846e766daa5dab37cd3a3b0f1986f6aa81a6e165b29f"
+        },
+        "sed": {
+          "bytes": 1017108,
+          "path": "xtremect_tibia_mini/load_history_6/parosol-py/torsion_z/sed.nii.gz",
+          "sha256": "45575df3b0a2a8fb3652fde286e8f06c3d82b1a9163415c3eeb1470b104634f2"
+        }
+      },
+      "fixture": "xtremect_tibia_mini",
+      "profile": "load_history_6"
+    }
+  ],
+  "schema_version": 1,
+  "source": {
+    "index": "index.json",
+    "locked_on": "2026-07-15",
+    "run_label": "reference_workflow_runs_20260715_current"
+  }
+}

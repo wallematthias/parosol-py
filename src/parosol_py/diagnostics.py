@@ -168,6 +168,11 @@ def _mechanics_from_node_fields(
     else:
         top_indices, bottom_indices = selected
         selection_name = "boundary_conditions"
+    reference_length_mm = _boundary_reference_length_mm(
+        boundary_conditions,
+        axis=direction,
+        voxel_size_mm=voxel_size_mm,
+    )
     reaction_vector = np.sum(forces[top_indices, :], axis=0)
     reaction = float(reaction_vector[direction_index])
     generalized = _generalized_load(
@@ -205,6 +210,8 @@ def _mechanics_from_node_fields(
             "status": "computed",
         }
     )
+    if reference_length_mm is not None:
+        result["reference_length_mm"] = float(reference_length_mm)
     if displacements is not None and displacements.shape[0] == len(node_coords):
         result["mean_top_displacement"] = _xyz(
             direction_index,
@@ -225,6 +232,20 @@ def _mechanics_from_node_fields(
         if interface is not None:
             result["interface_stiffness"] = interface
     return result
+
+
+def _boundary_reference_length_mm(
+    boundary_conditions,
+    *,
+    axis: str,
+    voxel_size_mm: float,
+) -> float | None:
+    del voxel_size_mm
+    if boundary_conditions is not None:
+        reference_lengths = getattr(boundary_conditions, "reference_lengths_mm", {})
+        if isinstance(reference_lengths, dict) and axis in reference_lengths:
+            return float(reference_lengths[axis])
+    return None
 
 
 def _reaction_node_indices_from_boundary_conditions(
@@ -409,7 +430,12 @@ def _linear_failure_estimates(
             "crawford_stiffness_height": {"status": "not_computed", "reason": reason},
         }
 
-    height_mm = float(height_voxels) * float(voxel_size_mm)
+    reference_length = mechanics.get("reference_length_mm")
+    height_mm = (
+        float(reference_length)
+        if reference_length is not None
+        else float(height_voxels) * float(voxel_size_mm)
+    )
     applied = mechanics.get("applied_displacement", {}).get(axis)
     reaction = mechanics.get("reaction_force", {}).get(axis)
     sign_source = applied if applied is not None and not np.isclose(applied, 0.0) else reaction

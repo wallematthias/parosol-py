@@ -1,6 +1,6 @@
 # parosol-py default case settings.
 # Copy this file, set paths, and keep only the sections you need.
-# Profile override snippets live in parosol_py/config_templates/profiles.
+# Reusable recipes live in parosol_py/workflows as .parosol-workflow/.parosol-profile assets.
 
 case:
   name: example_case
@@ -68,6 +68,16 @@ preprocessing:
   crop_to_bb:
     enabled: false
     margin_voxels: 4
+  # Crop the foreground mask to a target bounding-box ratio before registration
+  # or solve setup. Example: [1, 1.2, null] preserves the first/reference bbox
+  # dimension, crops the second dimension to 1.2x the first, and leaves the
+  # third dimension unchanged.
+  # bbox_ratio: [1, 1.2, null]
+  # Optional crop anchor in the same recipe order. "min" removes the low-index
+  # end of that dimension, "max" removes the high-index end, and null/center
+  # crops around the bbox center. Workflow replay uses Slicer's IJK index
+  # convention for these anchors; authored plane geometry remains in RAS.
+  # bbox_crop_from: [null, max, null]
   # Optional downsampled solve. This changes the solve grid and scales spacing.
   # Use for exploratory coarse passes before full-resolution batches.
   # coarsen:
@@ -81,6 +91,7 @@ nodesets:
   #   surface_nodes: nodes on the exterior of the labeled voxel region
   #   all_corner_nodes: every node touched by the labeled voxels
   #   interface_nodes: nodes where labeled voxels touch other material voxels
+  #   outer_face_nodes: load-facing face nodes for plane-driven material disks
   load_plate:
     type: label_image
     image: nodesets.nii.gz
@@ -159,13 +170,13 @@ load_case:
 
 modeling:
   # Optional anatomy/model generation helpers used before solving.
-  # Profiles such as vertebra and proximal_femur define concrete model blocks.
+  # Workflow profiles such as spine-compression and hip-sideways-fall-left define concrete model blocks.
   # Disk/cap generation is intentionally generic: choose the target mask, set
   # external thickness, and set how far the projected footprint may intrude into
   # the target anatomy.
   # disk:
   #   target_label: 20
-  #   shape: anatomy  # anatomy, square, round, or hex
+  #   shape: anatomy  # anatomy, rectangle, square, round, or hex
   #   thickness_mm: 3
   #   intrusion_depth_mm: 6
   #   method: projected_cap
