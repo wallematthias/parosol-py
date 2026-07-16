@@ -66,6 +66,20 @@ def test_workflow_templates_are_available_by_profile_name():
     assert "pistoia:" in xtremectii
 
 
+def test_xtremect_workflows_pin_scanner_voxel_size_with_tolerance():
+    from parosol_py.workflow_registry import builtin_profile_path
+
+    for profile, target in (("XtremeCTI", 0.0820), ("XtremeCTII", 0.0607)):
+        loaded, _source = load_workflow_template(builtin_profile_path(profile))
+        resample = loaded["preprocessing"]["resample_isotropic"]
+
+        assert resample["enabled"] is True
+        assert resample["mode"] == "fixed"
+        assert resample["target_spacing_mm"] == pytest.approx(target)
+        assert resample["spacing_tolerance_mm"] == pytest.approx(0.001)
+        assert resample["canonicalize_within_tolerance"] is True
+
+
 def test_packaged_workflows_use_npy_references_and_intrusion_schema():
     import zipfile
 

@@ -38,6 +38,7 @@ from .materials import (
     poisson_ratio_from_spec,
 )
 from .modeling import build_model
+from .modeling.common import _resample_array_zyx
 from .modeling.io import read_image_zyx
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .paths import suffix_text
@@ -195,6 +196,7 @@ def run_case_config(
     }
 
     built_model = None
+    spacing_preprocess = None
     if model_cfg:
         model_build_cfg = dict(model_cfg)
         slicer_editor_cfg = config.get("slicer_editor")
@@ -279,6 +281,15 @@ def run_case_config(
         )
         if _connectivity_filter_enabled(preprocessing_cfg):
             material = largest_connected_component(material)
+        material, mapped_poisson_ratio, spacing, spacing_preprocess = (
+            _apply_resample_isotropic_preprocessing(
+                material,
+                mapped_poisson_ratio,
+                spacing=spacing,
+                preprocessing_cfg=preprocessing_cfg,
+                image_type=image_type,
+            )
+        )
         material, spacing = _coarsen_material(
             material,
             spacing=spacing,
@@ -393,6 +404,8 @@ def run_case_config(
         }
     if built_model is not None:
         extra["model"] = _model_summary(built_model)
+    if spacing_preprocess:
+        extra["preprocessing"] = {"resample_isotropic": spacing_preprocess}
     extra["quality"] = _quality_config(solver_cfg)
     summary_path = _resolve_path(
         output_cfg.get(
@@ -506,6 +519,121 @@ def _input_density_active_mask(
         np.asarray(_read_image_array_zyx(_resolve_path(mask_path, base_dir=base_dir)))
         != 0
     )
+
+
+def _apply_resample_isotropic_preprocessing(
+    material: np.ndarray,
+    poisson_ratio: float | np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    preprocessing_cfg: dict[str, Any],
+    image_type: str,
+) -> tuple[np.ndarray, float | np.ndarray, tuple[float, float, float], dict[str, Any] | None]:
+    decision = _resample_isotropic_decision(
+        preprocessing_cfg.get("resample_isotropic"),
+        spacing=spacing,
+    )
+    if decision is None:
+        return material, poisson_ratio, spacing, None
+    target = decision["target_spacing"]
+    if decision["within_tolerance"]:
+        if not decision["canonicalize_within_tolerance"]:
+            return material, poisson_ratio, spacing, None
+        return material, poisson_ratio, target, {
+            "enabled": True,
+            "resampled": False,
+            "canonicalized": True,
+            "input_spacing": list(spacing),
+            "target_spacing": list(target),
+            "spacing_tolerance_mm": decision["spacing_tolerance_mm"],
+            "spacing_tolerance_relative": decision["spacing_tolerance_relative"],
+        }
+
+    interpolation = (
+        "nearest"
+        if image_type in {"material_labels", "labels", "segmentation"}
+        else "bspline"
+    )
+    resampled_material = _resample_array_zyx(
+        material,
+        spacing=spacing,
+        target_spacing=target,
+        interpolation=interpolation,
+    )
+    resampled_poisson = poisson_ratio
+    if isinstance(poisson_ratio, np.ndarray):
+        resampled_poisson = _resample_array_zyx(
+            poisson_ratio,
+            spacing=spacing,
+            target_spacing=target,
+            interpolation=interpolation,
+        )
+    return resampled_material, resampled_poisson, target, {
+        "enabled": True,
+        "resampled": True,
+        "canonicalized": False,
+        "input_spacing": list(spacing),
+        "target_spacing": list(target),
+        "spacing_tolerance_mm": decision["spacing_tolerance_mm"],
+        "spacing_tolerance_relative": decision["spacing_tolerance_relative"],
+        "interpolation": interpolation,
+    }
+
+
+def _resample_isotropic_decision(
+    resample_spec: Any,
+    *,
+    spacing: tuple[float, float, float],
+) -> dict[str, Any] | None:
+    if not _resample_spec_enabled(resample_spec):
+        return None
+    spec = resample_spec if isinstance(resample_spec, dict) else {}
+    tolerance = float(spec.get("spacing_tolerance_mm", spec.get("tolerance_mm", 1.0e-3)))
+    relative_tolerance = float(spec.get("spacing_tolerance_relative", 1.0e-5))
+    target = _resample_isotropic_target_spacing(spec, spacing)
+    if target is None:
+        return None
+    return {
+        "target_spacing": target,
+        "within_tolerance": bool(
+            np.allclose(spacing, target, rtol=relative_tolerance, atol=tolerance)
+        ),
+        "canonicalize_within_tolerance": bool(
+            spec.get("canonicalize_within_tolerance", False)
+        ),
+        "spacing_tolerance_mm": tolerance,
+        "spacing_tolerance_relative": relative_tolerance,
+    }
+
+
+def _resample_isotropic_target_spacing(
+    spec: dict[str, Any],
+    spacing: tuple[float, float, float],
+) -> tuple[float, float, float] | None:
+    if "target_spacing" in spec:
+        return _triple(spec["target_spacing"], "preprocessing.resample_isotropic.target_spacing")
+    raw_value = spec.get("target_spacing_mm", spec.get("spacing_mm", spec.get("spacing")))
+    if raw_value is not None:
+        target_value = float(raw_value)
+        return (target_value, target_value, target_value)
+    mode = str(spec.get("mode", "auto")).strip().lower()
+    if mode in {"", "auto", "isotropic"}:
+        target_value = min(float(value) for value in spacing)
+        return (target_value, target_value, target_value)
+    if mode == "fixed":
+        raise ValueError(
+            "preprocessing.resample_isotropic.target_spacing_mm is required when mode='fixed'"
+        )
+    target_value = float(mode)
+    return (target_value, target_value, target_value)
+
+
+def _resample_spec_enabled(value: Any) -> bool:
+    if isinstance(value, dict):
+        return _resample_spec_enabled(value.get("enabled", True))
+    if isinstance(value, str):
+        return value.strip().lower() in {"on", "true", "yes", "1", "fixed", "auto"}
+    return bool(value)
 
 
 def _coarsen_material(

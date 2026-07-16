@@ -126,6 +126,132 @@ def test_run_case_config_reads_image_metadata_for_auto_spacing(tmp_path: Path):
     assert result.summary.origin == (-1.5, -2.5, 3.0)
 
 
+def test_run_case_config_canonicalizes_spacing_within_resample_tolerance(
+    monkeypatch,
+    tmp_path: Path,
+):
+    labels = np.ones((3, 4, 5), dtype=np.uint8) * 100
+    image = sitk.GetImageFromArray(labels)
+    image.SetSpacing((0.0609, 0.0609, 0.0609))
+    image_path = tmp_path / "labels.mha"
+    sitk.WriteImage(image, str(image_path))
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "labels.mha",
+                    "image_type": "material_labels",
+                    "spacing": "auto",
+                },
+                "materials": {
+                    "labels": {
+                        100: {"name": "trabecular_bone", "E": 6829, "nu": 0.3}
+                    }
+                },
+                "preprocessing": {
+                    "resample_isotropic": {
+                        "enabled": True,
+                        "mode": "fixed",
+                        "target_spacing_mm": 0.0607,
+                        "spacing_tolerance_mm": 0.001,
+                        "canonicalize_within_tolerance": True,
+                    }
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary(kwargs["material"].shape[::-1], kwargs["spacing"], (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    assert captured["material"].shape == labels.shape
+    assert captured["spacing"] == pytest.approx((0.0607, 0.0607, 0.0607))
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    resampling = summary["preprocessing"]["resample_isotropic"]
+    assert resampling["resampled"] is False
+    assert resampling["canonicalized"] is True
+    assert resampling["input_spacing"] == pytest.approx([0.0609, 0.0609, 0.0609])
+    assert summary["image"]["spacing"] == pytest.approx([0.0607, 0.0607, 0.0607])
+
+
+def test_run_case_config_resamples_material_labels_outside_spacing_tolerance(
+    monkeypatch,
+    tmp_path: Path,
+):
+    labels = np.ones((3, 4, 5), dtype=np.uint8) * 100
+    labels[1:, 2:, 3:] = 127
+    image = sitk.GetImageFromArray(labels)
+    image.SetSpacing((0.0820, 0.0820, 0.0820))
+    image_path = tmp_path / "labels.mha"
+    sitk.WriteImage(image, str(image_path))
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "labels.mha",
+                    "image_type": "material_labels",
+                    "spacing": "auto",
+                },
+                "materials": {
+                    "labels": {
+                        100: {"name": "trabecular_bone", "E": 6829, "nu": 0.3},
+                        127: {"name": "cortical_bone", "E": 8748, "nu": 0.3},
+                    }
+                },
+                "preprocessing": {
+                    "resample_isotropic": {
+                        "enabled": True,
+                        "mode": "fixed",
+                        "target_spacing_mm": 0.0607,
+                        "spacing_tolerance_mm": 0.001,
+                        "canonicalize_within_tolerance": True,
+                    }
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_solve(**kwargs):
+        captured.update(kwargs)
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary(kwargs["material"].shape[::-1], kwargs["spacing"], (0, 0, 0)),
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    run_case_config(config_path)
+
+    assert captured["material"].shape != labels.shape
+    assert captured["spacing"] == pytest.approx((0.0607, 0.0607, 0.0607))
+    assert set(np.unique(captured["material"])) <= {6829.0, 8748.0}
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    resampling = summary["preprocessing"]["resample_isotropic"]
+    assert resampling["resampled"] is True
+    assert resampling["canonicalized"] is False
+    assert resampling["input_spacing"] == pytest.approx([0.0820, 0.0820, 0.0820])
+
+
 def test_generic_config_uses_input_mask_as_postprocess_mask(
     monkeypatch, tmp_path: Path
 ):
@@ -2032,7 +2158,8 @@ def test_cli_shortcut_accepts_aim_version_suffix(monkeypatch, tmp_path: Path):
     summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
     assert summary["case"]["name"] == "STRAMBO_0003_RL_Y04"
     assert summary["execution"]["image"] == str(image_path.resolve())
-    assert summary["image"]["spacing"] == [0.0607, 0.0607, 0.0607]
+    assert summary["image"]["spacing"] == [0.082, 0.082, 0.082]
+    assert summary["preprocessing"]["resample_isotropic"]["resampled"] is True
 
 
 def test_cli_shortcut_runs_spine_workflow_with_standard_mask_argument(tmp_path: Path):
