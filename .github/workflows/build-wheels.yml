@@ -4,6 +4,8 @@ name: Build Wheels
   push:
     tags:
       - "v*"
+  schedule:
+    - cron: "0 9 1 * *"
   workflow_dispatch:
     inputs:
       target:
@@ -83,7 +85,7 @@ jobs:
           github.event.inputs.target == 'all' ||
           github.event.inputs.target == matrix.target
         run: |
-          python -m pip install --upgrade pip cibuildwheel
+          python -m pip install --upgrade pip "cibuildwheel>=3"
 
       - name: Build wheels (cibuildwheel)
         if: >-

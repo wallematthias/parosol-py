@@ -4,10 +4,10 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "parosol-py"
-version = "0.1.18"
+version = "0.1.19"
 description = "Python package and API wrapper for the ParOSol micro-FE solver"
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 license = { text = "GPL-2.0-or-later" }
 authors = [{ name = "Matthias Walle" }]
 maintainers = [{ name = "Matthias Walle" }]
@@ -43,8 +43,8 @@ cmake.version = ">=3.18"
 wheel.packages = ["src/parosol_py"]
 
 [tool.cibuildwheel]
-build = "cp311-* cp312-* cp313-*"
-skip = "*-musllinux_* *-manylinux_i686 *-win32"
+build = "cp3??-*"
+skip = "cp3??t-* *-musllinux_* *-manylinux_i686 *-win32"
 before-build = "python scripts/stage_mpi_runtime.py && python scripts/verify_packaged_mpi.py"
 test-command = "python -m parosol_py._wheel_smoke"
 build-verbosity = 1
