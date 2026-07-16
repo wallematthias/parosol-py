@@ -73,6 +73,15 @@ def test_pyproject_declares_native_wheel_build_settings():
     assert "PAROSOL_WINDOWS_RUNTIME_DLLS" in cmake
 
 
+def test_packaged_mpi_verifier_does_not_import_package_init():
+    script = (ROOT / "scripts" / "verify_packaged_mpi.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "importlib.util.spec_from_file_location" in script
+    assert "from parosol_py.runner import" not in script
+
+
 def test_github_workflows_build_test_and_wheels():
     tests = yaml.safe_load((ROOT / ".github" / "workflows" / "tests.yml").read_text())
     wheels = yaml.safe_load(
