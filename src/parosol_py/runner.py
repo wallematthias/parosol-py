@@ -19,6 +19,7 @@ OUTPUT_FLAGS = {
     "effective_strain": "--EFF",
     "deviatoric_strain": "--e_dev",
     "volumetric_strain": "--e_vol",
+    "plastic_strain": None,
 }
 
 
@@ -353,6 +354,8 @@ def build_parosol_command(
         if token not in OUTPUT_FLAGS:
             raise ValueError(f"Unsupported ParOSol output '{output}'")
         flag = OUTPUT_FLAGS[token]
+        if flag is None:
+            continue
         if flag not in cmd:
             cmd.append(flag)
 

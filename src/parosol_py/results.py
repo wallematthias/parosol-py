@@ -37,6 +37,8 @@ def read_solution_fields(
                 fields[output] = _read_tensor(solution, prefix="e_")
             elif output == "stress":
                 fields[output] = _read_tensor(solution, prefix="s_")
+            elif output == "plastic_strain":
+                fields[output] = _read_dataset(solution, output, "PlasticStrain")
             elif output in {"forces", "force"}:
                 fields["forces"] = _read_dataset(solution, output, "force")
             elif output in {"displacements", "disp"}:

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import h5py
 import numpy as np
 
 from .boundary_conditions import axial_compression
@@ -230,6 +231,9 @@ def solve(
         crawford_coefficient=crawford_coefficient,
         linear_failure_estimates=linear_failure_estimates,
     )
+    nonlinear_diagnostics = _read_nonlinear_diagnostics(input_file)
+    if nonlinear_diagnostics:
+        diagnostics["nonlinear"] = nonlinear_diagnostics
 
     return SolveResult(
         input_file=input_file,
@@ -296,6 +300,30 @@ def _summary_outputs(outputs: tuple[str, ...]) -> tuple[str, ...]:
         if token not in requested:
             requested.append(token)
     return tuple(requested)
+
+
+def _read_nonlinear_diagnostics(path: Path) -> dict[str, float | int]:
+    names = (
+        "plastic_iterations",
+        "yielded_last",
+        "plastic_convergence_last",
+    )
+    with h5py.File(path, "r") as h5:
+        if "NonlinearResults" not in h5:
+            return {}
+        group = h5["NonlinearResults"]
+        values: dict[str, float | int] = {}
+        for name in names:
+            if name in group.attrs:
+                value = group.attrs[name]
+            elif name in group:
+                value = group[name][()]
+            else:
+                continue
+            values[name] = (
+                float(value) if name == "plastic_convergence_last" else int(value)
+            )
+    return values
 
 
 def _native_scalar_field(

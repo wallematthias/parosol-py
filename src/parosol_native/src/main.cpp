@@ -18,6 +18,7 @@
 
 #include <iostream>
 #include <iomanip>
+#include <memory>
 
 #include <mpi.h>
 #include <Eigen/Core>
@@ -26,6 +27,7 @@
 #include "Timing.h"
 #include "Config.h"
 #include "NonlinearMaterial.h"
+#include "NonlinearProblem.h"
 
 //is chosen by the templates
 #include "KeyGenerator.h"
@@ -51,7 +53,7 @@ void mflops(GenericMatrix<T> &matr, int MyPID);
 */
 
 template <class T>
-void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag);
+void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag, const Eigen::VectorXd* plastic_strain, const NonlinearIterationSummary* nonlinear_summary);
 
 static void nonlinear_material_compile_check() {
     VonMisesMaterial material(1000.0, 0.3, 25.0);
@@ -222,7 +224,26 @@ int main(int argc, char *argv[])
     // Solving the system
     timer.Stop("Constant");
 	timer.Start("Solve");
-    std::tuple<int, double, double> output = problem.Solve(startvector_flag, extrapolation_flag);   // STORE STARTVECTOR
+	std::tuple<int, double, double> output;
+    std::unique_ptr<NonlinearProblem<t_Ogrid> > nonlinear_problem;
+    NonlinearIterationSummary nonlinear_summary = {0, 0, 0.0};
+    if (ir.nonlinear_enabled) {
+        if (ir.nonlinear_material_type != "VonMisesIsotropic") {
+            PCOUT(MyPID, "ERROR: only VonMisesIsotropic nonlinear material is currently supported\n");
+            MPI_Finalize();
+            return 2;
+        }
+        VonMisesMaterial material(ir.nonlinear_E_mpa, ir.nonlinear_nu, ir.nonlinear_Y_mpa);
+        nonlinear_problem.reset(new NonlinearProblem<t_Ogrid>(grid, matr, material));
+        nonlinear_summary = nonlinear_problem->Solve(
+            problem,
+            solver,
+            ir.nonlinear_maximum_plastic_iterations,
+            ir.nonlinear_convergence_tolerance);
+        output = std::make_tuple(nonlinear_summary.plastic_iterations, 0.0, problem.Res());
+    } else {
+        output = problem.Solve(startvector_flag, extrapolation_flag);   // STORE STARTVECTOR
+    }
 	int iterations = std::get<0>(output);
 	double rel_res = std::get<1>(output);
 	double abs_res = std::get<2>(output);
@@ -231,7 +252,9 @@ int main(int argc, char *argv[])
 
     // Print out the solution / Write to file
     timer.Start("Print");
-	print(matr, problem, file, MyPID, SED_flag, EFF_flag, VonMises_flag, e_dev_flag, e_vol_flag, strain_flag, stress_flag, DP_s_flag, DP_e_flag);
+	print(matr, problem, file, MyPID, SED_flag, EFF_flag, VonMises_flag, e_dev_flag, e_vol_flag, strain_flag, stress_flag, DP_s_flag, DP_e_flag,
+        nonlinear_problem ? &nonlinear_problem->PlasticStrain() : 0,
+        nonlinear_problem ? &nonlinear_summary : 0);
     timer.Stop("Print");
 
     // Timings
@@ -272,7 +295,7 @@ int main(int argc, char *argv[])
 }
 
 template <class T>
-void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag)
+void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag, const Eigen::VectorXd* plastic_strain, const NonlinearIterationSummary* nonlinear_summary)
 {
 	//VTKPrinter<OctreeKey_Lookup> print("out", matr.GetGrid());
 	HDF5Printer<OctreeKey_Lookup> print(file, matr.GetGrid());
@@ -281,6 +304,13 @@ void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int My
 	Eigen::VectorXd force(dofs);
 	matr.Apply_NoResetBoundaries(problem.GetSol(), force);
 	print.PrintAll(problem.GetSol(), force, problem.GetRes(), SED_flag, EFF_flag, VonMises_flag, e_dev_flag, e_vol_flag, strain_flag, stress_flag, DP_s_flag, DP_e_flag);
+	if (plastic_strain != 0 && nonlinear_summary != 0) {
+		print.PrintPlasticStrain(*plastic_strain);
+		print.PrintNonlinearResults(
+			nonlinear_summary->plastic_iterations,
+			nonlinear_summary->yielded_last,
+			nonlinear_summary->plastic_convergence_last);
+	}
 }
 
 /*

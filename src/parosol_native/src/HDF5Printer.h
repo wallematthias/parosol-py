@@ -217,6 +217,27 @@ class HDF5Printer {
 			
 		}
 
+        void PrintPlasticStrain(const Eigen::VectorXd& plastic_strain) {
+            Writer->Select("/Solution");
+            Writer->Write(
+                "PlasticStrain",
+                plastic_strain.data(),
+                _grid.GetNrElemGlobal(),
+                _grid.GetNrElem(),
+                6,
+                _grid.GetElemOffset());
+        }
+
+        void PrintNonlinearResults(
+            int plastic_iterations,
+            int yielded_last,
+            double plastic_convergence_last) {
+            Writer->Select("/NonlinearResults");
+            Writer->Write("plastic_iterations", plastic_iterations);
+            Writer->Write("yielded_last", yielded_last);
+            Writer->Write("plastic_convergence_last", plastic_convergence_last);
+        }
+
 		void PrintPartition(std::string dset) {
           Eigen::VectorXi part(_grid.GetNrElem());
 		  part.setConstant(_grid.GetNrElem(), _MyPID);
