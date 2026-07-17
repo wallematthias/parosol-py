@@ -25,6 +25,7 @@
 
 #include "Timing.h"
 #include "Config.h"
+#include "NonlinearMaterial.h"
 
 //is chosen by the templates
 #include "KeyGenerator.h"
@@ -51,6 +52,15 @@ void mflops(GenericMatrix<T> &matr, int MyPID);
 
 template <class T>
 void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag);
+
+static void nonlinear_material_compile_check() {
+    VonMisesMaterial material(1000.0, 0.3, 25.0);
+    Eigen::Matrix<double, 6, 1> strain;
+    strain.setZero();
+    Eigen::Matrix<double, 6, 1> plastic;
+    plastic.setZero();
+    (void) material.Update(strain, plastic);
+}
 
 int main(int argc, char *argv[])
 {
