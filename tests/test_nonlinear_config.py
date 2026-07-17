@@ -4,9 +4,9 @@ import h5py
 import numpy as np
 import pytest
 
+from parosol_py.api import solve
 from parosol_py.hdf5_io import write_parosol_input
 from parosol_py.nonlinear import NonlinearSolverOptions, VonMisesMaterial
-from parosol_py.api import solve
 
 
 def test_von_mises_material_validates_positive_values():
@@ -47,6 +47,36 @@ def test_von_mises_material_validates_positive_values():
 def test_von_mises_material_rejects_invalid_values(kwargs):
     with pytest.raises(ValueError):
         VonMisesMaterial(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        (field, value)
+        for field in (
+            "youngs_modulus_mpa",
+            "poisson_ratio",
+            "yield_strength_mpa",
+        )
+        for value in (float("nan"), float("inf"))
+    ],
+)
+def test_von_mises_material_rejects_non_finite_values(field, value):
+    kwargs = {
+        "youngs_modulus_mpa": 6829.0,
+        "poisson_ratio": 0.3,
+        "yield_strength_mpa": 50.0,
+    }
+    kwargs[field] = value
+
+    with pytest.raises(ValueError):
+        VonMisesMaterial(**kwargs)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_nonlinear_solver_options_rejects_non_finite_tolerance(value):
+    with pytest.raises(ValueError):
+        NonlinearSolverOptions(convergence_tolerance=value)
 
 
 def test_write_parosol_input_writes_optional_nonlinear_group(tmp_path):

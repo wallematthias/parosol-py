@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 
 
 @dataclass(frozen=True)
@@ -10,12 +11,14 @@ class VonMisesMaterial:
     yield_strength_mpa: float
 
     def __post_init__(self) -> None:
-        if self.youngs_modulus_mpa <= 0.0:
-            raise ValueError("youngs_modulus_mpa must be positive")
-        if not (-1.0 < self.poisson_ratio < 0.5):
-            raise ValueError("poisson_ratio must satisfy -1.0 < nu < 0.5")
-        if self.yield_strength_mpa <= 0.0:
-            raise ValueError("yield_strength_mpa must be positive")
+        if not isfinite(self.youngs_modulus_mpa) or self.youngs_modulus_mpa <= 0.0:
+            raise ValueError("youngs_modulus_mpa must be finite and positive")
+        if not isfinite(self.poisson_ratio) or not (
+            -1.0 < self.poisson_ratio < 0.5
+        ):
+            raise ValueError("poisson_ratio must be finite and satisfy -1.0 < nu < 0.5")
+        if not isfinite(self.yield_strength_mpa) or self.yield_strength_mpa <= 0.0:
+            raise ValueError("yield_strength_mpa must be finite and positive")
 
     def to_hdf5_attrs(self) -> dict[str, float | str]:
         return {
@@ -33,8 +36,11 @@ class NonlinearSolverOptions:
     plastic_convergence_window: int = 2
 
     def __post_init__(self) -> None:
-        if self.convergence_tolerance <= 0.0:
-            raise ValueError("convergence_tolerance must be positive")
+        if (
+            not isfinite(self.convergence_tolerance)
+            or self.convergence_tolerance <= 0.0
+        ):
+            raise ValueError("convergence_tolerance must be finite and positive")
         if self.maximum_plastic_iterations <= 0:
             raise ValueError("maximum_plastic_iterations must be positive")
         if self.plastic_convergence_window <= 0:
