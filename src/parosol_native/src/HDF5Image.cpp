@@ -197,6 +197,18 @@ int HDF5Image::Scan(BaseGrid* grid)
     }
     reader.Read("Poisons_ratio", grid->poisons_ratio);
 
+    if (reader.GroupExists("/Nonlinear")) {
+      reader.Select("/Nonlinear");
+      nonlinear_enabled = true;
+      reader.ReadAttribute("material_type", nonlinear_material_type);
+      reader.ReadAttribute("youngs_modulus_mpa", nonlinear_E_mpa);
+      reader.ReadAttribute("poisson_ratio", nonlinear_nu);
+      reader.ReadAttribute("yield_strength_mpa", nonlinear_Y_mpa);
+      reader.ReadAttribute("convergence_tolerance", nonlinear_convergence_tolerance);
+      reader.ReadAttribute("maximum_plastic_iterations", nonlinear_maximum_plastic_iterations);
+      reader.ReadAttribute("plastic_convergence_window", nonlinear_plastic_convergence_window);
+    }
+
    PCOUT(MyPID, "HDF5 ImageReader: \n")
    PCOUT(MyPID, "   global Dimension: " << grid->gdim[0] << " " << grid->gdim[1] << " " << grid->gdim[2] << "\n")
    PCOUT(MyPID, "   local Dimension: " << grid->ldim[0] << " " << grid->ldim[1] << " " << grid->ldim[2] << "\n")

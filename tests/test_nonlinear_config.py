@@ -7,6 +7,7 @@ import pytest
 from parosol_py.api import solve
 from parosol_py.hdf5_io import write_parosol_input
 from parosol_py.nonlinear import NonlinearSolverOptions, VonMisesMaterial
+from parosol_py.runner import packaged_executable
 
 
 def test_von_mises_material_validates_positive_values():
@@ -166,3 +167,19 @@ def test_solve_dry_run_writes_nonlinear_configuration(tmp_path):
         group = h5["Nonlinear"]
         assert group.attrs["material_type"] == "VonMisesIsotropic"
         assert group.attrs["maximum_plastic_iterations"] == 20
+
+
+def test_nonlinear_dry_run_builds_command_without_running_solver(tmp_path):
+    result = solve(
+        material=np.ones((2, 2, 2), dtype=np.float32) * 1000.0,
+        spacing=(1.0, 1.0, 1.0),
+        nonlinear_material=VonMisesMaterial(1000.0, 0.3, 25.0),
+        nonlinear_solver=NonlinearSolverOptions(maximum_plastic_iterations=3),
+        work_dir=tmp_path,
+        dry_run=True,
+        executable=packaged_executable(),
+    )
+
+    assert result.input_file.name == "parosol_input.h5"
+    with h5py.File(result.input_file, "r") as h5:
+        assert h5["Nonlinear"].attrs["maximum_plastic_iterations"] == 3
