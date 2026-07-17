@@ -21,6 +21,9 @@ def write_parosol_input(
     nonlinear_material=None,
     nonlinear_solver=None,
 ) -> Path:
+    if nonlinear_solver is not None and nonlinear_material is None:
+        raise ValueError("nonlinear_solver requires nonlinear_material")
+
     out = Path(path).expanduser().resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
 

@@ -58,7 +58,7 @@ def test_von_mises_material_rejects_invalid_values(kwargs):
             "poisson_ratio",
             "yield_strength_mpa",
         )
-        for value in (float("nan"), float("inf"))
+        for value in (float("-inf"), float("nan"), float("inf"))
     ],
 )
 def test_von_mises_material_rejects_non_finite_values(field, value):
@@ -73,10 +73,25 @@ def test_von_mises_material_rejects_non_finite_values(field, value):
         VonMisesMaterial(**kwargs)
 
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+@pytest.mark.parametrize("value", [float("-inf"), float("nan"), float("inf")])
 def test_nonlinear_solver_options_rejects_non_finite_tolerance(value):
     with pytest.raises(ValueError):
         NonlinearSolverOptions(convergence_tolerance=value)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        (field, value)
+        for field in ("maximum_plastic_iterations", "plastic_convergence_window")
+        for value in (float("-inf"), float("nan"), float("inf"), 1.0, 1.5, True)
+    ],
+)
+def test_nonlinear_solver_options_rejects_non_integer_iteration_values(field, value):
+    kwargs = {field: value}
+
+    with pytest.raises(ValueError):
+        NonlinearSolverOptions(**kwargs)
 
 
 def test_write_parosol_input_writes_optional_nonlinear_group(tmp_path):
@@ -114,6 +129,19 @@ def test_write_parosol_input_writes_optional_nonlinear_group(tmp_path):
         assert group.attrs["convergence_tolerance"] == pytest.approx(1.0e-6)
         assert group.attrs["maximum_plastic_iterations"] == 20
         assert group.attrs["plastic_convergence_window"] == 2
+
+
+def test_write_parosol_input_rejects_solver_without_material(tmp_path):
+    with pytest.raises(ValueError, match="nonlinear_solver requires nonlinear_material"):
+        write_parosol_input(
+            tmp_path / "case.h5",
+            stiffness_gpa_xyz=np.ones((2, 2, 2), dtype=np.float32),
+            fixed_displacement_coordinates=np.array([[0, 0, 0, 0]], dtype=np.uint16),
+            fixed_displacement_values=np.array([0.0], dtype=np.float32),
+            voxel_size_mm=1.0,
+            poisson_ratio=0.3,
+            nonlinear_solver=NonlinearSolverOptions(),
+        )
 
 
 def test_solve_dry_run_writes_nonlinear_configuration(tmp_path):

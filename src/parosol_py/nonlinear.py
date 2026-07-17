@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
+from numbers import Integral
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,20 @@ class NonlinearSolverOptions:
             or self.convergence_tolerance <= 0.0
         ):
             raise ValueError("convergence_tolerance must be finite and positive")
-        if self.maximum_plastic_iterations <= 0:
-            raise ValueError("maximum_plastic_iterations must be positive")
-        if self.plastic_convergence_window <= 0:
-            raise ValueError("plastic_convergence_window must be positive")
+        if not _is_positive_integer(self.maximum_plastic_iterations):
+            raise ValueError(
+                "maximum_plastic_iterations must be a finite positive integer"
+            )
+        if not _is_positive_integer(self.plastic_convergence_window):
+            raise ValueError(
+                "plastic_convergence_window must be a finite positive integer"
+            )
+
+
+def _is_positive_integer(value: object) -> bool:
+    return (
+        isinstance(value, Integral)
+        and not isinstance(value, bool)
+        and isfinite(value)
+        and value > 0
+    )
