@@ -1237,6 +1237,7 @@ def test_workflow_replay_model_builds_spine_keaveny_nonlinear_material(
     tmp_path: Path,
 ):
     density = np.ones((4, 4, 4), dtype=np.float32)
+    density[2, 2, 2] = 0.0
     mask = np.ones_like(density, dtype=np.uint8) * 20
     disk_labels = np.zeros_like(mask, dtype=np.uint16)
     nodeset_labels = np.zeros_like(mask, dtype=np.uint16)
@@ -1374,6 +1375,7 @@ def test_workflow_replay_nonlinear_assigns_pmma_disks_as_elastic_fixture_materia
     assert np.all(built.nonlinear_material.tensile_yield_mpa[disk_mask] == 0.0)
     assert np.all(built.nonlinear_material.plateau_mpa[disk_mask] == 0.0)
     assert np.allclose(built.nonlinear_material.poisson_ratio[disk_mask], 0.31)
+    assert np.all(built.nonlinear_material.material_id[built.material == 0.0] == 0)
 
 
 def test_workflow_replay_pads_sample_extent_before_resampling_saved_disks(

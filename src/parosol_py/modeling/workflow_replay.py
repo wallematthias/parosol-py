@@ -347,6 +347,7 @@ def build_workflow_replay_model(
     nonlinear_material = _crop_nonlinear_material_to_workflow_crop(
         nonlinear_material,
         cropped.crop,
+        material_xyz=material_xyz,
     )
 
     require_non_empty(node_sets)
@@ -1283,25 +1284,42 @@ def _crop_array_to_workflow_crop(array_xyz: np.ndarray, crop: dict[str, Any]) ->
     return array[slices]
 
 
-def _crop_nonlinear_material_to_workflow_crop(nonlinear_material, crop: dict[str, Any]):
+def _crop_nonlinear_material_to_workflow_crop(
+    nonlinear_material,
+    crop: dict[str, Any],
+    *,
+    material_xyz: np.ndarray,
+):
     if nonlinear_material is None:
         return None
 
+    active_xyz = np.asarray(material_xyz, dtype=np.float64) > 0.0
+
     def crop_zyx(array_zyx):
         array_xyz = np.transpose(np.asarray(array_zyx), (2, 1, 0))
-        return to_zyx(_crop_array_to_workflow_crop(array_xyz, crop))
+        return _crop_array_to_workflow_crop(array_xyz, crop)
 
     poisson = nonlinear_material.poisson_ratio
     if isinstance(poisson, np.ndarray):
-        poisson = crop_zyx(poisson)
+        poisson = to_zyx(np.where(active_xyz, crop_zyx(poisson), 0.0))
     return replace(
         nonlinear_material,
-        youngs_modulus_mpa=crop_zyx(nonlinear_material.youngs_modulus_mpa),
+        youngs_modulus_mpa=to_zyx(
+            np.where(active_xyz, np.asarray(material_xyz, dtype=np.float64), 0.0)
+        ),
         poisson_ratio=poisson,
-        compressive_yield_mpa=crop_zyx(nonlinear_material.compressive_yield_mpa),
-        tensile_yield_mpa=crop_zyx(nonlinear_material.tensile_yield_mpa),
-        plateau_mpa=crop_zyx(nonlinear_material.plateau_mpa),
-        material_id=crop_zyx(nonlinear_material.material_id),
+        compressive_yield_mpa=to_zyx(
+            np.where(active_xyz, crop_zyx(nonlinear_material.compressive_yield_mpa), 0.0)
+        ),
+        tensile_yield_mpa=to_zyx(
+            np.where(active_xyz, crop_zyx(nonlinear_material.tensile_yield_mpa), 0.0)
+        ),
+        plateau_mpa=to_zyx(
+            np.where(active_xyz, crop_zyx(nonlinear_material.plateau_mpa), 0.0)
+        ),
+        material_id=to_zyx(
+            np.where(active_xyz, crop_zyx(nonlinear_material.material_id), 0)
+        ).astype(np.uint16, copy=False),
     )
 
 
