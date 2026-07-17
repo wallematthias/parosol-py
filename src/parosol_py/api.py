@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -102,6 +102,10 @@ def solve(
         grid.array_xyz,
         material_unit=material_unit,
     )
+    nonlinear_material_xyz = _nonlinear_material_for_solve(
+        nonlinear_material,
+        array_order=array_order,
+    )
     mask_xyz = _postprocess_mask_xyz(
         postprocess_mask,
         spacing=spacing,
@@ -134,7 +138,7 @@ def solve(
         poisson_ratio=poisson_ratio,
         loaded_node_coordinates=loaded_coords,
         loaded_node_values=loaded_values,
-        nonlinear_material=nonlinear_material,
+        nonlinear_material=nonlinear_material_xyz,
         nonlinear_solver=nonlinear_solver,
     )
     command = build_parosol_command(
@@ -249,6 +253,35 @@ def solve(
         stderr=run.stderr,
         exported=exported,
         diagnostics=diagnostics,
+    )
+
+
+def _nonlinear_material_for_solve(nonlinear_material, *, array_order: str):
+    if nonlinear_material is None:
+        return None
+    if not hasattr(nonlinear_material, "compressive_yield_mpa"):
+        return nonlinear_material
+
+    order = array_order.strip().lower()
+    if order in {"xyz", "x-y-z"}:
+        return nonlinear_material
+    if order not in {"zyx", "z-y-x"}:
+        raise ValueError("array_order must be 'zyx' or 'xyz'")
+
+    def to_xyz(array):
+        return np.transpose(np.asarray(array), (2, 1, 0))
+
+    poisson = nonlinear_material.poisson_ratio
+    if isinstance(poisson, np.ndarray):
+        poisson = to_xyz(poisson)
+    return replace(
+        nonlinear_material,
+        youngs_modulus_mpa=to_xyz(nonlinear_material.youngs_modulus_mpa),
+        poisson_ratio=poisson,
+        compressive_yield_mpa=to_xyz(nonlinear_material.compressive_yield_mpa),
+        tensile_yield_mpa=to_xyz(nonlinear_material.tensile_yield_mpa),
+        plateau_mpa=to_xyz(nonlinear_material.plateau_mpa),
+        material_id=to_xyz(nonlinear_material.material_id),
     )
 
 

@@ -6,7 +6,11 @@ import pytest
 
 from parosol_py.api import solve
 from parosol_py.hdf5_io import write_parosol_input
-from parosol_py.nonlinear import NonlinearSolverOptions, VonMisesMaterial
+from parosol_py.nonlinear import (
+    NonlinearSolverOptions,
+    VonMisesMaterial,
+    spine_keaveny_nonlinear,
+)
 from parosol_py.runner import packaged_executable
 
 
@@ -217,6 +221,39 @@ def test_solve_dry_run_writes_nonlinear_configuration(tmp_path):
         group = h5["Nonlinear"]
         assert group.attrs["material_type"] == "VonMisesIsotropic"
         assert group.attrs["maximum_plastic_iterations"] == 20
+
+
+def test_solve_dry_run_transposes_zyx_keaveny_nonlinear_material_map(tmp_path):
+    rho_qct_zyx = np.linspace(0.1, 1.2, num=2 * 3 * 4, dtype=np.float64).reshape(
+        (2, 3, 4)
+    )
+    poisson_zyx = np.linspace(0.2, 0.35, num=rho_qct_zyx.size).reshape(
+        rho_qct_zyx.shape
+    )
+    nonlinear_map = spine_keaveny_nonlinear(
+        rho_qct_zyx,
+        poisson_ratio=poisson_zyx,
+    )
+
+    result = solve(
+        material=nonlinear_map.youngs_modulus_mpa,
+        spacing=(1.0, 1.0, 1.0),
+        array_order="zyx",
+        nonlinear_material=nonlinear_map,
+        work_dir=tmp_path,
+        dry_run=True,
+        executable="parosol",
+    )
+
+    with h5py.File(result.input_file, "r") as h5:
+        image_xyz = np.swapaxes(h5["Image_Data/Image"][...], 0, 2)
+        youngs_xyz = np.swapaxes(h5["Nonlinear/YoungsModulusMPa"][...], 0, 2)
+        poisson_xyz = np.swapaxes(h5["Nonlinear/PoissonRatio"][...], 0, 2)
+
+        assert h5["Nonlinear/YoungsModulusMPa"].shape == h5["Image_Data/Image"].shape
+        assert image_xyz.shape == youngs_xyz.shape == (4, 3, 2)
+        np.testing.assert_allclose(image_xyz, youngs_xyz / 1000.0)
+        np.testing.assert_allclose(poisson_xyz, np.transpose(poisson_zyx, (2, 1, 0)))
 
 
 def test_nonlinear_dry_run_builds_command_without_running_solver(tmp_path):
