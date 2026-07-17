@@ -132,6 +132,56 @@ def test_write_parosol_input_writes_optional_nonlinear_group(tmp_path):
         assert group.attrs["plastic_convergence_window"] == 2
 
 
+def test_write_parosol_input_writes_keaveny_nonlinear_material_map(tmp_path):
+    from parosol_py.nonlinear import spine_keaveny_nonlinear
+
+    rho_qct = np.ones((2, 2, 2), dtype=np.float64)
+    nonlinear_map = spine_keaveny_nonlinear(rho_qct)
+    stiffness = (nonlinear_map.youngs_modulus_mpa / 1000.0).astype(np.float32)
+    coords = np.array([[0, 0, 0, 0]], dtype=np.uint16)
+    values = np.array([0.0], dtype=np.float32)
+
+    path = write_parosol_input(
+        tmp_path / "input.h5",
+        stiffness_gpa_xyz=stiffness,
+        fixed_displacement_coordinates=coords,
+        fixed_displacement_values=values,
+        voxel_size_mm=1.0,
+        poisson_ratio=0.3,
+        nonlinear_material=nonlinear_map,
+    )
+
+    with h5py.File(path, "r") as h5:
+        group = h5["Nonlinear"]
+        assert group.attrs["enabled"] == 1
+        assert group.attrs["material_type"] == "AsymmetricPerfectPlasticDensityMap"
+        assert group.attrs["source"] == "spine_keaveny"
+        np.testing.assert_allclose(
+            np.swapaxes(group["YoungsModulusMPa"][...], 0, 2),
+            nonlinear_map.youngs_modulus_mpa,
+        )
+        np.testing.assert_allclose(
+            np.swapaxes(group["PoissonRatio"][...], 0, 2),
+            np.full(stiffness.shape, nonlinear_map.poisson_ratio, dtype=np.float32),
+        )
+        np.testing.assert_allclose(
+            np.swapaxes(group["CompressiveYieldStressMPa"][...], 0, 2),
+            nonlinear_map.compressive_yield_mpa,
+        )
+        np.testing.assert_allclose(
+            np.swapaxes(group["TensileYieldStressMPa"][...], 0, 2),
+            nonlinear_map.tensile_yield_mpa,
+        )
+        np.testing.assert_allclose(
+            np.swapaxes(group["PlateauStressMPa"][...], 0, 2),
+            nonlinear_map.plateau_mpa,
+        )
+        np.testing.assert_array_equal(
+            np.swapaxes(group["MaterialID"][...], 0, 2),
+            nonlinear_map.material_id,
+        )
+
+
 def test_write_parosol_input_rejects_solver_without_material(tmp_path):
     with pytest.raises(ValueError, match="nonlinear_solver requires nonlinear_material"):
         write_parosol_input(

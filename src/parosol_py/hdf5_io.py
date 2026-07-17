@@ -114,6 +114,12 @@ def write_parosol_input(
             for key, value in nonlinear_material.to_hdf5_attrs().items():
                 attr_name = "material_type" if key == "type" else key
                 nonlinear.attrs[attr_name] = value
+            if hasattr(nonlinear_material, "compressive_yield_mpa"):
+                _write_nonlinear_material_map(
+                    nonlinear,
+                    nonlinear_material,
+                    expected_shape=stiffness.shape,
+                )
             solver = nonlinear_solver
             if solver is not None:
                 nonlinear.attrs["convergence_tolerance"] = float(
@@ -126,6 +132,38 @@ def write_parosol_input(
                     solver.plastic_convergence_window
                 )
     return out
+
+
+def _write_nonlinear_material_map(group, nonlinear_material, *, expected_shape):
+    datasets = {
+        "YoungsModulusMPa": np.asarray(
+            nonlinear_material.youngs_modulus_mpa, dtype=np.float32
+        ),
+        "CompressiveYieldStressMPa": np.asarray(
+            nonlinear_material.compressive_yield_mpa, dtype=np.float32
+        ),
+        "TensileYieldStressMPa": np.asarray(
+            nonlinear_material.tensile_yield_mpa, dtype=np.float32
+        ),
+        "PlateauStressMPa": np.asarray(nonlinear_material.plateau_mpa, dtype=np.float32),
+        "MaterialID": np.asarray(nonlinear_material.material_id, dtype=np.uint16),
+    }
+    poisson = np.asarray(nonlinear_material.poisson_ratio, dtype=np.float32)
+    if poisson.ndim == 0:
+        poisson = np.full(expected_shape, float(poisson), dtype=np.float32)
+    datasets["PoissonRatio"] = poisson
+    for name, array in datasets.items():
+        if array.shape != expected_shape:
+            raise ValueError(
+                f"nonlinear material dataset {name} must match stiffness shape "
+                f"{expected_shape}, got {array.shape}"
+            )
+        if name != "MaterialID":
+            if not np.all(np.isfinite(array)) or np.any(array < 0.0):
+                raise ValueError(
+                    f"nonlinear material dataset {name} must be finite and non-negative"
+                )
+        group.create_dataset(name, data=np.swapaxes(array, 0, 2))
 
 
 def _poisson_ratio_data(
