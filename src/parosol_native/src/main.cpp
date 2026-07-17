@@ -62,6 +62,9 @@ static void nonlinear_material_compile_check() {
     Eigen::Matrix<double, 6, 1> plastic;
     plastic.setZero();
     (void) material.Update(strain, plastic);
+    AsymmetricPerfectPlasticMaterial asymmetric_material;
+    AsymmetricMaterialProperties properties = {1000.0, 0.3, 5.0, 20.0, 20.0};
+    (void) asymmetric_material.Update(strain, plastic, properties);
 }
 
 int main(int argc, char *argv[])
@@ -234,13 +237,24 @@ int main(int argc, char *argv[])
             MPI_Finalize();
             return 2;
         }
-        if (ir.nonlinear_material_type != "VonMisesIsotropic") {
-            PCOUT(MyPID, "ERROR: only VonMisesIsotropic nonlinear material is currently supported\n");
+        if (ir.nonlinear_material_type == "VonMisesIsotropic") {
+            VonMisesMaterial material(ir.nonlinear_E_mpa, ir.nonlinear_nu, ir.nonlinear_Y_mpa);
+            nonlinear_problem.reset(new NonlinearProblem<t_Ogrid>(grid, matr, material));
+        } else if (ir.nonlinear_material_type == "AsymmetricPerfectPlasticDensityMap") {
+            nonlinear_problem.reset(new NonlinearProblem<t_Ogrid>(
+                grid,
+                matr,
+                ir.nonlinear_map_E_mpa,
+                ir.nonlinear_map_nu,
+                ir.nonlinear_map_sigma_c_mpa,
+                ir.nonlinear_map_sigma_t_mpa,
+                ir.nonlinear_map_plateau_mpa,
+                ir.nonlinear_map_material_id));
+        } else {
+            PCOUT(MyPID, "ERROR: unsupported nonlinear material type: " << ir.nonlinear_material_type << "\n");
             MPI_Finalize();
             return 2;
         }
-        VonMisesMaterial material(ir.nonlinear_E_mpa, ir.nonlinear_nu, ir.nonlinear_Y_mpa);
-        nonlinear_problem.reset(new NonlinearProblem<t_Ogrid>(grid, matr, material));
         nonlinear_summary = nonlinear_problem->Solve(
             problem,
             solver,

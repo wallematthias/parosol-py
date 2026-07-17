@@ -72,6 +72,45 @@ static bool ReadRequiredMapDataset(HDF5_GReader& reader, const char* dataset_nam
   return true;
 }
 
+static bool ReadRequiredFloatMapDatasetAsDouble(
+  HDF5_GReader& reader,
+  const char* dataset_name,
+  double* target,
+  long imagesize,
+  hsize_t* my_offset,
+  hsize_t* my_count,
+  std::ostringstream& error)
+{
+  float* buffer = new float[imagesize];
+  bool ok = ReadRequiredMapDataset(reader, dataset_name, buffer, my_offset, my_count, error);
+  if (ok) {
+    for (long i = 0; i < imagesize; ++i) {
+      target[i] = static_cast<double>(buffer[i]);
+    }
+  }
+  delete[] buffer;
+  return ok;
+}
+
+static bool ReadRequiredMaterialIdDataset(
+  HDF5_GReader& reader,
+  unsigned short* target,
+  long imagesize,
+  hsize_t* my_offset,
+  hsize_t* my_count,
+  std::ostringstream& error)
+{
+  short* buffer = new short[imagesize];
+  bool ok = ReadRequiredMapDataset(reader, "MaterialID", buffer, my_offset, my_count, error);
+  if (ok) {
+    for (long i = 0; i < imagesize; ++i) {
+      target[i] = static_cast<unsigned short>(buffer[i]);
+    }
+  }
+  delete[] buffer;
+  return ok;
+}
+
 void HDF5Image::ReadBC(HDF5_GReader &reader, std::string s,std::vector<unsigned short> & coordinates, std::vector<float> & values)
 {
   hsize_t global_dims_of_hdf5[3] = {};
@@ -323,12 +362,12 @@ int HDF5Image::Scan(BaseGrid* grid)
             nonlinear_map_sigma_t_mpa = new double[imagesize];
             nonlinear_map_plateau_mpa = new double[imagesize];
             nonlinear_map_material_id = new unsigned short[imagesize];
-            ReadRequiredMapDataset(reader, "YoungsModulusMPa", nonlinear_map_E_mpa, my_offset, my_count, error);
-            ReadRequiredMapDataset(reader, "PoissonRatio", nonlinear_map_nu, my_offset, my_count, error);
-            ReadRequiredMapDataset(reader, "CompressiveYieldStressMPa", nonlinear_map_sigma_c_mpa, my_offset, my_count, error);
-            ReadRequiredMapDataset(reader, "TensileYieldStressMPa", nonlinear_map_sigma_t_mpa, my_offset, my_count, error);
-            ReadRequiredMapDataset(reader, "PlateauStressMPa", nonlinear_map_plateau_mpa, my_offset, my_count, error);
-            ReadRequiredMapDataset(reader, "MaterialID", nonlinear_map_material_id, my_offset, my_count, error);
+            ReadRequiredFloatMapDatasetAsDouble(reader, "YoungsModulusMPa", nonlinear_map_E_mpa, imagesize, my_offset, my_count, error);
+            ReadRequiredFloatMapDatasetAsDouble(reader, "PoissonRatio", nonlinear_map_nu, imagesize, my_offset, my_count, error);
+            ReadRequiredFloatMapDatasetAsDouble(reader, "CompressiveYieldStressMPa", nonlinear_map_sigma_c_mpa, imagesize, my_offset, my_count, error);
+            ReadRequiredFloatMapDatasetAsDouble(reader, "TensileYieldStressMPa", nonlinear_map_sigma_t_mpa, imagesize, my_offset, my_count, error);
+            ReadRequiredFloatMapDatasetAsDouble(reader, "PlateauStressMPa", nonlinear_map_plateau_mpa, imagesize, my_offset, my_count, error);
+            ReadRequiredMaterialIdDataset(reader, nonlinear_map_material_id, imagesize, my_offset, my_count, error);
           }
         } else {
           if (reader.AttributeExists("youngs_modulus_mpa")) {

@@ -9,6 +9,7 @@ from parosol_py import solve
 from parosol_py.boundary_conditions import axial_compression
 from parosol_py.hdf5_io import write_parosol_input
 from parosol_py.nonlinear import (
+    KeavenyNonlinearMaterialMap,
     NonlinearSolverOptions,
     VonMisesMaterial,
     spine_keaveny_nonlinear,
@@ -407,6 +408,145 @@ def test_asymmetric_density_map_reports_dataset_read_failure(tmp_path: Path):
     assert "invalid nonlinear configuration" in output
     assert "failed to read MaterialID" in output
     assert "only VonMisesIsotropic nonlinear material" not in output
+
+
+def test_asymmetric_density_map_yields_in_tension_before_compression(tmp_path: Path):
+    material_map = _constant_asymmetric_map(
+        shape=(3, 3, 3),
+        youngs_mpa=1000.0,
+        poisson_ratio=0.3,
+        tensile_yield_mpa=5.0,
+        compressive_yield_mpa=20.0,
+        plateau_mpa=20.0,
+    )
+    stiffness_gpa = (material_map.youngs_modulus_mpa / 1000.0).astype(np.float32)
+    solver_options = NonlinearSolverOptions(
+        convergence_tolerance=1.0e-6,
+        maximum_plastic_iterations=20,
+    )
+
+    tensile_result = solve(
+        material=stiffness_gpa,
+        material_unit="GPa",
+        spacing=(1.0, 1.0, 1.0),
+        array_order="xyz",
+        strain=0.008,
+        test="axial",
+        load_case_type="constrained_axial",
+        outputs=("forces", "plastic_strain"),
+        nonlinear_material=material_map,
+        nonlinear_solver=solver_options,
+        work_dir=tmp_path / "tension",
+        tolerance=1.0e-4,
+        level=2,
+    )
+    compressive_result = solve(
+        material=stiffness_gpa,
+        material_unit="GPa",
+        spacing=(1.0, 1.0, 1.0),
+        array_order="xyz",
+        strain=-0.008,
+        test="axial",
+        load_case_type="constrained_axial",
+        outputs=("forces", "plastic_strain"),
+        nonlinear_material=material_map,
+        nonlinear_solver=solver_options,
+        work_dir=tmp_path / "compression",
+        tolerance=1.0e-4,
+        level=2,
+    )
+
+    tensile_nonlinear = tensile_result.diagnostics["nonlinear"]
+    compressive_nonlinear = compressive_result.diagnostics["nonlinear"]
+
+    assert tensile_nonlinear["yielded_last"] > 0
+    assert compressive_nonlinear["yielded_last"] == 0
+    assert np.linalg.norm(tensile_result.fields["plastic_strain"]) > 0.0
+    assert np.linalg.norm(compressive_result.fields["plastic_strain"]) == 0.0
+
+
+def test_asymmetric_density_map_low_strength_voxels_yield_first(tmp_path: Path):
+    shape = (4, 4, 4)
+    youngs_mpa = np.full(shape, 1000.0, dtype=np.float64)
+    tensile_yield_mpa = np.full(shape, 50.0, dtype=np.float64)
+    compressive_yield_mpa = np.full(shape, 50.0, dtype=np.float64)
+    plateau_mpa = np.full(shape, 50.0, dtype=np.float64)
+    material_id = np.full(shape, 2, dtype=np.uint16)
+    low_strength = np.zeros(shape, dtype=bool)
+    low_strength[:2, :, :] = True
+    tensile_yield_mpa[low_strength] = 5.0
+    compressive_yield_mpa[low_strength] = 5.0
+    plateau_mpa[low_strength] = 5.0
+    material_id[low_strength] = 1
+    material_map = KeavenyNonlinearMaterialMap(
+        youngs_modulus_mpa=youngs_mpa,
+        poisson_ratio=np.full(shape, 0.3, dtype=np.float64),
+        compressive_yield_mpa=compressive_yield_mpa,
+        tensile_yield_mpa=tensile_yield_mpa,
+        plateau_mpa=plateau_mpa,
+        material_id=material_id,
+        metadata={"preset": "test_two_material"},
+    )
+
+    result = solve(
+        material=(youngs_mpa / 1000.0).astype(np.float32),
+        material_unit="GPa",
+        spacing=(1.0, 1.0, 1.0),
+        array_order="xyz",
+        strain=0.008,
+        test="axial",
+        load_case_type="constrained_axial",
+        outputs=("plastic_strain",),
+        nonlinear_material=material_map,
+        nonlinear_solver=NonlinearSolverOptions(
+            convergence_tolerance=1.0e-6,
+            maximum_plastic_iterations=20,
+        ),
+        work_dir=tmp_path / "two_material",
+        tolerance=1.0e-4,
+        level=2,
+    )
+
+    plastic_norm = np.linalg.norm(result.fields["plastic_strain"], axis=1)
+    element_coords = _active_element_coordinates(np.ones(shape, dtype=np.float32))
+    low_indices = [i for i, coord in enumerate(element_coords) if coord[0] < 2]
+    high_indices = [i for i, coord in enumerate(element_coords) if coord[0] >= 2]
+
+    yielded_low = plastic_norm[low_indices] > 0.0
+    yielded_high = plastic_norm[high_indices] > 0.0
+
+    assert 0 < result.diagnostics["nonlinear"]["yielded_last"] <= int(
+        np.count_nonzero(yielded_low)
+    )
+    assert np.any(yielded_low)
+    assert not np.any(yielded_high)
+
+
+def _constant_asymmetric_map(
+    *,
+    shape: tuple[int, int, int],
+    youngs_mpa: float,
+    poisson_ratio: float,
+    tensile_yield_mpa: float,
+    compressive_yield_mpa: float,
+    plateau_mpa: float,
+) -> KeavenyNonlinearMaterialMap:
+    return KeavenyNonlinearMaterialMap(
+        youngs_modulus_mpa=np.full(shape, youngs_mpa, dtype=np.float64),
+        poisson_ratio=np.full(shape, poisson_ratio, dtype=np.float64),
+        compressive_yield_mpa=np.full(shape, compressive_yield_mpa, dtype=np.float64),
+        tensile_yield_mpa=np.full(shape, tensile_yield_mpa, dtype=np.float64),
+        plateau_mpa=np.full(shape, plateau_mpa, dtype=np.float64),
+        material_id=np.ones(shape, dtype=np.uint16),
+        metadata={"preset": "test_constant_asymmetric"},
+    )
+
+
+def _active_element_coordinates(stiffness_gpa_xyz) -> list[tuple[int, int, int]]:
+    elements = np.argwhere(np.asarray(stiffness_gpa_xyz) > 0.0).astype(
+        np.int64, copy=False
+    )
+    return [tuple(int(v) for v in row) for row in sorted(elements, key=_morton_key)]
 
 
 def _active_node_coordinates(stiffness_gpa_xyz) -> list[tuple[int, int, int]]:

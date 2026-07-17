@@ -29,4 +29,23 @@ private:
     double Y;
 };
 
+struct AsymmetricMaterialProperties {
+    double E;
+    double nu;
+    double sigma_t;
+    double sigma_c;
+    double plateau;
+};
+
+class AsymmetricPerfectPlasticMaterial {
+public:
+    PlasticUpdate Update(
+        const Eigen::Matrix<double, 6, 1>& total_strain,
+        const Eigen::Matrix<double, 6, 1>& old_plastic_strain,
+        const AsymmetricMaterialProperties& properties) const;
+
+    Eigen::Matrix<double, 6, 6> ElasticMatrix(
+        const AsymmetricMaterialProperties& properties) const;
+};
+
 #endif
