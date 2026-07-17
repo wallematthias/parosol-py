@@ -12,12 +12,14 @@
 #include <algorithm>
 #include <cmath>
 #include <mpi.h>
+#include <tuple>
 #include <vector>
 
 struct NonlinearIterationSummary {
     int plastic_iterations;
     int yielded_last;
     double plastic_convergence_last;
+    std::tuple<int, double, double> final_inner_solve;
 };
 
 template <class Grid>
@@ -40,13 +42,13 @@ public:
         PCGSolver& solver,
         int maximum_plastic_iterations,
         double plastic_tolerance) {
-        NonlinearIterationSummary summary = {0, 0, 0.0};
+        NonlinearIterationSummary summary = {0, 0, 0.0, std::make_tuple(0, 0.0, 0.0)};
         for (int iteration = 1; iteration <= maximum_plastic_iterations; ++iteration) {
             Eigen::VectorXd plastic_rhs = BuildPlasticRHS();
             problem.Impose(0);
             problem.AddToRHS(plastic_rhs);
             problem.SetSolver(solver);
-            problem.Solve(0, 0);
+            summary.final_inner_solve = problem.Solve(0, 0);
 
             summary.plastic_iterations = iteration;
             UpdatePlasticState(

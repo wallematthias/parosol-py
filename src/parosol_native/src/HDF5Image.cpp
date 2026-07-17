@@ -199,19 +199,25 @@ int HDF5Image::Scan(BaseGrid* grid)
 
     if (reader.GroupExists("/Nonlinear")) {
       reader.Select("/Nonlinear");
-      nonlinear_enabled = true;
-      reader.ReadAttribute("material_type", nonlinear_material_type);
-      reader.ReadAttribute("youngs_modulus_mpa", nonlinear_E_mpa);
-      reader.ReadAttribute("poisson_ratio", nonlinear_nu);
-      reader.ReadAttribute("yield_strength_mpa", nonlinear_Y_mpa);
-      if (reader.AttributeExists("convergence_tolerance")) {
-        reader.ReadAttribute("convergence_tolerance", nonlinear_convergence_tolerance);
+      int enabled = 1;
+      if (reader.AttributeExists("enabled")) {
+        reader.ReadAttribute("enabled", enabled);
       }
-      if (reader.AttributeExists("maximum_plastic_iterations")) {
-        reader.ReadAttribute("maximum_plastic_iterations", nonlinear_maximum_plastic_iterations);
-      }
-      if (reader.AttributeExists("plastic_convergence_window")) {
-        reader.ReadAttribute("plastic_convergence_window", nonlinear_plastic_convergence_window);
+      nonlinear_enabled = enabled != 0;
+      if (nonlinear_enabled) {
+        reader.ReadAttribute("material_type", nonlinear_material_type);
+        reader.ReadAttribute("youngs_modulus_mpa", nonlinear_E_mpa);
+        reader.ReadAttribute("poisson_ratio", nonlinear_nu);
+        reader.ReadAttribute("yield_strength_mpa", nonlinear_Y_mpa);
+        if (reader.AttributeExists("convergence_tolerance")) {
+          reader.ReadAttribute("convergence_tolerance", nonlinear_convergence_tolerance);
+        }
+        if (reader.AttributeExists("maximum_plastic_iterations")) {
+          reader.ReadAttribute("maximum_plastic_iterations", nonlinear_maximum_plastic_iterations);
+        }
+        if (reader.AttributeExists("plastic_convergence_window")) {
+          reader.ReadAttribute("plastic_convergence_window", nonlinear_plastic_convergence_window);
+        }
       }
     }
 

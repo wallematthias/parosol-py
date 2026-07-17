@@ -226,7 +226,8 @@ int main(int argc, char *argv[])
 	timer.Start("Solve");
 	std::tuple<int, double, double> output;
     std::unique_ptr<NonlinearProblem<t_Ogrid> > nonlinear_problem;
-    NonlinearIterationSummary nonlinear_summary = {0, 0, 0.0};
+    NonlinearIterationSummary nonlinear_summary = {
+        0, 0, 0.0, std::make_tuple(0, 0.0, 0.0)};
     if (ir.nonlinear_enabled) {
         if (ir.nonlinear_material_type != "VonMisesIsotropic") {
             PCOUT(MyPID, "ERROR: only VonMisesIsotropic nonlinear material is currently supported\n");
@@ -240,7 +241,7 @@ int main(int argc, char *argv[])
             solver,
             ir.nonlinear_maximum_plastic_iterations,
             ir.nonlinear_convergence_tolerance);
-        output = std::make_tuple(nonlinear_summary.plastic_iterations, 0.0, problem.Res());
+        output = nonlinear_summary.final_inner_solve;
     } else {
         output = problem.Solve(startvector_flag, extrapolation_flag);   // STORE STARTVECTOR
     }
