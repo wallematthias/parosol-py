@@ -80,6 +80,8 @@ def solve(
     linear_failure_estimates: bool = False,
     boundary_conditions: BoundaryConditionSet | None = None,
     postprocess_mask=None,
+    nonlinear_material=None,
+    nonlinear_solver=None,
     dry_run: bool = False,
 ) -> SolveResult:
     if test.strip().lower() != "axial":
@@ -131,6 +133,8 @@ def solve(
         poisson_ratio=poisson_ratio,
         loaded_node_coordinates=loaded_coords,
         loaded_node_values=loaded_values,
+        nonlinear_material=nonlinear_material,
+        nonlinear_solver=nonlinear_solver,
     )
     command = build_parosol_command(
         executable=executable if executable is not None else packaged_executable(),

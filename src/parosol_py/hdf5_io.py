@@ -18,6 +18,8 @@ def write_parosol_input(
     poisson_ratio: float | np.ndarray,
     loaded_node_coordinates=None,
     loaded_node_values=None,
+    nonlinear_material=None,
+    nonlinear_solver=None,
 ) -> Path:
     out = Path(path).expanduser().resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -103,6 +105,23 @@ def write_parosol_input(
             )
         group.create_dataset("Voxelsize", data=float(voxel_size_mm))
         group.create_dataset("Image", data=np.swapaxes(stiffness, 0, 2))
+        if nonlinear_material is not None:
+            nonlinear = h5.create_group("Nonlinear")
+            nonlinear.attrs["enabled"] = 1
+            for key, value in nonlinear_material.to_hdf5_attrs().items():
+                attr_name = "material_type" if key == "type" else key
+                nonlinear.attrs[attr_name] = value
+            solver = nonlinear_solver
+            if solver is not None:
+                nonlinear.attrs["convergence_tolerance"] = float(
+                    solver.convergence_tolerance
+                )
+                nonlinear.attrs["maximum_plastic_iterations"] = int(
+                    solver.maximum_plastic_iterations
+                )
+                nonlinear.attrs["plastic_convergence_window"] = int(
+                    solver.plastic_convergence_window
+                )
     return out
 
 
