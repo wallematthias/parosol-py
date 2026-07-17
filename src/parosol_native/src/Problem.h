@@ -130,6 +130,16 @@ class Problem
 		return *_x;
 	}
 
+	int AddToRHS(const Eigen::VectorXd& extra_rhs)
+	{
+		if (extra_rhs.size() != _b->size()) {
+			return 1;
+		}
+		*_b += extra_rhs;
+		SetBoundaryConditions(*_b);
+		return 0;
+	}
+
 	/** Gets the residual vector
 		 * @return a refence to a the residual vector
 		 */

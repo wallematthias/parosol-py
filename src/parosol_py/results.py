@@ -12,9 +12,16 @@ OUTPUT_DATASETS = {
     "effective_strain": "EFF",
     "deviatoric_strain": "e_dev",
     "volumetric_strain": "e_vol",
+    "plastic_dissipation": "PlasticDissipation",
 }
 DEFAULT_OUTPUTS = ("sed", "effective_strain", "von_mises")
 TENSOR_AXES = ("xx", "yy", "zz", "xy", "yz", "xz")
+NONLINEAR_OUTPUTS = {
+    "plastic_strain",
+    "plastic_strain_magnitude",
+    "plastic_dissipation",
+    "mechanical_work_density",
+}
 
 
 def read_solution_fields(
@@ -37,6 +44,16 @@ def read_solution_fields(
                 fields[output] = _read_tensor(solution, prefix="e_")
             elif output == "stress":
                 fields[output] = _read_tensor(solution, prefix="s_")
+            elif output == "plastic_strain":
+                fields[output] = _read_dataset(solution, output, "PlasticStrain")
+            elif output == "plastic_strain_magnitude":
+                fields[output] = _tensor_magnitude(
+                    _read_dataset(solution, output, "PlasticStrain")
+                )
+            elif output == "mechanical_work_density":
+                sed = _read_dataset(solution, output, "SED")
+                plastic = _read_dataset(solution, output, "PlasticDissipation")
+                fields[output] = np.asarray(sed).reshape(-1) + np.asarray(plastic).reshape(-1)
             elif output in {"forces", "force"}:
                 fields["forces"] = _read_dataset(solution, output, "force")
             elif output in {"displacements", "disp"}:
@@ -61,7 +78,23 @@ def _read_tensor(solution: h5py.Group, *, prefix: str) -> dict[str, np.ndarray]:
 
 def _read_dataset(solution: h5py.Group, output: str, dataset: str) -> np.ndarray:
     if dataset not in solution:
+        if output in NONLINEAR_OUTPUTS:
+            raise ValueError(
+                f"Requested nonlinear output '{output}' not found in /Solution/{dataset}. "
+                "This field requires a nonlinear ParOSol solve; check that the exported "
+                "case contains materials.nonlinear/solver.nonlinear and that Slicer is "
+                "using a current parosol-py native executable."
+            )
         raise ValueError(
             f"Requested output '{output}' not found in /Solution/{dataset}"
         )
     return np.asarray(solution[dataset][...])
+
+
+def _tensor_magnitude(values: np.ndarray) -> np.ndarray:
+    array = np.asarray(values)
+    if array.ndim != 2 or array.shape[1] != len(TENSOR_AXES):
+        raise ValueError(
+            "tensor magnitude requires an element tensor field with shape (n, 6)"
+        )
+    return np.linalg.norm(array, axis=1)

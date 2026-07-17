@@ -24,6 +24,7 @@
 #include "GReader.hpp"
 #include <cstring>
 #include <string>
+#include <vector>
 //#define H5_HAVE_PARALLEL
 //#define __QK_USER__
 
@@ -408,6 +409,10 @@ int HDF5_GReader::Read(const std::string& name, hid_t type, void* data, hsize_t*
   
   //Get dataspace of the dataset.
   hid_t dataspace = H5Dget_space(dataset);
+  if (dataspace < 0) {
+    H5Dclose(dataset);
+    return -1;
+  }
   
 // std::cout << "reading from " << my_offset[0] << " " << my_offset[1] << " " << my_offset[2] << "\n";
 //  std::cout << "to " << count[0] << " " << count[1] << " " << count[2] << "\n";
@@ -416,20 +421,27 @@ int HDF5_GReader::Read(const std::string& name, hid_t type, void* data, hsize_t*
   
    if (status <0) {
       std::cout << "Error in Selection";
+      H5Sclose(dataspace);
+      H5Dclose(dataset);
       return -1;
    }
    
   hid_t memspace = H5Screate_simple( dims, count, NULL );
   if (memspace <= 0) {
     std::cout << "Error in memspace";
+    H5Sclose(dataspace);
+    H5Dclose(dataset);
     return -1;
   }
   
-  H5Dread(dataset, type, memspace, dataspace, plist, data);
+  status = H5Dread(dataset, type, memspace, dataspace, plist, data);
 
   H5Sclose(dataspace);
   H5Sclose(memspace);
   H5Dclose(dataset);
+  if (status < 0) {
+    return -1;
+  }
   return 1;
 }
 
@@ -455,6 +467,48 @@ int HDF5_GReader::GetSizeOfDataset(const std::string& name, hsize_t* size, const
   }
   MPI_Bcast(size, 3*sizeof(hsize_t), MPI_BYTE, 0, MPI_COMM_WORLD);
   return 1;
+}
+
+bool HDF5_GReader::GroupExists(const std::string& path) const
+{
+  return H5Lexists(file, path.c_str(), H5P_DEFAULT) > 0;
+}
+
+bool HDF5_GReader::AttributeExists(const std::string& name) const
+{
+  return H5Aexists(group, name.c_str()) > 0;
+}
+
+void HDF5_GReader::ReadAttribute(const std::string& name, std::string& value)
+{
+  hid_t attribute = H5Aopen(group, name.c_str(), H5P_DEFAULT);
+  hid_t type = H5Aget_type(attribute);
+  if (H5Tis_variable_str(type)) {
+    char* string_value = 0;
+    H5Aread(attribute, type, &string_value);
+    value = string_value == 0 ? "" : string_value;
+    H5free_memory(string_value);
+  } else {
+    std::vector<char> string_value(H5Tget_size(type) + 1, '\0');
+    H5Aread(attribute, type, &string_value[0]);
+    value = &string_value[0];
+  }
+  H5Tclose(type);
+  H5Aclose(attribute);
+}
+
+void HDF5_GReader::ReadAttribute(const std::string& name, double& value)
+{
+  hid_t attribute = H5Aopen(group, name.c_str(), H5P_DEFAULT);
+  H5Aread(attribute, H5T_NATIVE_DOUBLE, &value);
+  H5Aclose(attribute);
+}
+
+void HDF5_GReader::ReadAttribute(const std::string& name, int& value)
+{
+  hid_t attribute = H5Aopen(group, name.c_str(), H5P_DEFAULT);
+  H5Aread(attribute, H5T_NATIVE_INT, &value);
+  H5Aclose(attribute);
 }
 
 hid_t HDF5_GReader::getNativeType(int, hsize_t i) {

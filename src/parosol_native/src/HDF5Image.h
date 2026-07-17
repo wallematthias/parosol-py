@@ -57,6 +57,22 @@ public:
   */
   virtual int Scan(BaseGrid* Grid);
 
+  bool nonlinear_enabled = false;
+  std::string nonlinear_config_error = "";
+  std::string nonlinear_material_type = "";
+  double nonlinear_E_mpa = 0.0;
+  double nonlinear_nu = 0.3;
+  double nonlinear_Y_mpa = 0.0;
+  double nonlinear_convergence_tolerance = 1.0e-4;
+  int nonlinear_maximum_plastic_iterations = 150;
+  int nonlinear_plastic_convergence_window = 2;
+  double* nonlinear_map_E_mpa = nullptr;
+  double* nonlinear_map_nu = nullptr;
+  double* nonlinear_map_sigma_c_mpa = nullptr;
+  double* nonlinear_map_sigma_t_mpa = nullptr;
+  double* nonlinear_map_plateau_mpa = nullptr;
+  unsigned short* nonlinear_map_material_id = nullptr;
+
 
 private:
   void ReadBC(HDF5_GReader &reader, std::string s,std::vector<unsigned short> & coordinates, std::vector<float> & values);
@@ -71,4 +87,3 @@ private:
 };
   
 #endif /* HDF5IMAGE_H */
-

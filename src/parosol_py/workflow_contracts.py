@@ -14,10 +14,13 @@ EXPECTED_PUBLIC_PROFILES = (
     "XtremeCTI",
     "XtremeCTII",
     "hip-sideways-fall-left",
+    "hip-sideways-fall-left-nonlinear",
     "hip-sideways-fall-right",
+    "hip-sideways-fall-right-nonlinear",
     "load_history_3",
     "load_history_6",
     "spine-compression",
+    "spine-compression-nonlinear",
 )
 
 FORBIDDEN_PUBLIC_KEYS = frozenset({"protrusion_depth_mm"})
@@ -47,16 +50,22 @@ SOLVER_TOLERANCE_PROFILES = frozenset(
         "XtremeCTI",
         "XtremeCTII",
         "spine-compression",
+        "spine-compression-nonlinear",
         "hip-sideways-fall-left",
+        "hip-sideways-fall-left-nonlinear",
         "hip-sideways-fall-right",
+        "hip-sideways-fall-right-nonlinear",
     }
 )
 XTREMECT_PROFILES = frozenset({"XtremeCTI", "XtremeCTII"})
 REFERENCE_NODESET_PROFILES = frozenset(
     {
         "spine-compression",
+        "spine-compression-nonlinear",
         "hip-sideways-fall-left",
+        "hip-sideways-fall-left-nonlinear",
         "hip-sideways-fall-right",
+        "hip-sideways-fall-right-nonlinear",
     }
 )
 LOAD_HISTORY_SUFFIXES = {
@@ -148,8 +157,11 @@ def validate_workflow_config(
         )
     if profile in {
         "spine-compression",
+        "spine-compression-nonlinear",
         "hip-sideways-fall-left",
+        "hip-sideways-fall-left-nonlinear",
         "hip-sideways-fall-right",
+        "hip-sideways-fall-right-nonlinear",
     }:
         if not any(member in REFERENCE_POINT_MEMBERS for member in members):
             issues.append(

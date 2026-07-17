@@ -12,6 +12,7 @@ set(PAROSOL_SOURCES
     src/est_ev.cpp
     src/Chebyshev.cpp
     src/PCGSolver.cpp
+    src/NonlinearMaterial.cpp
     src/main.cpp)
 
 add_executable(parosol ${PAROSOL_SOURCES})

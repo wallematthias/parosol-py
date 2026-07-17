@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ from .common import (
     fixture_margin_voxels,
     load_density_and_mask,
     material_from_density,
+    nonlinear_material_from_density,
     occupied_length_mm,
     pad_arrays_to_foreground_margin,
     require_non_empty,
@@ -236,6 +237,14 @@ def build_workflow_replay_model(
         model_mask_zyx,
         material_config=material_config,
     )
+    nonlinear_material = nonlinear_material_from_density(
+        density_zyx,
+        model_mask_zyx,
+        material_config=material_config,
+        poisson_ratio=poisson_ratio,
+    )
+    if nonlinear_material is not None:
+        bone_mpa_zyx = nonlinear_material.youngs_modulus_mpa
     material_xyz = np.transpose(bone_mpa_zyx, (2, 1, 0))
     labels_xyz = np.zeros(material_xyz.shape, dtype=np.uint16)
 
@@ -284,7 +293,14 @@ def build_workflow_replay_model(
     if np.any(disk_xyz > 0):
         pmma = material_config.get("pmma", {})
         pmma_e = float(pmma.get("E", 2500.0))
+        pmma_nu = float(pmma.get("nu", 0.3))
         material_xyz[disk_xyz > 0] = pmma_e
+        nonlinear_material = _assign_pmma_disks_to_nonlinear_material(
+            nonlinear_material,
+            disk_mask_xyz=disk_xyz > 0,
+            pmma_e_mpa=pmma_e,
+            pmma_nu=pmma_nu,
+        )
         labels_xyz[disk_xyz > 0] = np.maximum(labels_xyz[disk_xyz > 0], disk_xyz[disk_xyz > 0])
 
     labels_xyz[node_label_xyz > 0] = np.maximum(
@@ -328,6 +344,11 @@ def build_workflow_replay_model(
     node_sets = cropped.node_sets
     generated_reference_node_sets = cropped.percent_reference_node_sets
     disk_xyz = _crop_array_to_workflow_crop(disk_xyz, cropped.crop)
+    nonlinear_material = _crop_nonlinear_material_to_workflow_crop(
+        nonlinear_material,
+        cropped.crop,
+        material_xyz=material_xyz,
+    )
 
     require_non_empty(node_sets)
     effective_load_case_config = _workflow_effective_load_case_config(
@@ -406,6 +427,7 @@ def build_workflow_replay_model(
         node_sets=node_sets,
         element_sets=element_sets,
         postprocess_mask=np.asarray(to_zyx(postprocess_mask_xyz), dtype=bool),
+        nonlinear_material=nonlinear_material,
         exported=exported,
         metadata=metadata,
     )
@@ -1260,6 +1282,98 @@ def _crop_array_to_workflow_crop(array_xyz: np.ndarray, crop: dict[str, Any]) ->
         raise ValueError("workflow crop metadata must contain three-dimensional bounds")
     slices = tuple(slice(int(lower[axis]), int(upper[axis])) for axis in range(3))
     return array[slices]
+
+
+def _crop_nonlinear_material_to_workflow_crop(
+    nonlinear_material,
+    crop: dict[str, Any],
+    *,
+    material_xyz: np.ndarray,
+):
+    if nonlinear_material is None:
+        return None
+
+    active_xyz = np.asarray(material_xyz, dtype=np.float64) > 0.0
+
+    def crop_zyx(array_zyx):
+        array_xyz = np.transpose(np.asarray(array_zyx), (2, 1, 0))
+        return _crop_array_to_workflow_crop(array_xyz, crop)
+
+    poisson = nonlinear_material.poisson_ratio
+    if isinstance(poisson, np.ndarray):
+        poisson = to_zyx(np.where(active_xyz, crop_zyx(poisson), 0.0))
+    return replace(
+        nonlinear_material,
+        youngs_modulus_mpa=to_zyx(
+            np.where(active_xyz, np.asarray(material_xyz, dtype=np.float64), 0.0)
+        ),
+        poisson_ratio=poisson,
+        compressive_yield_mpa=to_zyx(
+            np.where(active_xyz, crop_zyx(nonlinear_material.compressive_yield_mpa), 0.0)
+        ),
+        tensile_yield_mpa=to_zyx(
+            np.where(active_xyz, crop_zyx(nonlinear_material.tensile_yield_mpa), 0.0)
+        ),
+        plateau_mpa=to_zyx(
+            np.where(active_xyz, crop_zyx(nonlinear_material.plateau_mpa), 0.0)
+        ),
+        material_id=to_zyx(
+            np.where(active_xyz, crop_zyx(nonlinear_material.material_id), 0)
+        ).astype(np.uint16, copy=False),
+    )
+
+
+def _assign_pmma_disks_to_nonlinear_material(
+    nonlinear_material,
+    *,
+    disk_mask_xyz: np.ndarray,
+    pmma_e_mpa: float,
+    pmma_nu: float,
+):
+    if nonlinear_material is None:
+        return None
+
+    disk_mask = np.asarray(disk_mask_xyz, dtype=bool)
+
+    def to_xyz(array_zyx):
+        return np.transpose(np.asarray(array_zyx), (2, 1, 0)).copy()
+
+    def to_zyx_array(array_xyz):
+        return to_zyx(array_xyz)
+
+    youngs_xyz = to_xyz(nonlinear_material.youngs_modulus_mpa)
+    compressive_xyz = to_xyz(nonlinear_material.compressive_yield_mpa)
+    tensile_xyz = to_xyz(nonlinear_material.tensile_yield_mpa)
+    plateau_xyz = to_xyz(nonlinear_material.plateau_mpa)
+    material_id_xyz = to_xyz(nonlinear_material.material_id).astype(
+        np.uint16,
+        copy=False,
+    )
+    poisson = nonlinear_material.poisson_ratio
+    if isinstance(poisson, np.ndarray):
+        poisson_xyz = to_xyz(poisson)
+    else:
+        poisson_xyz = np.full(youngs_xyz.shape, float(poisson), dtype=np.float64)
+
+    youngs_xyz[disk_mask] = pmma_e_mpa
+    poisson_xyz[disk_mask] = pmma_nu
+    compressive_xyz[disk_mask] = 0.0
+    tensile_xyz[disk_mask] = 0.0
+    plateau_xyz[disk_mask] = 0.0
+    material_id_xyz[disk_mask] = 2
+
+    metadata = dict(getattr(nonlinear_material, "metadata", {}))
+    metadata["pmma_fixture_material_id"] = 2
+    return replace(
+        nonlinear_material,
+        youngs_modulus_mpa=to_zyx_array(youngs_xyz),
+        poisson_ratio=to_zyx_array(poisson_xyz),
+        compressive_yield_mpa=to_zyx_array(compressive_xyz),
+        tensile_yield_mpa=to_zyx_array(tensile_xyz),
+        plateau_mpa=to_zyx_array(plateau_xyz),
+        material_id=to_zyx_array(material_id_xyz).astype(np.uint16, copy=False),
+        metadata=metadata,
+    )
 
 
 def _workflow_crop_metadata(

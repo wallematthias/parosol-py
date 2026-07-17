@@ -58,6 +58,16 @@ materials:
   #     floor_e_mpa: 0
   #   nu: 0.3
   #   active_threshold: 0
+  #
+  # Optional density-based nonlinear material presets. These replace the
+  # linear density-to-E material with a matching nonlinear material map and
+  # are supported for density inputs and workflow replay density models.
+  # nonlinear:
+  #   preset: spine_nonlinear  # spine_nonlinear or hip_nonlinear
+  #   bin_material: false
+  #   number_bins: 128
+  #   # hip_nonlinear only:
+  #   # site: femoral_neck  # femoral_neck or greater_trochanter
 
 preprocessing:
   # Keep only the largest non-zero connected component before modelling/solving.
@@ -186,6 +196,11 @@ solver:
   level: 6
   mpi_processes: 4
   mpi_launcher: mpirun
+  # Optional nonlinear solver controls, used only when materials.nonlinear is set.
+  # nonlinear:
+  #   convergence_tolerance: 1.0e-4
+  #   maximum_plastic_iterations: 150
+  #   plastic_convergence_window: 2
   # Stream native solver output to the terminal while also saving logs.
   stream_output: true
   # Output field names map to native ParOSol output flags.

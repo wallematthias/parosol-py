@@ -1121,6 +1121,12 @@ class HDF5_GReader
   */
 
   int GetSizeOfDataset(const std::string& name, hsize_t *size, const int number_dims);
+
+  bool GroupExists(const std::string& path) const;
+  bool AttributeExists(const std::string& name) const;
+  void ReadAttribute(const std::string& name, std::string& value);
+  void ReadAttribute(const std::string& name, double& value);
+  void ReadAttribute(const std::string& name, int& value);
   
   //! Indicates wether the file has been properly opened
   /*!

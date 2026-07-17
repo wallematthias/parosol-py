@@ -90,6 +90,7 @@ def compact_summary_dict(summary: dict[str, Any]) -> dict[str, Any]:
     mechanics = summary.get("mechanics", {})
     failure = summary.get("failure", {})
     outputs = summary.get("outputs", {})
+    nonlinear = summary.get("nonlinear", {})
     primary_stiffness = mechanics.get("generalized_stiffness")
     compact: dict[str, Any] = {
         "case": summary.get("case", {}),
@@ -144,6 +145,12 @@ def compact_summary_dict(summary: dict[str, Any]) -> dict[str, Any]:
             compact["failure"][key] = failure[key]
     if "model" in summary:
         compact["model"] = summary["model"]
+    if nonlinear:
+        compact["nonlinear"] = {
+            "plastic_iterations": nonlinear.get("plastic_iterations"),
+            "yielded_last": nonlinear.get("yielded_last"),
+            "plastic_convergence_last": nonlinear.get("plastic_convergence_last"),
+        }
     return _jsonable(compact)
 
 

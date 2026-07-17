@@ -3,10 +3,13 @@
     "XtremeCTI",
     "XtremeCTII",
     "hip-sideways-fall-left",
+    "hip-sideways-fall-left-nonlinear",
     "hip-sideways-fall-right",
+    "hip-sideways-fall-right-nonlinear",
     "load_history_3",
     "load_history_6",
-    "spine-compression"
+    "spine-compression",
+    "spine-compression-nonlinear"
   ],
   "schema_version": 1,
   "workflows": {
@@ -62,6 +65,24 @@
       "workflow_replay_model_space": "reference",
       "workflow_type": "single_case_fea"
     },
+    "hip-sideways-fall-left-nonlinear": {
+      "batch_case_count": 0,
+      "bundle_member_sha256": {
+        "reference/slicer_reference_points.npy": "8236fe3250260bc198cc0e18469820e2317299618dffa3c7278d8112a9b876ca",
+        "workflow.yaml": "2fbac873f8cff1ac4e3d474d500bc864bb2e2915dfebf71df676c77129ba6cf7"
+      },
+      "config_sha256": "89841d05be16ac9005599c770db34a488df611b483c84c51f16b526493c212ba",
+      "load_case_type": "nodeset",
+      "load_count": 3,
+      "model_type": "workflow_replay",
+      "plane_count": 3,
+      "profile": "hip-sideways-fall-left-nonlinear",
+      "registration_enabled": true,
+      "solver_tolerance": 0.0001,
+      "workflow_replay_enabled": true,
+      "workflow_replay_model_space": "reference",
+      "workflow_type": "single_case_fea"
+    },
     "hip-sideways-fall-right": {
       "batch_case_count": 0,
       "bundle_member_sha256": {
@@ -74,6 +95,24 @@
       "model_type": "workflow_replay",
       "plane_count": 3,
       "profile": "hip-sideways-fall-right",
+      "registration_enabled": true,
+      "solver_tolerance": 0.0001,
+      "workflow_replay_enabled": true,
+      "workflow_replay_model_space": "reference",
+      "workflow_type": "single_case_fea"
+    },
+    "hip-sideways-fall-right-nonlinear": {
+      "batch_case_count": 0,
+      "bundle_member_sha256": {
+        "reference/slicer_reference_points.npy": "8236fe3250260bc198cc0e18469820e2317299618dffa3c7278d8112a9b876ca",
+        "workflow.yaml": "a4bbda3ba1e27e4ed702d5f2f326b512a67cb7a6af121750e09ea82a4416fc58"
+      },
+      "config_sha256": "d49c3638c6bda029cb4dad591b44a5402f003136685a055b6ceca1d2011ccfa7",
+      "load_case_type": "nodeset",
+      "load_count": 3,
+      "model_type": "workflow_replay",
+      "plane_count": 3,
+      "profile": "hip-sideways-fall-right-nonlinear",
       "registration_enabled": true,
       "solver_tolerance": 0.0001,
       "workflow_replay_enabled": true,
@@ -126,6 +165,24 @@
       "model_type": "workflow_replay",
       "plane_count": 2,
       "profile": "spine-compression",
+      "registration_enabled": true,
+      "solver_tolerance": 0.0001,
+      "workflow_replay_enabled": true,
+      "workflow_replay_model_space": "reference",
+      "workflow_type": "single_case_fea"
+    },
+    "spine-compression-nonlinear": {
+      "batch_case_count": 0,
+      "bundle_member_sha256": {
+        "reference/slicer_reference_points.npy": "a759e487b10a73217424f3e559d59c7d9b948dacdd07aca8c6e262c6e5d198a1",
+        "workflow.yaml": "1645f16f26dce17f754bb13e8ec3bb1d3e83da3d0cc7ce7fa450f7c2ce3e2860"
+      },
+      "config_sha256": "97d2b1f85f2814271ad618a4da1913d5cd10d7449590e1d88551854d414df809",
+      "load_case_type": "nodeset",
+      "load_count": 2,
+      "model_type": "workflow_replay",
+      "plane_count": 2,
+      "profile": "spine-compression-nonlinear",
       "registration_enabled": true,
       "solver_tolerance": 0.0001,
       "workflow_replay_enabled": true,

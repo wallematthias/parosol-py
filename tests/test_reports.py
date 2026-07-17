@@ -122,6 +122,25 @@ def test_compact_summary_uses_model_stiffness_as_primary_result():
     assert compact["results"]["stiffness_by_axis"]["z"] == pytest.approx(40.0)
 
 
+def test_compact_summary_includes_nonlinear_diagnostics():
+    compact = compact_summary_dict(
+        {
+            "nonlinear": {
+                "plastic_iterations": 4,
+                "yielded_last": 27,
+                "plastic_convergence_last": 5.0e-7,
+                "internal_detail": "omitted",
+            }
+        }
+    )
+
+    assert compact["nonlinear"] == {
+        "plastic_iterations": 4,
+        "yielded_last": 27,
+        "plastic_convergence_last": pytest.approx(5.0e-7),
+    }
+
+
 def test_write_results_csv_exports_compact_single_row(tmp_path: Path):
     summary = {
         "case": {"name": "sample"},

@@ -2,6 +2,7 @@ import json
 import math
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pytest
 import SimpleITK as sitk
@@ -408,6 +409,429 @@ def test_run_case_config_accepts_label_material_map(monkeypatch, tmp_path: Path)
         sitk.ReadImage(str(result.exported["material_image"]))
     )
     np.testing.assert_allclose(exported_material, [[[6829.0, 8748.0]]])
+
+
+def test_run_case_config_writes_spine_nonlinear_map(tmp_path: Path):
+    density = np.ones((2, 2, 2), dtype=np.float32)
+    np.save(tmp_path / "density.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.npy",
+                    "image_type": "density",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "density": {
+                        "E": {
+                            "equation": "power",
+                            "coefficient": 3814.4,
+                            "exponent": 1.05,
+                        },
+                        "nu": 0.3,
+                    },
+                    "nonlinear": {"preset": "spine_nonlinear"},
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_case_config(config_path)
+
+    with h5py.File(result.input_file, "r") as h5:
+        np.testing.assert_allclose(
+            h5["Image_Data"]["Image"][...],
+            h5["Nonlinear"]["YoungsModulusMPa"][...] / 1000.0,
+        )
+        nonlinear = h5["Nonlinear"]
+        assert nonlinear.attrs["material_type"] == "AsymmetricPerfectPlasticDensityMap"
+        assert "CompressiveYieldStressMPa" in nonlinear
+        assert "TensileYieldStressMPa" in nonlinear
+
+
+def test_run_case_config_accepts_spine_nonlinear_preset(tmp_path: Path):
+    density = np.ones((2, 2, 2), dtype=np.float32) * 1000.0
+    image = sitk.GetImageFromArray(density)
+    image.SetSpacing((1.0, 1.0, 1.0))
+    image_path = tmp_path / "density.nii.gz"
+    sitk.WriteImage(image, str(image_path))
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.nii.gz",
+                    "image_type": "density",
+                    "spacing": "auto",
+                },
+                "materials": {
+                    "density": {"basis": "rho_qct_mgcc"},
+                    "nonlinear": {"preset": "spine_nonlinear"},
+                },
+                "output": {"dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_case_config(config_path)
+
+    with h5py.File(result.input_file, "r") as h5:
+        nonlinear = h5["Nonlinear"]
+        assert nonlinear.attrs["material_type"] == "AsymmetricPerfectPlasticDensityMap"
+        assert nonlinear.attrs["source"] == "spine_nonlinear"
+
+
+def test_run_case_config_writes_nonlinear_solver_options(tmp_path: Path):
+    density = np.ones((2, 2, 2), dtype=np.float32) * 1000.0
+    np.save(tmp_path / "density.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.npy",
+                    "image_type": "density",
+                    "spacing": [1.0, 1.0, 1.0],
+                },
+                "materials": {
+                    "density": {
+                        "E": {
+                            "equation": "power",
+                            "coefficient": 2980.0,
+                            "exponent": 1.05,
+                            "reference_density": 1000.0,
+                        },
+                        "nu": 0.3,
+                    },
+                    "nonlinear": {"preset": "spine_nonlinear"},
+                },
+                "solver": {
+                    "nonlinear": {
+                        "convergence_tolerance": 5.0e-7,
+                        "maximum_plastic_iterations": 120,
+                        "plastic_convergence_window": 3,
+                    }
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_case_config(config_path)
+
+    with h5py.File(result.input_file, "r") as h5:
+        nonlinear = h5["Nonlinear"]
+        assert nonlinear.attrs["convergence_tolerance"] == pytest.approx(5.0e-7)
+        assert nonlinear.attrs["maximum_plastic_iterations"] == 120
+        assert nonlinear.attrs["plastic_convergence_window"] == 3
+
+
+def test_run_case_config_resampled_density_keeps_nonlinear_map_in_sync(
+    tmp_path: Path,
+):
+    density = np.ones((2, 2, 2), dtype=np.float32)
+    np.save(tmp_path / "density.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.npy",
+                    "image_type": "density",
+                    "spacing": [1, 1, 2],
+                },
+                "materials": {
+                    "density": {
+                        "E": {
+                            "equation": "power",
+                            "coefficient": 3814.4,
+                            "exponent": 1.05,
+                        },
+                        "nu": 0.3,
+                    },
+                    "nonlinear": {"preset": "spine_nonlinear"},
+                },
+                "preprocessing": {"resample_isotropic": True},
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_case_config(config_path)
+
+    with h5py.File(result.input_file, "r") as h5:
+        image = h5["Image_Data"]["Image"][...]
+        youngs = h5["Nonlinear"]["YoungsModulusMPa"][...] / 1000.0
+        assert image.shape == youngs.shape
+        np.testing.assert_allclose(image, youngs)
+
+
+def test_run_case_config_writes_hip_nonlinear_map_for_rho_app(
+    tmp_path: Path,
+):
+    density = np.ones((2, 2, 2), dtype=np.float32)
+    np.save(tmp_path / "rho_app.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "rho_app.npy",
+                    "image_type": "density",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "density": {
+                        "basis": "rho_app",
+                        "E": {
+                            "equation": "power",
+                            "coefficient": 8768.0,
+                            "exponent": 1.49,
+                        },
+                        "nu": 0.3,
+                    },
+                    "nonlinear": {
+                        "preset": "hip_nonlinear",
+                        "site": "femoral_neck",
+                    },
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_case_config(config_path)
+
+    with h5py.File(result.input_file, "r") as h5:
+        np.testing.assert_allclose(
+            h5["Image_Data"]["Image"][...],
+            h5["Nonlinear"]["YoungsModulusMPa"][...] / 1000.0,
+        )
+        nonlinear = h5["Nonlinear"]
+        assert nonlinear.attrs["material_type"] == "AsymmetricPerfectPlasticDensityMap"
+        assert "CompressiveYieldStressMPa" in nonlinear
+        assert "TensileYieldStressMPa" in nonlinear
+
+
+def test_run_case_config_accepts_hip_nonlinear_preset_for_rho_app(tmp_path: Path):
+    density = np.ones((2, 2, 2), dtype=np.float32)
+    image = sitk.GetImageFromArray(density)
+    image.SetSpacing((1.0, 1.0, 1.0))
+    image_path = tmp_path / "rho_app.nii.gz"
+    sitk.WriteImage(image, str(image_path))
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "rho_app.nii.gz",
+                    "image_type": "density",
+                    "spacing": "auto",
+                },
+                "materials": {
+                    "density": {"basis": "rho_app"},
+                    "nonlinear": {
+                        "preset": "hip_nonlinear",
+                        "site": "femoral_neck",
+                    },
+                },
+                "output": {"dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_case_config(config_path)
+
+    with h5py.File(result.input_file, "r") as h5:
+        nonlinear = h5["Nonlinear"]
+        assert nonlinear.attrs["material_type"] == "AsymmetricPerfectPlasticDensityMap"
+        assert nonlinear.attrs["source"] == "hip_nonlinear"
+
+
+def test_run_case_config_accepts_manual_nonlinear_density_laws(tmp_path: Path):
+    density = np.ones((2, 2, 2), dtype=np.float32) * 1000.0
+    np.save(tmp_path / "density.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.npy",
+                    "image_type": "density",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "density": {"basis": "rho_qct_mgcc", "nu": 0.31},
+                    "nonlinear": {
+                        "preset": "manual",
+                        "elastic": {
+                            "equation": "power",
+                            "coefficient": 5000.0,
+                            "exponent": 1.0,
+                            "reference_density": 1000.0,
+                        },
+                        "compressive_yield": {
+                            "equation": "power",
+                            "coefficient": 50.0,
+                            "exponent": 1.0,
+                            "reference_density": 1000.0,
+                        },
+                        "tensile_yield": {
+                            "equation": "power",
+                            "coefficient": 30.0,
+                            "exponent": 1.0,
+                            "reference_density": 1000.0,
+                        },
+                    },
+                },
+                "output": {"dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_case_config(config_path)
+
+    with h5py.File(result.input_file, "r") as h5:
+        nonlinear = h5["Nonlinear"]
+        assert nonlinear.attrs["material_type"] == "AsymmetricPerfectPlasticDensityMap"
+        assert nonlinear.attrs["source"] == "manual"
+        np.testing.assert_allclose(nonlinear["YoungsModulusMPa"][...], 5000.0)
+        np.testing.assert_allclose(nonlinear["CompressiveYieldStressMPa"][...], 50.0)
+        np.testing.assert_allclose(nonlinear["TensileYieldStressMPa"][...], 30.0)
+        np.testing.assert_allclose(nonlinear["PlateauStressMPa"][...], 50.0)
+        np.testing.assert_allclose(nonlinear["PoissonRatio"][...], 0.31)
+
+
+def test_run_case_config_rejects_hip_nonlinear_without_rho_app_basis(
+    tmp_path: Path,
+):
+    density = np.ones((2, 2, 2), dtype=np.float32)
+    np.save(tmp_path / "density.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.npy",
+                    "image_type": "density",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "density": {
+                        "E": {
+                            "equation": "power",
+                            "coefficient": 8768.0,
+                            "exponent": 1.49,
+                        }
+                    },
+                    "nonlinear": {
+                        "preset": "hip_nonlinear",
+                        "site": "femoral_neck",
+                    },
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="materials\\.density\\.basis='rho_app'",
+    ):
+        run_case_config(config_path)
+
+
+def test_run_case_config_rejects_unknown_nonlinear_preset(tmp_path: Path):
+    density = np.ones((2, 2, 2), dtype=np.float32)
+    np.save(tmp_path / "density.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.npy",
+                    "image_type": "density",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "density": {"E": {"equation": "linear", "slope": 1.0}},
+                    "nonlinear": {"preset": "keyak"},
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "^materials\\.nonlinear\\.preset must be 'spine_nonlinear', "
+            "'hip_nonlinear', or 'manual'$"
+        ),
+    ):
+        run_case_config(config_path)
+
+
+@pytest.mark.parametrize(
+    "image_type",
+    ["material_mpa", "material_gpa", "material_labels"],
+)
+def test_run_case_config_rejects_nonlinear_preset_for_unsupported_input_type(
+    tmp_path: Path,
+    image_type: str,
+):
+    values = np.ones((2, 2, 2), dtype=np.float32)
+    np.save(tmp_path / "image.npy", values)
+    materials: dict[str, object]
+    if image_type == "material_labels":
+        materials = {
+            "labels": {
+                "1": {
+                    "name": "bone",
+                    "E": 1000,
+                    "nu": 0.3,
+                }
+            },
+            "nonlinear": {"preset": "spine_nonlinear"},
+        }
+    else:
+        materials = {
+            "poisson_ratio": 0.3,
+            "nonlinear": {"preset": "spine_nonlinear"},
+        }
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "image.npy",
+                    "image_type": image_type,
+                    "spacing": [1, 1, 1],
+                },
+                "materials": materials,
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="materials\\.nonlinear\\.preset is supported only for density inputs",
+    ):
+        run_case_config(config_path)
 
 
 def test_run_case_config_can_disable_field_export(monkeypatch, tmp_path: Path):

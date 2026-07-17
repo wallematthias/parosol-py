@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+import h5py
 import numpy as np
 
 from .boundary_conditions import axial_compression
@@ -80,6 +81,8 @@ def solve(
     linear_failure_estimates: bool = False,
     boundary_conditions: BoundaryConditionSet | None = None,
     postprocess_mask=None,
+    nonlinear_material=None,
+    nonlinear_solver=None,
     dry_run: bool = False,
 ) -> SolveResult:
     if test.strip().lower() != "axial":
@@ -98,6 +101,10 @@ def solve(
     stiffness_gpa_xyz = material_to_stiffness_gpa(
         grid.array_xyz,
         material_unit=material_unit,
+    )
+    nonlinear_material_xyz = _nonlinear_material_for_solve(
+        nonlinear_material,
+        array_order=array_order,
     )
     mask_xyz = _postprocess_mask_xyz(
         postprocess_mask,
@@ -131,6 +138,8 @@ def solve(
         poisson_ratio=poisson_ratio,
         loaded_node_coordinates=loaded_coords,
         loaded_node_values=loaded_values,
+        nonlinear_material=nonlinear_material_xyz,
+        nonlinear_solver=nonlinear_solver,
     )
     command = build_parosol_command(
         executable=executable if executable is not None else packaged_executable(),
@@ -191,6 +200,43 @@ def solve(
                     export_root / f"{name}.nii.gz",
                 )
                 continue
+            tensor_array = _native_tensor_field(field_values)
+            if tensor_array is not None:
+                for component, axis in enumerate(("xx", "yy", "zz", "xy", "yz", "xz")):
+                    dense_component = mapper.scalar_to_dense(tensor_array[:, component])
+                    exported[f"{name}_{axis}"] = export_scalar_image(
+                        ImageGrid(
+                            array_xyz=_apply_postprocess_mask(
+                                dense_component, mask_xyz
+                            ),
+                            spacing=grid.spacing,
+                            origin=grid.origin,
+                        ),
+                        export_root / f"{name}_{axis}.nii.gz",
+                    )
+                continue
+            tensor_components = _native_tensor_components(field_values)
+            if tensor_components is not None:
+                for axis, component_values in tensor_components.items():
+                    field_array = _native_scalar_field(
+                        component_values,
+                        expected_sizes=(stiffness_gpa_xyz.size, active_size),
+                    )
+                    if field_array is None:
+                        raise ValueError(
+                            f"tensor component {name}_{axis} is not a native scalar field"
+                        )
+                    exported[f"{name}_{axis}"] = export_scalar_image(
+                        ImageGrid(
+                            array_xyz=_apply_postprocess_mask(
+                                mapper.scalar_to_dense(field_array), mask_xyz
+                            ),
+                            spacing=grid.spacing,
+                            origin=grid.origin,
+                        ),
+                        export_root / f"{name}_{axis}.nii.gz",
+                    )
+                continue
             vector_array = _native_vector_field(field_values)
             if vector_array is not None and name == "displacements":
                 dense_vector = mapper.nodal_vector_to_dense_element(vector_array)
@@ -226,6 +272,9 @@ def solve(
         crawford_coefficient=crawford_coefficient,
         linear_failure_estimates=linear_failure_estimates,
     )
+    nonlinear_diagnostics = _read_nonlinear_diagnostics(input_file)
+    if nonlinear_diagnostics:
+        diagnostics["nonlinear"] = nonlinear_diagnostics
 
     return SolveResult(
         input_file=input_file,
@@ -241,6 +290,35 @@ def solve(
         stderr=run.stderr,
         exported=exported,
         diagnostics=diagnostics,
+    )
+
+
+def _nonlinear_material_for_solve(nonlinear_material, *, array_order: str):
+    if nonlinear_material is None:
+        return None
+    if not hasattr(nonlinear_material, "compressive_yield_mpa"):
+        return nonlinear_material
+
+    order = array_order.strip().lower()
+    if order in {"xyz", "x-y-z"}:
+        return nonlinear_material
+    if order not in {"zyx", "z-y-x"}:
+        raise ValueError("array_order must be 'zyx' or 'xyz'")
+
+    def to_xyz(array):
+        return np.transpose(np.asarray(array), (2, 1, 0))
+
+    poisson = nonlinear_material.poisson_ratio
+    if isinstance(poisson, np.ndarray):
+        poisson = to_xyz(poisson)
+    return replace(
+        nonlinear_material,
+        youngs_modulus_mpa=to_xyz(nonlinear_material.youngs_modulus_mpa),
+        poisson_ratio=poisson,
+        compressive_yield_mpa=to_xyz(nonlinear_material.compressive_yield_mpa),
+        tensile_yield_mpa=to_xyz(nonlinear_material.tensile_yield_mpa),
+        plateau_mpa=to_xyz(nonlinear_material.plateau_mpa),
+        material_id=to_xyz(nonlinear_material.material_id),
     )
 
 
@@ -294,6 +372,30 @@ def _summary_outputs(outputs: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(requested)
 
 
+def _read_nonlinear_diagnostics(path: Path) -> dict[str, float | int]:
+    names = (
+        "plastic_iterations",
+        "yielded_last",
+        "plastic_convergence_last",
+    )
+    with h5py.File(path, "r") as h5:
+        if "NonlinearResults" not in h5:
+            return {}
+        group = h5["NonlinearResults"]
+        values: dict[str, float | int] = {}
+        for name in names:
+            if name in group.attrs:
+                value = group.attrs[name]
+            elif name in group:
+                value = group[name][()]
+            else:
+                continue
+            values[name] = (
+                float(value) if name == "plastic_convergence_last" else int(value)
+            )
+    return values
+
+
 def _native_scalar_field(
     values,
     expected_sizes: tuple[int, ...],
@@ -312,6 +414,22 @@ def _native_vector_field(values) -> np.ndarray | None:
     if array.ndim == 2 and array.shape[1] == 3:
         return array
     return None
+
+
+def _native_tensor_field(values) -> np.ndarray | None:
+    array = np.asarray(values)
+    if array.ndim == 2 and array.shape[1] == 6:
+        return array
+    return None
+
+
+def _native_tensor_components(values) -> dict[str, Any] | None:
+    if not isinstance(values, dict):
+        return None
+    axes = ("xx", "yy", "zz", "xy", "yz", "xz")
+    if not all(axis in values for axis in axes):
+        return None
+    return {axis: values[axis] for axis in axes}
 
 
 def _postprocess_mask_xyz(

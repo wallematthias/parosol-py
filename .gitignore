@@ -1,4 +1,5 @@
 .worktrees/
+.superpowers/
 docs/superpowers/
 .DS_Store
 .pytest_cache/
