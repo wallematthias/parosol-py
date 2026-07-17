@@ -80,7 +80,17 @@ def spine_keaveny_nonlinear(
     bin_material: bool = False,
     number_bins: int = 128,
 ) -> KeavenyNonlinearMaterialMap:
-    """Return the end-to-end vertebral nonlinear material map."""
+    """Return the end-to-end vertebral nonlinear material map.
+
+    ``rho_qct`` is the calibrated QCT density used directly by the spine law.
+    The material fields are
+    ``E = 3814.4 * rho_qct**1.05`` and
+    ``sigma_c = plateau = 57.4464 * rho_qct**1.39``. The 1.28 side multiplier
+    is already included in the modulus and stress coefficients; it is not
+    applied to density. For this first implementation, ``sigma_t = sigma_c =
+    plateau`` because a separate tensile law is not published in the supplied
+    material law.
+    """
     rho = _prepared_rho(rho_qct, active_mask=active_mask)
     rho_eval, bin_metadata = _maybe_bin_rho(
         rho,
@@ -116,7 +126,16 @@ def hip_keaveny_nonlinear(
     bin_material: bool = False,
     number_bins: int = 128,
 ) -> KeavenyNonlinearMaterialMap:
-    """Return the end-to-end hip nonlinear material map."""
+    """Return the end-to-end hip nonlinear material map.
+
+    ``rho_app`` is the apparent density used directly by the hip law. For the
+    femoral neck, ``E = 8768.0 * rho_app**1.49`` and
+    ``sigma_c = plateau = 0.0085 * E``. For the greater trochanter,
+    ``E = 19212.8 * rho_app**2.18`` and
+    ``sigma_c = plateau = 0.0070 * E``. Both sites use
+    ``sigma_t = 0.0061 * E``. The 1.28 side multiplier is already included in
+    the modulus coefficients; it is not applied to density.
+    """
     site_name = site.strip().lower().replace("-", "_")
     if site_name == "femoral_neck":
         coefficient = 8768.0
