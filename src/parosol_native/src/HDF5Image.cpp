@@ -82,6 +82,12 @@ HDF5Image::HDF5Image(std::string &fi, CPULayout &layout): _file(fi),_layout(layo
 
 HDF5Image::~HDF5Image()
 {
+  delete[] nonlinear_map_E_mpa;
+  delete[] nonlinear_map_nu;
+  delete[] nonlinear_map_sigma_c_mpa;
+  delete[] nonlinear_map_sigma_t_mpa;
+  delete[] nonlinear_map_plateau_mpa;
+  delete[] nonlinear_map_material_id;
 }
 
 int HDF5Image::Scan(BaseGrid* grid)
@@ -213,21 +219,6 @@ int HDF5Image::Scan(BaseGrid* grid)
         } else {
           error << " missing material_type;";
         }
-        if (reader.AttributeExists("youngs_modulus_mpa")) {
-          reader.ReadAttribute("youngs_modulus_mpa", nonlinear_E_mpa);
-        } else {
-          error << " missing youngs_modulus_mpa;";
-        }
-        if (reader.AttributeExists("poisson_ratio")) {
-          reader.ReadAttribute("poisson_ratio", nonlinear_nu);
-        } else {
-          error << " missing poisson_ratio;";
-        }
-        if (reader.AttributeExists("yield_strength_mpa")) {
-          reader.ReadAttribute("yield_strength_mpa", nonlinear_Y_mpa);
-        } else {
-          error << " missing yield_strength_mpa;";
-        }
         if (reader.AttributeExists("convergence_tolerance")) {
           reader.ReadAttribute("convergence_tolerance", nonlinear_convergence_tolerance);
         }
@@ -237,15 +228,6 @@ int HDF5Image::Scan(BaseGrid* grid)
         if (reader.AttributeExists("plastic_convergence_window")) {
           reader.ReadAttribute("plastic_convergence_window", nonlinear_plastic_convergence_window);
         }
-        if (!std::isfinite(nonlinear_E_mpa) || nonlinear_E_mpa <= 0.0) {
-          error << " youngs_modulus_mpa must be finite and positive;";
-        }
-        if (!std::isfinite(nonlinear_nu) || nonlinear_nu <= -1.0 || nonlinear_nu >= 0.5) {
-          error << " poisson_ratio must satisfy -1 < nu < 0.5;";
-        }
-        if (!std::isfinite(nonlinear_Y_mpa) || nonlinear_Y_mpa <= 0.0) {
-          error << " yield_strength_mpa must be finite and positive;";
-        }
         if (!std::isfinite(nonlinear_convergence_tolerance) || nonlinear_convergence_tolerance <= 0.0) {
           error << " convergence_tolerance must be finite and positive;";
         }
@@ -254,6 +236,72 @@ int HDF5Image::Scan(BaseGrid* grid)
         }
         if (nonlinear_plastic_convergence_window <= 0) {
           error << " plastic_convergence_window must be positive;";
+        }
+        if (nonlinear_material_type == "AsymmetricPerfectPlasticDensityMap") {
+          const char* dataset_names[] = {
+            "YoungsModulusMPa",
+            "PoissonRatio",
+            "CompressiveYieldStressMPa",
+            "TensileYieldStressMPa",
+            "PlateauStressMPa",
+            "MaterialID"
+          };
+          bool map_datasets_valid = true;
+          for (int dataset_index = 0; dataset_index < 6; dataset_index++) {
+            hsize_t dataset_dims[3];
+            const char* dataset_name = dataset_names[dataset_index];
+            if (reader.GetSizeOfDataset(dataset_name, dataset_dims, 3) <= 0) {
+              error << " missing " << dataset_name << ";";
+              map_datasets_valid = false;
+              continue;
+            }
+            for (int d=0; d<3; d++) {
+              if (dataset_dims[d] != global_dims_of_hdf5[d]) {
+                error << " " << dataset_name << " dimensions do not match Image dimensions;";
+                map_datasets_valid = false;
+                break;
+              }
+            }
+          }
+          if (map_datasets_valid) {
+            nonlinear_map_E_mpa = new double[imagesize];
+            nonlinear_map_nu = new double[imagesize];
+            nonlinear_map_sigma_c_mpa = new double[imagesize];
+            nonlinear_map_sigma_t_mpa = new double[imagesize];
+            nonlinear_map_plateau_mpa = new double[imagesize];
+            nonlinear_map_material_id = new unsigned short[imagesize];
+            reader.Read("YoungsModulusMPa", nonlinear_map_E_mpa, my_offset, my_count, 3);
+            reader.Read("PoissonRatio", nonlinear_map_nu, my_offset, my_count, 3);
+            reader.Read("CompressiveYieldStressMPa", nonlinear_map_sigma_c_mpa, my_offset, my_count, 3);
+            reader.Read("TensileYieldStressMPa", nonlinear_map_sigma_t_mpa, my_offset, my_count, 3);
+            reader.Read("PlateauStressMPa", nonlinear_map_plateau_mpa, my_offset, my_count, 3);
+            reader.Read("MaterialID", nonlinear_map_material_id, my_offset, my_count, 3);
+          }
+        } else {
+          if (reader.AttributeExists("youngs_modulus_mpa")) {
+            reader.ReadAttribute("youngs_modulus_mpa", nonlinear_E_mpa);
+          } else {
+            error << " missing youngs_modulus_mpa;";
+          }
+          if (reader.AttributeExists("poisson_ratio")) {
+            reader.ReadAttribute("poisson_ratio", nonlinear_nu);
+          } else {
+            error << " missing poisson_ratio;";
+          }
+          if (reader.AttributeExists("yield_strength_mpa")) {
+            reader.ReadAttribute("yield_strength_mpa", nonlinear_Y_mpa);
+          } else {
+            error << " missing yield_strength_mpa;";
+          }
+          if (!std::isfinite(nonlinear_E_mpa) || nonlinear_E_mpa <= 0.0) {
+            error << " youngs_modulus_mpa must be finite and positive;";
+          }
+          if (!std::isfinite(nonlinear_nu) || nonlinear_nu <= -1.0 || nonlinear_nu >= 0.5) {
+            error << " poisson_ratio must satisfy -1 < nu < 0.5;";
+          }
+          if (!std::isfinite(nonlinear_Y_mpa) || nonlinear_Y_mpa <= 0.0) {
+            error << " yield_strength_mpa must be finite and positive;";
+          }
         }
         nonlinear_config_error = error.str();
       }

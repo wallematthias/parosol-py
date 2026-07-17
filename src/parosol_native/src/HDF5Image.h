@@ -66,6 +66,12 @@ public:
   double nonlinear_convergence_tolerance = 1.0e-6;
   int nonlinear_maximum_plastic_iterations = 50;
   int nonlinear_plastic_convergence_window = 2;
+  double* nonlinear_map_E_mpa = nullptr;
+  double* nonlinear_map_nu = nullptr;
+  double* nonlinear_map_sigma_c_mpa = nullptr;
+  double* nonlinear_map_sigma_t_mpa = nullptr;
+  double* nonlinear_map_plateau_mpa = nullptr;
+  unsigned short* nonlinear_map_material_id = nullptr;
 
 
 private:

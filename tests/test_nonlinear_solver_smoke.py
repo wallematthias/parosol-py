@@ -8,7 +8,11 @@ import numpy as np
 from parosol_py import solve
 from parosol_py.boundary_conditions import axial_compression
 from parosol_py.hdf5_io import write_parosol_input
-from parosol_py.nonlinear import NonlinearSolverOptions, VonMisesMaterial
+from parosol_py.nonlinear import (
+    NonlinearSolverOptions,
+    VonMisesMaterial,
+    spine_keaveny_nonlinear,
+)
 from parosol_py.runner import (
     build_parosol_command,
     packaged_executable,
@@ -209,6 +213,50 @@ def test_native_rejects_invalid_nonlinear_hdf5_config(tmp_path: Path):
 
     assert run.returncode != 0
     assert "invalid nonlinear configuration" in run.stdout + run.stderr
+
+
+def test_asymmetric_density_map_requires_all_datasets(tmp_path: Path):
+    executable = packaged_executable()
+    assert executable.exists(), f"packaged executable not found: {executable}"
+
+    rho_qct = np.ones((3, 3, 3), dtype=np.float64)
+    nonlinear_map = spine_keaveny_nonlinear(rho_qct)
+    stiffness_gpa_xyz = (nonlinear_map.youngs_modulus_mpa / 1000.0).astype(
+        np.float32
+    )
+    fixed_coordinates, fixed_values = axial_compression(
+        stiffness_gpa_xyz,
+        axis="z",
+        strain=-0.01,
+        voxel_size_mm=1.0,
+    )
+    input_file = write_parosol_input(
+        tmp_path / "missing_tensile_yield.h5",
+        stiffness_gpa_xyz=stiffness_gpa_xyz,
+        fixed_displacement_coordinates=fixed_coordinates,
+        fixed_displacement_values=fixed_values,
+        voxel_size_mm=1.0,
+        poisson_ratio=0.3,
+        nonlinear_material=nonlinear_map,
+        nonlinear_solver=NonlinearSolverOptions(maximum_plastic_iterations=3),
+    )
+    with h5py.File(input_file, "r+") as h5:
+        del h5["Nonlinear"]["TensileYieldStressMPa"]
+
+    run = run_parosol(
+        build_parosol_command(
+            executable=executable,
+            input_file=input_file,
+            outputs=("sed",),
+            tolerance=1.0e-4,
+            level=2,
+        ),
+        cwd=tmp_path,
+    )
+
+    output = run.stdout + run.stderr
+    assert run.returncode != 0
+    assert "missing TensileYieldStressMPa" in output
 
 
 def _active_node_coordinates(stiffness_gpa_xyz) -> list[tuple[int, int, int]]:
