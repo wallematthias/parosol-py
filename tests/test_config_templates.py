@@ -10,8 +10,11 @@ EXPECTED_WORKFLOW_PROFILES = {
     "XtremeCTI",
     "XtremeCTII",
     "spine-compression",
+    "spine-compression-nonlinear",
     "hip-sideways-fall-left",
+    "hip-sideways-fall-left-nonlinear",
     "hip-sideways-fall-right",
+    "hip-sideways-fall-right-nonlinear",
     "load_history_3",
     "load_history_6",
 }
@@ -51,13 +54,22 @@ def test_profile_registry_is_workflow_only():
 
 def test_workflow_templates_are_available_by_profile_name():
     spine = read_config_template("spine-compression")
+    spine_nonlinear = read_config_template("spine-compression-nonlinear")
     hip = read_config_template("hip-sideways-fall-left")
+    hip_nonlinear = read_config_template("hip-sideways-fall-left-nonlinear")
     xtremectii = read_config_template("XtremeCTII")
 
     assert "workflow_template:" in spine
     assert "value: -0.68%" in spine
+    assert "workflow_template:" in spine_nonlinear
+    assert "value: -2.0%" in spine_nonlinear
+    assert "preset: spine_nonlinear" in spine_nonlinear
+    assert "maximum_plastic_iterations: 150" in spine_nonlinear
     assert "workflow_template:" in hip
     assert "value: 4.0%" in hip
+    assert "workflow_template:" in hip_nonlinear
+    assert "preset: hip_nonlinear" in hip_nonlinear
+    assert "basis: rho_app" in hip_nonlinear
     assert "bbox_ratio:" in hip
     assert "E: 8748" in xtremectii
     assert ("tolerance: 1.0e-4" in xtremectii) or ("tolerance: 0.0001" in xtremectii)
@@ -85,7 +97,14 @@ def test_packaged_workflows_use_npy_references_and_intrusion_schema():
 
     from parosol_py.workflow_registry import builtin_profile_path
 
-    for name in ("spine-compression", "hip-sideways-fall-left", "hip-sideways-fall-right"):
+    for name in (
+        "spine-compression",
+        "spine-compression-nonlinear",
+        "hip-sideways-fall-left",
+        "hip-sideways-fall-left-nonlinear",
+        "hip-sideways-fall-right",
+        "hip-sideways-fall-right-nonlinear",
+    ):
         path = builtin_profile_path(name)
         assert path is not None
         with zipfile.ZipFile(path) as archive:

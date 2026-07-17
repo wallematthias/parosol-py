@@ -20,13 +20,18 @@ class MaterialMap:
     metadata: dict[str, Any]
 
 
-def apply_density_input_transform(density, transform: dict[str, Any] | None):
+def apply_density_input_transform(density, transform: dict[str, Any] | list[dict[str, Any]] | None):
     """Apply a named density-unit transform before material-law evaluation."""
     density_array = np.asarray(density, dtype=np.float64)
     if transform is None or not transform:
         return density_array
+    if isinstance(transform, (list, tuple)):
+        transformed = density_array
+        for step in transform:
+            transformed = apply_density_input_transform(transformed, step)
+        return transformed
     if not isinstance(transform, dict):
-        raise ValueError("materials.density.input_transform must be an object")
+        raise ValueError("materials.density.input_transform must be an object or list")
 
     equation = str(transform.get("equation", "linear")).strip().lower()
     if equation in {"linear", "affine"}:

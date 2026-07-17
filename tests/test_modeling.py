@@ -1233,7 +1233,7 @@ def test_workflow_replay_model_uses_saved_disk_and_nodeset_labels(tmp_path: Path
     assert np.unique(prescribed_y).tolist() == pytest.approx([0.20])
 
 
-def test_workflow_replay_model_builds_spine_keaveny_nonlinear_material(
+def test_workflow_replay_model_builds_spine_nonlinear_material(
     tmp_path: Path,
 ):
     density = np.ones((4, 4, 4), dtype=np.float32)
@@ -1271,7 +1271,7 @@ def test_workflow_replay_model_builds_spine_keaveny_nonlinear_material(
                 },
                 "nu": 0.3,
             },
-            "nonlinear": {"preset": "spine_keaveny"},
+            "nonlinear": {"preset": "spine_nonlinear"},
         },
         load_case_config={
             "type": "nodeset",
@@ -1344,7 +1344,7 @@ def test_workflow_replay_nonlinear_assigns_pmma_disks_as_elastic_fixture_materia
                 "nu": 0.3,
             },
             "pmma": {"E": 2500.0, "nu": 0.31},
-            "nonlinear": {"preset": "spine_keaveny"},
+            "nonlinear": {"preset": "spine_nonlinear"},
         },
         load_case_config={
             "type": "nodeset",

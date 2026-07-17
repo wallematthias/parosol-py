@@ -72,17 +72,23 @@ static bool ReadRequiredMapDataset(HDF5_GReader& reader, const char* dataset_nam
   return true;
 }
 
-static bool ReadRequiredFloatMapDatasetAsDouble(
+static bool ReadRequiredGlobalFloatMapDatasetAsDouble(
   HDF5_GReader& reader,
   const char* dataset_name,
   double* target,
   long imagesize,
-  hsize_t* my_offset,
-  hsize_t* my_count,
+  hsize_t* global_count,
   std::ostringstream& error)
 {
+  hsize_t zero_offset[3] = {};
   float* buffer = new float[imagesize];
-  bool ok = ReadRequiredMapDataset(reader, dataset_name, buffer, my_offset, my_count, error);
+  bool ok = ReadRequiredMapDataset(
+    reader,
+    dataset_name,
+    buffer,
+    zero_offset,
+    global_count,
+    error);
   if (ok) {
     for (long i = 0; i < imagesize; ++i) {
       target[i] = static_cast<double>(buffer[i]);
@@ -92,16 +98,22 @@ static bool ReadRequiredFloatMapDatasetAsDouble(
   return ok;
 }
 
-static bool ReadRequiredMaterialIdDataset(
+static bool ReadRequiredGlobalMaterialIdDataset(
   HDF5_GReader& reader,
   unsigned short* target,
   long imagesize,
-  hsize_t* my_offset,
-  hsize_t* my_count,
+  hsize_t* global_count,
   std::ostringstream& error)
 {
+  hsize_t zero_offset[3] = {};
   short* buffer = new short[imagesize];
-  bool ok = ReadRequiredMapDataset(reader, "MaterialID", buffer, my_offset, my_count, error);
+  bool ok = ReadRequiredMapDataset(
+    reader,
+    "MaterialID",
+    buffer,
+    zero_offset,
+    global_count,
+    error);
   if (ok) {
     for (long i = 0; i < imagesize; ++i) {
       target[i] = static_cast<unsigned short>(buffer[i]);
@@ -109,6 +121,17 @@ static bool ReadRequiredMaterialIdDataset(
   }
   delete[] buffer;
   return ok;
+}
+
+static long LocalImageIndexToGlobalMapIndex(BaseGrid* grid, long local_index)
+{
+  const long local_xy = grid->ldim[0] * grid->ldim[1];
+  const long local_z = local_index / local_xy;
+  const long local_y = (local_index / grid->ldim[0]) % grid->ldim[1];
+  const long local_x = local_index % grid->ldim[0];
+  return (local_z + grid->corner[2]) * grid->gdim[0] * grid->gdim[1]
+    + (local_y + grid->corner[1]) * grid->gdim[0]
+    + (local_x + grid->corner[0]);
 }
 
 static void ValidateAsymmetricMaterialMap(
@@ -120,6 +143,7 @@ static void ValidateAsymmetricMaterialMap(
   const double* plateau_mpa,
   const unsigned short* material_id,
   long imagesize,
+  bool material_map_is_global,
   std::ostringstream& error)
 {
   bool invalid_material_id = false;
@@ -133,22 +157,25 @@ static void ValidateAsymmetricMaterialMap(
   const double stiffness_tolerance = 1.0e-5;
 
   for (long i = 0; i < imagesize; ++i) {
+    const long map_index = material_map_is_global
+      ? LocalImageIndexToGlobalMapIndex(grid, i)
+      : i;
     const bool active_image_voxel = grid->_grid[i] > 0.0;
-    const bool active_material_voxel = material_id[i] != 0;
+    const bool active_material_voxel = material_id[map_index] != 0;
     if (!active_image_voxel && !active_material_voxel) {
       continue;
     }
 
-    if (active_image_voxel && material_id[i] == 0) {
+    if (active_image_voxel && material_id[map_index] == 0) {
       invalid_material_id = true;
     }
-    if (active_material_voxel && material_id[i] != 1 && material_id[i] != 2) {
+    if (active_material_voxel && material_id[map_index] != 1 && material_id[map_index] != 2) {
       unsupported_material_id = true;
     }
-    if (!std::isfinite(youngs_mpa[i]) || youngs_mpa[i] <= 0.0) {
+    if (!std::isfinite(youngs_mpa[map_index]) || youngs_mpa[map_index] <= 0.0) {
       invalid_youngs = true;
     } else {
-      const double expected_stiffness_gpa = youngs_mpa[i] / 1000.0;
+      const double expected_stiffness_gpa = youngs_mpa[map_index] / 1000.0;
       const double image_stiffness_gpa = grid->_grid[i];
       const double tolerance = stiffness_tolerance
         * std::max(1.0, std::fabs(image_stiffness_gpa));
@@ -156,29 +183,29 @@ static void ValidateAsymmetricMaterialMap(
         mismatched_youngs = true;
       }
     }
-    if (!std::isfinite(poisson_ratio[i])
-        || poisson_ratio[i] <= -1.0
-        || poisson_ratio[i] >= 0.5) {
+    if (!std::isfinite(poisson_ratio[map_index])
+        || poisson_ratio[map_index] <= -1.0
+        || poisson_ratio[map_index] >= 0.5) {
       invalid_poisson = true;
     }
-    if (material_id[i] == 1) {
-      if (!std::isfinite(sigma_c_mpa[i]) || sigma_c_mpa[i] <= 0.0) {
+    if (material_id[map_index] == 1) {
+      if (!std::isfinite(sigma_c_mpa[map_index]) || sigma_c_mpa[map_index] <= 0.0) {
         invalid_sigma_c = true;
       }
-      if (!std::isfinite(sigma_t_mpa[i]) || sigma_t_mpa[i] <= 0.0) {
+      if (!std::isfinite(sigma_t_mpa[map_index]) || sigma_t_mpa[map_index] <= 0.0) {
         invalid_sigma_t = true;
       }
-      if (!std::isfinite(plateau_mpa[i]) || plateau_mpa[i] <= 0.0) {
+      if (!std::isfinite(plateau_mpa[map_index]) || plateau_mpa[map_index] <= 0.0) {
         invalid_plateau = true;
       }
-    } else if (material_id[i] == 2) {
-      if (!std::isfinite(sigma_c_mpa[i])) {
+    } else if (material_id[map_index] == 2) {
+      if (!std::isfinite(sigma_c_mpa[map_index])) {
         invalid_sigma_c = true;
       }
-      if (!std::isfinite(sigma_t_mpa[i])) {
+      if (!std::isfinite(sigma_t_mpa[map_index])) {
         invalid_sigma_t = true;
       }
-      if (!std::isfinite(plateau_mpa[i])) {
+      if (!std::isfinite(plateau_mpa[map_index])) {
         invalid_plateau = true;
       }
     }
@@ -455,19 +482,23 @@ int HDF5Image::Scan(BaseGrid* grid)
             }
           }
           if (map_datasets_valid) {
-            nonlinear_map_E_mpa = new double[imagesize];
-            nonlinear_map_nu = new double[imagesize];
-            nonlinear_map_sigma_c_mpa = new double[imagesize];
-            nonlinear_map_sigma_t_mpa = new double[imagesize];
-            nonlinear_map_plateau_mpa = new double[imagesize];
-            nonlinear_map_material_id = new unsigned short[imagesize];
+            const long global_imagesize =
+              static_cast<long>(global_dims_of_hdf5[0])
+              * static_cast<long>(global_dims_of_hdf5[1])
+              * static_cast<long>(global_dims_of_hdf5[2]);
+            nonlinear_map_E_mpa = new double[global_imagesize];
+            nonlinear_map_nu = new double[global_imagesize];
+            nonlinear_map_sigma_c_mpa = new double[global_imagesize];
+            nonlinear_map_sigma_t_mpa = new double[global_imagesize];
+            nonlinear_map_plateau_mpa = new double[global_imagesize];
+            nonlinear_map_material_id = new unsigned short[global_imagesize];
             bool map_reads_valid = true;
-            map_reads_valid = ReadRequiredFloatMapDatasetAsDouble(reader, "YoungsModulusMPa", nonlinear_map_E_mpa, imagesize, my_offset, my_count, error) && map_reads_valid;
-            map_reads_valid = ReadRequiredFloatMapDatasetAsDouble(reader, "PoissonRatio", nonlinear_map_nu, imagesize, my_offset, my_count, error) && map_reads_valid;
-            map_reads_valid = ReadRequiredFloatMapDatasetAsDouble(reader, "CompressiveYieldStressMPa", nonlinear_map_sigma_c_mpa, imagesize, my_offset, my_count, error) && map_reads_valid;
-            map_reads_valid = ReadRequiredFloatMapDatasetAsDouble(reader, "TensileYieldStressMPa", nonlinear_map_sigma_t_mpa, imagesize, my_offset, my_count, error) && map_reads_valid;
-            map_reads_valid = ReadRequiredFloatMapDatasetAsDouble(reader, "PlateauStressMPa", nonlinear_map_plateau_mpa, imagesize, my_offset, my_count, error) && map_reads_valid;
-            map_reads_valid = ReadRequiredMaterialIdDataset(reader, nonlinear_map_material_id, imagesize, my_offset, my_count, error) && map_reads_valid;
+            map_reads_valid = ReadRequiredGlobalFloatMapDatasetAsDouble(reader, "YoungsModulusMPa", nonlinear_map_E_mpa, global_imagesize, global_dims_of_hdf5, error) && map_reads_valid;
+            map_reads_valid = ReadRequiredGlobalFloatMapDatasetAsDouble(reader, "PoissonRatio", nonlinear_map_nu, global_imagesize, global_dims_of_hdf5, error) && map_reads_valid;
+            map_reads_valid = ReadRequiredGlobalFloatMapDatasetAsDouble(reader, "CompressiveYieldStressMPa", nonlinear_map_sigma_c_mpa, global_imagesize, global_dims_of_hdf5, error) && map_reads_valid;
+            map_reads_valid = ReadRequiredGlobalFloatMapDatasetAsDouble(reader, "TensileYieldStressMPa", nonlinear_map_sigma_t_mpa, global_imagesize, global_dims_of_hdf5, error) && map_reads_valid;
+            map_reads_valid = ReadRequiredGlobalFloatMapDatasetAsDouble(reader, "PlateauStressMPa", nonlinear_map_plateau_mpa, global_imagesize, global_dims_of_hdf5, error) && map_reads_valid;
+            map_reads_valid = ReadRequiredGlobalMaterialIdDataset(reader, nonlinear_map_material_id, global_imagesize, global_dims_of_hdf5, error) && map_reads_valid;
             if (map_reads_valid) {
               ValidateAsymmetricMaterialMap(
                 grid,
@@ -478,6 +509,7 @@ int HDF5Image::Scan(BaseGrid* grid)
                 nonlinear_map_plateau_mpa,
                 nonlinear_map_material_id,
                 imagesize,
+                true,
                 error);
             }
           }

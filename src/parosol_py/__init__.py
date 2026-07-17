@@ -15,9 +15,10 @@ from .load_history import LoadHistoryResult, estimate_load_history
 from .materials import MaterialMap, density_to_material_map, labels_to_material_map
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .nonlinear import (
-    KeavenyNonlinearMaterialMap,
-    hip_keaveny_nonlinear,
-    spine_keaveny_nonlinear,
+    DensityNonlinearMaterialMap,
+    hip_nonlinear,
+    manual_nonlinear,
+    spine_nonlinear,
 )
 from .profiles import get_output_profile, get_solver_profile
 from .set_export import write_element_sets, write_node_sets
@@ -31,7 +32,7 @@ __all__ = [
     "ConstrainedAxialCompression",
     "Model",
     "LoadHistoryResult",
-    "KeavenyNonlinearMaterialMap",
+    "DensityNonlinearMaterialMap",
     "MaterialMap",
     "OutputProfile",
     "SimpleShear",
@@ -47,13 +48,14 @@ __all__ = [
     "boundary_conditions_from_nodesets",
     "density_to_material_map",
     "estimate_load_history",
-    "hip_keaveny_nonlinear",
+    "hip_nonlinear",
     "labels_to_material_map",
+    "manual_nonlinear",
     "nodes_from_labeled_voxels",
     "run_batch_config",
     "solve",
     "solve_aim",
-    "spine_keaveny_nonlinear",
+    "spine_nonlinear",
     "top_bottom_surface_nodes",
     "write_element_sets",
     "write_node_sets",

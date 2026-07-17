@@ -221,6 +221,21 @@ def test_linear_density_transform_can_clamp_input_density():
     np.testing.assert_allclose(transformed, [[[-31.0, -20.0, 40.0]]])
 
 
+def test_density_transform_accepts_ordered_pipeline():
+    density = np.array([[[0.0, 100.0]]], dtype=np.float64)
+
+    transformed = apply_density_input_transform(
+        density,
+        [
+            {"equation": "keyak1994_k2hpo4_to_ash", "clamp_min": -31.0},
+            {"equation": "linear", "slope": 0.001, "intercept": 0.0},
+        ],
+    )
+
+    expected = (1.06 * density + 38.9) * 0.001
+    np.testing.assert_allclose(transformed, expected)
+
+
 def test_poisson_ratio_from_spec_can_reduce_continuous_field():
     values = np.array([[[0.0, 1.0, 2.0]]])
 

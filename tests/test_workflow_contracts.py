@@ -107,10 +107,13 @@ def test_expected_public_profiles_are_the_workflow_only_surface():
         "XtremeCTI",
         "XtremeCTII",
         "hip-sideways-fall-left",
+        "hip-sideways-fall-left-nonlinear",
         "hip-sideways-fall-right",
+        "hip-sideways-fall-right-nonlinear",
         "load_history_3",
         "load_history_6",
         "spine-compression",
+        "spine-compression-nonlinear",
     )
 
 
@@ -302,8 +305,11 @@ model:
         "XtremeCTI",
         "XtremeCTII",
         "spine-compression",
+        "spine-compression-nonlinear",
         "hip-sideways-fall-left",
+        "hip-sideways-fall-left-nonlinear",
         "hip-sideways-fall-right",
+        "hip-sideways-fall-right-nonlinear",
     ],
 )
 def test_validator_requires_public_solver_tolerance(profile):
@@ -336,7 +342,14 @@ def test_validator_requires_xtremect_axial_load_case(profile):
 
 @pytest.mark.parametrize(
     "profile",
-    ["spine-compression", "hip-sideways-fall-left", "hip-sideways-fall-right"],
+    [
+        "spine-compression",
+        "spine-compression-nonlinear",
+        "hip-sideways-fall-left",
+        "hip-sideways-fall-left-nonlinear",
+        "hip-sideways-fall-right",
+        "hip-sideways-fall-right-nonlinear",
+    ],
 )
 def test_validator_requires_reference_nodeset_replay_workflows(profile):
     issues = validate_workflow_config(

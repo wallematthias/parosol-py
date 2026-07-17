@@ -326,9 +326,16 @@ void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int My
 	if (nonlinear_problem != 0) {
 		force -= nonlinear_problem->BuildPlasticRHS();
 	}
-	print.PrintAll(problem.GetSol(), force, problem.GetRes(), SED_flag, EFF_flag, VonMises_flag, e_dev_flag, e_vol_flag, strain_flag, stress_flag, DP_s_flag, DP_e_flag);
+	Eigen::VectorXd nonlinear_sed;
+	const Eigen::VectorXd* sed_override = 0;
+	if (nonlinear_problem != 0 && SED_flag == 1) {
+		nonlinear_sed = nonlinear_problem->ElasticStrainEnergyDensity(problem.GetSol());
+		sed_override = &nonlinear_sed;
+	}
+	print.PrintAll(problem.GetSol(), force, problem.GetRes(), SED_flag, EFF_flag, VonMises_flag, e_dev_flag, e_vol_flag, strain_flag, stress_flag, DP_s_flag, DP_e_flag, sed_override);
 	if (nonlinear_problem != 0 && nonlinear_summary != 0) {
 		print.PrintPlasticStrain(nonlinear_problem->PlasticStrain());
+		print.PrintPlasticDissipation(nonlinear_problem->PlasticDissipation());
 		print.PrintGaussPointPlasticStrain(nonlinear_problem->PlasticGauss());
 		print.PrintNonlinearResults(
 			nonlinear_summary->plastic_iterations,

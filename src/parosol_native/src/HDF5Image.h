@@ -63,8 +63,8 @@ public:
   double nonlinear_E_mpa = 0.0;
   double nonlinear_nu = 0.3;
   double nonlinear_Y_mpa = 0.0;
-  double nonlinear_convergence_tolerance = 1.0e-6;
-  int nonlinear_maximum_plastic_iterations = 50;
+  double nonlinear_convergence_tolerance = 1.0e-4;
+  int nonlinear_maximum_plastic_iterations = 150;
   int nonlinear_plastic_convergence_window = 2;
   double* nonlinear_map_E_mpa = nullptr;
   double* nonlinear_map_nu = nullptr;

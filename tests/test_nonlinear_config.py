@@ -8,8 +8,9 @@ from parosol_py.api import solve
 from parosol_py.hdf5_io import write_parosol_input
 from parosol_py.nonlinear import (
     NonlinearSolverOptions,
+    hip_nonlinear,
     VonMisesMaterial,
-    spine_keaveny_nonlinear,
+    spine_nonlinear,
 )
 from parosol_py.runner import packaged_executable
 
@@ -84,6 +85,13 @@ def test_nonlinear_solver_options_rejects_non_finite_tolerance(value):
         NonlinearSolverOptions(convergence_tolerance=value)
 
 
+def test_nonlinear_solver_options_default_to_practical_plastic_tolerance():
+    solver = NonlinearSolverOptions()
+
+    assert solver.convergence_tolerance == pytest.approx(1.0e-4)
+    assert solver.maximum_plastic_iterations == 150
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -136,11 +144,11 @@ def test_write_parosol_input_writes_optional_nonlinear_group(tmp_path):
         assert group.attrs["plastic_convergence_window"] == 2
 
 
-def test_write_parosol_input_writes_keaveny_nonlinear_material_map(tmp_path):
-    from parosol_py.nonlinear import spine_keaveny_nonlinear
+def test_write_parosol_input_writes_nonlinear_nonlinear_material_map(tmp_path):
+    from parosol_py.nonlinear import spine_nonlinear
 
     rho_qct = np.ones((2, 2, 2), dtype=np.float64)
-    nonlinear_map = spine_keaveny_nonlinear(rho_qct)
+    nonlinear_map = spine_nonlinear(rho_qct)
     stiffness = (nonlinear_map.youngs_modulus_mpa / 1000.0).astype(np.float32)
     coords = np.array([[0, 0, 0, 0]], dtype=np.uint16)
     values = np.array([0.0], dtype=np.float32)
@@ -159,7 +167,7 @@ def test_write_parosol_input_writes_keaveny_nonlinear_material_map(tmp_path):
         group = h5["Nonlinear"]
         assert group.attrs["enabled"] == 1
         assert group.attrs["material_type"] == "AsymmetricPerfectPlasticDensityMap"
-        assert group.attrs["source"] == "spine_keaveny"
+        assert group.attrs["source"] == "spine_nonlinear"
         np.testing.assert_allclose(
             np.swapaxes(group["YoungsModulusMPa"][...], 0, 2),
             nonlinear_map.youngs_modulus_mpa,
@@ -184,6 +192,30 @@ def test_write_parosol_input_writes_keaveny_nonlinear_material_map(tmp_path):
             np.swapaxes(group["MaterialID"][...], 0, 2),
             nonlinear_map.material_id,
         )
+
+
+def test_spine_nonlinear_interprets_qct_density_as_mgcc():
+    from parosol_py.nonlinear import spine_nonlinear
+
+    rho_qct_mgcc = np.array([[[1000.0]]], dtype=np.float64)
+
+    nonlinear_map = spine_nonlinear(rho_qct_mgcc)
+
+    assert nonlinear_map.youngs_modulus_mpa[0, 0, 0] == pytest.approx(3814.4)
+    assert nonlinear_map.compressive_yield_mpa[0, 0, 0] == pytest.approx(57.4464)
+    assert nonlinear_map.tensile_yield_mpa[0, 0, 0] == pytest.approx(57.4464)
+
+
+def test_canonical_nonlinear_helpers_expose_descriptive_metadata():
+    spine = spine_nonlinear(np.array([[[1000.0]]], dtype=np.float64))
+    hip = hip_nonlinear(np.array([[[1.0]]], dtype=np.float64))
+
+    assert spine.metadata["preset"] == "spine_nonlinear"
+    assert spine.metadata["anatomic_site"] == "spine"
+    assert spine.metadata["constitutive_model"] == "asymmetric_perfect_plastic"
+    assert hip.metadata["preset"] == "hip_nonlinear"
+    assert hip.metadata["anatomic_site"] == "hip"
+    assert hip.metadata["constitutive_model"] == "asymmetric_perfect_plastic"
 
 
 def test_write_parosol_input_rejects_solver_without_material(tmp_path):
@@ -223,14 +255,14 @@ def test_solve_dry_run_writes_nonlinear_configuration(tmp_path):
         assert group.attrs["maximum_plastic_iterations"] == 20
 
 
-def test_solve_dry_run_transposes_zyx_keaveny_nonlinear_material_map(tmp_path):
+def test_solve_dry_run_transposes_zyx_nonlinear_nonlinear_material_map(tmp_path):
     rho_qct_zyx = np.linspace(0.1, 1.2, num=2 * 3 * 4, dtype=np.float64).reshape(
         (2, 3, 4)
     )
     poisson_zyx = np.linspace(0.2, 0.35, num=rho_qct_zyx.size).reshape(
         rho_qct_zyx.shape
     )
-    nonlinear_map = spine_keaveny_nonlinear(
+    nonlinear_map = spine_nonlinear(
         rho_qct_zyx,
         poisson_ratio=poisson_zyx,
     )

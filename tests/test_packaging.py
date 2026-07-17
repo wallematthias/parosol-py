@@ -159,12 +159,21 @@ def test_existing_wheel_artifacts_include_config_templates_when_present():
             continue
         assert "parosol_py/workflows/XtremeCTII.parosol-workflow" in names
         assert "parosol_py/workflows/spine-compression.parosol-workflow" in names
+        assert "parosol_py/workflows/spine-compression-nonlinear.parosol-workflow" in names
         assert (
             "parosol_py/workflows/hip-sideways-fall-left.parosol-workflow"
             in names
         )
         assert (
+            "parosol_py/workflows/hip-sideways-fall-left-nonlinear.parosol-workflow"
+            in names
+        )
+        assert (
             "parosol_py/workflows/hip-sideways-fall-right.parosol-workflow"
+            in names
+        )
+        assert (
+            "parosol_py/workflows/hip-sideways-fall-right-nonlinear.parosol-workflow"
             in names
         )
         assert "parosol_py/workflows/vertebra.parosol-workflow" not in names

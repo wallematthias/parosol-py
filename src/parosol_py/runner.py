@@ -20,6 +20,9 @@ OUTPUT_FLAGS = {
     "deviatoric_strain": "--e_dev",
     "volumetric_strain": "--e_vol",
     "plastic_strain": None,
+    "plastic_strain_magnitude": None,
+    "plastic_dissipation": None,
+    "mechanical_work_density": None,
 }
 
 

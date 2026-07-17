@@ -9,10 +9,10 @@ from parosol_py import solve
 from parosol_py.boundary_conditions import axial_compression
 from parosol_py.hdf5_io import write_parosol_input
 from parosol_py.nonlinear import (
-    KeavenyNonlinearMaterialMap,
+    DensityNonlinearMaterialMap,
     NonlinearSolverOptions,
     VonMisesMaterial,
-    spine_keaveny_nonlinear,
+    spine_nonlinear,
 )
 from parosol_py.runner import (
     build_parosol_command,
@@ -221,7 +221,7 @@ def test_asymmetric_density_map_requires_all_datasets(tmp_path: Path):
     assert executable.exists(), f"packaged executable not found: {executable}"
 
     rho_qct = np.ones((3, 3, 3), dtype=np.float64)
-    nonlinear_map = spine_keaveny_nonlinear(rho_qct)
+    nonlinear_map = spine_nonlinear(rho_qct)
     stiffness_gpa_xyz = (nonlinear_map.youngs_modulus_mpa / 1000.0).astype(
         np.float32
     )
@@ -265,7 +265,7 @@ def test_asymmetric_density_map_rejects_rank_two_dataset(tmp_path: Path):
     assert executable.exists(), f"packaged executable not found: {executable}"
 
     rho_qct = np.ones((3, 3, 3), dtype=np.float64)
-    nonlinear_map = spine_keaveny_nonlinear(rho_qct)
+    nonlinear_map = spine_nonlinear(rho_qct)
     stiffness_gpa_xyz = (nonlinear_map.youngs_modulus_mpa / 1000.0).astype(
         np.float32
     )
@@ -315,7 +315,7 @@ def test_asymmetric_density_map_rejects_rank_four_dataset(tmp_path: Path):
     assert executable.exists(), f"packaged executable not found: {executable}"
 
     rho_qct = np.ones((3, 3, 3), dtype=np.float64)
-    nonlinear_map = spine_keaveny_nonlinear(rho_qct)
+    nonlinear_map = spine_nonlinear(rho_qct)
     stiffness_gpa_xyz = (nonlinear_map.youngs_modulus_mpa / 1000.0).astype(
         np.float32
     )
@@ -365,7 +365,7 @@ def test_asymmetric_density_map_reports_dataset_read_failure(tmp_path: Path):
     assert executable.exists(), f"packaged executable not found: {executable}"
 
     rho_qct = np.ones((3, 3, 3), dtype=np.float64)
-    nonlinear_map = spine_keaveny_nonlinear(rho_qct)
+    nonlinear_map = spine_nonlinear(rho_qct)
     stiffness_gpa_xyz = (nonlinear_map.youngs_modulus_mpa / 1000.0).astype(
         np.float32
     )
@@ -574,7 +574,7 @@ def test_asymmetric_density_map_low_strength_voxels_yield_first(tmp_path: Path):
     compressive_yield_mpa[low_strength] = 5.0
     plateau_mpa[low_strength] = 5.0
     material_id[low_strength] = 1
-    material_map = KeavenyNonlinearMaterialMap(
+    material_map = DensityNonlinearMaterialMap(
         youngs_modulus_mpa=youngs_mpa,
         poisson_ratio=np.full(shape, 0.3, dtype=np.float64),
         compressive_yield_mpa=compressive_yield_mpa,
@@ -638,7 +638,7 @@ def test_asymmetric_density_map_pmma_fixture_ids_are_elastic_with_zero_yield_fie
     plateau_mpa[pmma_fixture] = 0.0
     material_id[pmma_fixture] = 2
 
-    material_map = KeavenyNonlinearMaterialMap(
+    material_map = DensityNonlinearMaterialMap(
         youngs_modulus_mpa=youngs_mpa,
         poisson_ratio=poisson_ratio,
         compressive_yield_mpa=compressive_yield_mpa,
@@ -685,8 +685,8 @@ def _constant_asymmetric_map(
     tensile_yield_mpa: float,
     compressive_yield_mpa: float,
     plateau_mpa: float,
-) -> KeavenyNonlinearMaterialMap:
-    return KeavenyNonlinearMaterialMap(
+) -> DensityNonlinearMaterialMap:
+    return DensityNonlinearMaterialMap(
         youngs_modulus_mpa=np.full(shape, youngs_mpa, dtype=np.float64),
         poisson_ratio=np.full(shape, poisson_ratio, dtype=np.float64),
         compressive_yield_mpa=np.full(shape, compressive_yield_mpa, dtype=np.float64),

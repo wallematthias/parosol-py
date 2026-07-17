@@ -44,6 +44,7 @@ from .modeling.common import (
     nonlinear_material_from_density,
     nonlinear_preset_from_material_config,
 )
+from .nonlinear import NonlinearSolverOptions
 from .modeling.io import read_image_zyx
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .paths import suffix_text
@@ -210,6 +211,9 @@ def run_case_config(
         "linear_failure_estimates": _linear_failure_estimates_enabled(postprocess_cfg),
         "dry_run": dry,
     }
+    nonlinear_solver = _nonlinear_solver_options(solver_cfg)
+    if nonlinear_solver is not None:
+        common["nonlinear_solver"] = nonlinear_solver
 
     built_model = None
     spacing_preprocess = None
@@ -1045,6 +1049,30 @@ def _quality_config(solver_cfg: dict[str, Any]) -> dict[str, Any]:
             ),
         }
     }
+
+
+def _nonlinear_solver_options(
+    solver_cfg: dict[str, Any]
+) -> NonlinearSolverOptions | None:
+    nonlinear_cfg = solver_cfg.get("nonlinear")
+    if nonlinear_cfg is None:
+        return None
+    if not isinstance(nonlinear_cfg, dict):
+        raise ValueError("solver.nonlinear must be an object")
+    kwargs: dict[str, Any] = {}
+    if "convergence_tolerance" in nonlinear_cfg:
+        kwargs["convergence_tolerance"] = float(
+            nonlinear_cfg["convergence_tolerance"]
+        )
+    if "maximum_plastic_iterations" in nonlinear_cfg:
+        kwargs["maximum_plastic_iterations"] = int(
+            nonlinear_cfg["maximum_plastic_iterations"]
+        )
+    if "plastic_convergence_window" in nonlinear_cfg:
+        kwargs["plastic_convergence_window"] = int(
+            nonlinear_cfg["plastic_convergence_window"]
+        )
+    return NonlinearSolverOptions(**kwargs)
 
 
 def _model_summary(built_model) -> dict[str, Any]:

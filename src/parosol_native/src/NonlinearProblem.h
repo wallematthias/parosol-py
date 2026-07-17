@@ -28,12 +28,13 @@ struct NonlinearIterationSummary {
 template <class Grid>
 class NonlinearProblem {
 public:
-    NonlinearProblem(Grid& grid, GenericMatrix<Grid>& matrix, const VonMisesMaterial& material)
-        : _grid(grid), _matrix(matrix), _material_mode(MaterialMode::VonMises),
-          _von_mises_material(new VonMisesMaterial(material)),
-          _plastic_strain(grid.GetNrElem() * 6) {
-        InitializePlasticState();
-    }
+	    NonlinearProblem(Grid& grid, GenericMatrix<Grid>& matrix, const VonMisesMaterial& material)
+	        : _grid(grid), _matrix(matrix), _material_mode(MaterialMode::VonMises),
+	          _von_mises_material(new VonMisesMaterial(material)),
+	          _plastic_strain(grid.GetNrElem() * 6),
+	          _plastic_dissipation(grid.GetNrElem()) {
+	        InitializePlasticState();
+	    }
 
     NonlinearProblem(
         Grid& grid,
@@ -45,22 +46,24 @@ public:
         const double* plateau_mpa,
         const unsigned short* material_id)
         : _grid(grid), _matrix(matrix), _material_mode(MaterialMode::AsymmetricMap),
-          _asymmetric_material(new AsymmetricPerfectPlasticMaterial()),
-          _asymmetric_properties(BuildAsymmetricProperties(
-              grid,
-              youngs_mpa,
-              poisson_ratio,
-              sigma_c_mpa,
-              sigma_t_mpa,
-              plateau_mpa,
-              material_id)),
-          _plastic_strain(grid.GetNrElem() * 6) {
-        InitializePlasticState();
-    }
+	          _asymmetric_material(new AsymmetricPerfectPlasticMaterial()),
+	          _asymmetric_properties(BuildAsymmetricProperties(
+	              grid,
+	              youngs_mpa,
+	              poisson_ratio,
+	              sigma_c_mpa,
+	              sigma_t_mpa,
+	              plateau_mpa,
+	              material_id)),
+	          _plastic_strain(grid.GetNrElem() * 6),
+	          _plastic_dissipation(grid.GetNrElem()) {
+	        InitializePlasticState();
+	    }
 
-    void InitializePlasticState() {
-        _plastic_strain.setZero();
-        _plastic_gauss.resize(_grid.GetNrElem() * 8);
+	    void InitializePlasticState() {
+	        _plastic_strain.setZero();
+	        _plastic_dissipation.setZero();
+	        _plastic_gauss.resize(_grid.GetNrElem() * 8);
         for (size_t i = 0; i < _plastic_gauss.size(); ++i) {
             _plastic_gauss[i].setZero();
         }
@@ -148,9 +151,81 @@ public:
         return _plastic_strain;
     }
 
-    const std::vector<Eigen::Matrix<double, 6, 1> >& PlasticGauss() const {
-        return _plastic_gauss;
-    }
+	    const std::vector<Eigen::Matrix<double, 6, 1> >& PlasticGauss() const {
+	        return _plastic_gauss;
+	    }
+
+	    const Eigen::VectorXd& PlasticDissipation() const {
+	        return _plastic_dissipation;
+	    }
+
+	    Eigen::VectorXd ElasticStrainEnergyDensity(Eigen::VectorXd& displacement) {
+	        const int dimension = 3;
+	        const int material_properties = 2;
+	        const int nodes_per_element = 8;
+	        const int dofs_per_element = 24;
+	        const int gauss_points = 8;
+	        const int stress_strain_size = 6;
+
+	        double grid_dimensions[3];
+	        _grid.GetRes(grid_dimensions);
+	        double coordinates[dimension * nodes_per_element];
+	        setcoord(grid_dimensions, coordinates);
+
+	        double material[material_properties] = {1000.0, 0.3};
+	        Eigen::Matrix<double, 24, 1> element_displacements;
+	        std::vector<double> strain((stress_strain_size + 1) * gauss_points);
+	        std::vector<double> stress_workspace((stress_strain_size + 1) * gauss_points);
+	        Eigen::VectorXd sed(_grid.GetNrElem());
+	        sed.setZero();
+
+	        _grid.Recv_import_Ghost(displacement);
+	        _grid.Send_import_Ghost(displacement);
+	        _grid.Wait_import_Ghost();
+
+	        t_index element_index = 0;
+	        for (_grid.initIterateOverElements(); _grid.TestIterateOverElements(); _grid.IncIterateOverElements()) {
+	            material[1] = ElementPoissonRatio(element_index);
+	            _grid.GetNodalDisplacementsOfElement(displacement, element_displacements);
+	            Element_Stress(
+	                material, material_properties,
+	                nodes_per_element, dofs_per_element,
+	                dimension, gauss_points, stress_strain_size,
+	                coordinates, element_displacements.data(),
+	                strain.data(), stress_workspace.data(),
+	                0, 0, 0, 0,
+	                0, 0, 0, 0, 0, 0,
+	                0, 0, 0, 0, 0, 0,
+	                0, 0,
+	                0, 0, 0,
+	                0, 0, 0,
+	                false, false, false, false);
+
+	            double element_sed = 0.0;
+	            for (int gauss_point = 0; gauss_point < gauss_points; ++gauss_point) {
+	                const int offset = gauss_point * (stress_strain_size + 1);
+	                Eigen::Matrix<double, 6, 1> total_strain;
+	                total_strain(0) = strain[offset + 0];
+	                total_strain(1) = strain[offset + 1];
+	                total_strain(2) = strain[offset + 2];
+	                total_strain(3) = strain[offset + 3];
+	                total_strain(4) = strain[offset + 5];
+	                total_strain(5) = strain[offset + 4];
+	                const size_t state_index =
+	                    static_cast<size_t>(element_index) * gauss_points + gauss_point;
+	                const Eigen::Matrix<double, 6, 1>& plastic =
+	                    _plastic_gauss[state_index];
+	                const Eigen::Matrix<double, 6, 1> elastic_strain =
+	                    total_strain - plastic;
+	                const Eigen::Matrix<double, 6, 1> stress =
+	                    ElasticMatrix(element_index) * elastic_strain;
+	                element_sed += 0.5 * stress.dot(elastic_strain);
+	            }
+	            sed[element_index] = element_sed / static_cast<double>(gauss_points);
+	            ++element_index;
+	        }
+	        return sed;
+	    }
 
 private:
     enum class MaterialMode {
@@ -171,9 +246,9 @@ private:
             throw std::runtime_error("missing asymmetric nonlinear material map data");
         }
 
-        const long ldim_x = grid.ldim[0];
-        const long ldim_y = grid.ldim[1];
-        const long slice = ldim_x * ldim_y;
+        const long gdim_x = grid.gdim[0];
+        const long gdim_y = grid.gdim[1];
+        const long global_slice = gdim_x * gdim_y;
 
         std::vector<AsymmetricMaterialProperties> properties;
         properties.reserve(grid.GetNrElem());
@@ -182,10 +257,10 @@ private:
             t_coord y = 0;
             t_coord z = 0;
             DecodeMortonKey(grid._GridIterator->key, x, y, z);
-            const long local_x = static_cast<long>(x - grid.corner[0]);
-            const long local_y = static_cast<long>(y - grid.corner[1]);
-            const long local_z = static_cast<long>(z - grid.corner[2]);
-            const long dense_index = local_z * slice + local_y * ldim_x + local_x;
+            const long dense_index =
+                static_cast<long>(z) * global_slice
+                + static_cast<long>(y) * gdim_x
+                + static_cast<long>(x);
             AsymmetricMaterialProperties element_properties;
             (void) material_id[dense_index];
             element_properties.E = youngs_mpa[dense_index];
@@ -213,12 +288,20 @@ private:
         }
     }
 
-    double ElementPoissonRatio(t_index element_index) const {
-        if (_material_mode == MaterialMode::VonMises) {
-            return _von_mises_material->PoissonRatio();
-        }
-        return _asymmetric_properties[static_cast<size_t>(element_index)].nu;
-    }
+	    double ElementPoissonRatio(t_index element_index) const {
+	        if (_material_mode == MaterialMode::VonMises) {
+	            return _von_mises_material->PoissonRatio();
+	        }
+	        return _asymmetric_properties[static_cast<size_t>(element_index)].nu;
+	    }
+
+	    Eigen::Matrix<double, 6, 6> ElasticMatrix(t_index element_index) const {
+	        if (_material_mode == MaterialMode::VonMises) {
+	            return _von_mises_material->ElasticMatrix();
+	        }
+	        return _asymmetric_material->ElasticMatrix(
+	            _asymmetric_properties[static_cast<size_t>(element_index)]);
+	    }
 
     PlasticUpdate UpdateMaterialPoint(
         t_index element_index,
@@ -299,9 +382,10 @@ private:
                 0, 0, 0,
                 false, false, false, false);
 
-            Eigen::Matrix<double, 6, 1> averaged_plastic;
-            averaged_plastic.setZero();
-            bool element_yielded = false;
+	            Eigen::Matrix<double, 6, 1> averaged_plastic;
+	            averaged_plastic.setZero();
+	            double element_dissipation_increment = 0.0;
+	            bool element_yielded = false;
 
             for (int gauss_point = 0; gauss_point < gauss_points; ++gauss_point) {
                 const int offset = gauss_point * (stress_strain_size + 1);
@@ -316,11 +400,15 @@ private:
                 const size_t state_index =
                     static_cast<size_t>(element_index) * gauss_points + gauss_point;
                 const Eigen::Matrix<double, 6, 1> old_plastic = _plastic_gauss[state_index];
-                const PlasticUpdate update = UpdateMaterialPoint(
-                    element_index,
-                    total_strain,
-                    old_plastic);
-                _plastic_gauss[state_index] = update.plastic_strain;
+	                const PlasticUpdate update = UpdateMaterialPoint(
+	                    element_index,
+	                    total_strain,
+	                    old_plastic);
+	                const Eigen::Matrix<double, 6, 1> plastic_increment =
+	                    update.plastic_strain - old_plastic;
+	                element_dissipation_increment +=
+	                    std::max(0.0, update.stress.dot(plastic_increment));
+	                _plastic_gauss[state_index] = update.plastic_strain;
                 averaged_plastic += update.plastic_strain;
                 element_yielded = element_yielded || update.yielded;
                 for (int component = 0; component < 6; ++component) {
@@ -329,9 +417,11 @@ private:
                         std::abs(update.plastic_strain(component) - old_plastic(component)));
                 }
             }
-            averaged_plastic /= static_cast<double>(gauss_points);
+	            averaged_plastic /= static_cast<double>(gauss_points);
+	            _plastic_dissipation[element_index] +=
+	                element_dissipation_increment / static_cast<double>(gauss_points);
 
-            for (int component = 0; component < 6; ++component) {
+	            for (int component = 0; component < 6; ++component) {
                 _plastic_strain[element_index * 6 + component] = averaged_plastic(component);
             }
             if (element_yielded) {
@@ -355,9 +445,10 @@ private:
     MaterialMode _material_mode;
     std::unique_ptr<VonMisesMaterial> _von_mises_material;
     std::unique_ptr<AsymmetricPerfectPlasticMaterial> _asymmetric_material;
-    std::vector<AsymmetricMaterialProperties> _asymmetric_properties;
-    Eigen::VectorXd _plastic_strain;
-    std::vector<Eigen::Matrix<double, 6, 1> > _plastic_gauss;
+	    std::vector<AsymmetricMaterialProperties> _asymmetric_properties;
+	    Eigen::VectorXd _plastic_strain;
+	    Eigen::VectorXd _plastic_dissipation;
+	    std::vector<Eigen::Matrix<double, 6, 1> > _plastic_gauss;
 };
 
 #endif

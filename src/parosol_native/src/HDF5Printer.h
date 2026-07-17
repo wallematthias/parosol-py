@@ -145,8 +145,9 @@ class HDF5Printer {
         }
 
         //x displacement, res residuum
-		void PrintAll(Eigen::VectorXd &x, Eigen::VectorXd &force, Eigen::VectorXd &res,int SED_flag, int EFF_flag, int VonMises_flag,
-				  int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag) {
+			void PrintAll(Eigen::VectorXd &x, Eigen::VectorXd &force, Eigen::VectorXd &res,int SED_flag, int EFF_flag, int VonMises_flag,
+					  int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag,
+	                  const Eigen::VectorXd* sed_override = 0) {
 			PrintGrid();
 
 			PostProcess<OctreeGrid<T> > post(_grid);
@@ -170,9 +171,10 @@ class HDF5Printer {
 			if(VonMises_flag==1){
 			Writer->Write("VonMises", m.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
 			}
-			if(SED_flag==1){
-			Writer->Write("SED", s.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
-			}
+				if(SED_flag==1){
+				const double* sed_data = sed_override == 0 ? s.data() : sed_override->data();
+				Writer->Write("SED", sed_data, _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
+				}
 			if(EFF_flag==1){
 			Writer->Write("EFF", eff.data(), _grid.GetNrElemGlobal(),_grid.GetNrElem(), 1, _grid.GetElemOffset());
 			}
@@ -217,7 +219,7 @@ class HDF5Printer {
 			
 		}
 
-        void PrintPlasticStrain(const Eigen::VectorXd& plastic_strain) {
+	        void PrintPlasticStrain(const Eigen::VectorXd& plastic_strain) {
             Writer->Select("/Solution");
             Writer->Write(
                 "PlasticStrain",
@@ -226,7 +228,18 @@ class HDF5Printer {
                 _grid.GetNrElem(),
                 6,
                 _grid.GetElemOffset());
-        }
+	        }
+
+	        void PrintPlasticDissipation(const Eigen::VectorXd& plastic_dissipation) {
+	            Writer->Select("/Solution");
+	            Writer->Write(
+	                "PlasticDissipation",
+	                plastic_dissipation.data(),
+	                _grid.GetNrElemGlobal(),
+	                _grid.GetNrElem(),
+	                1,
+	                _grid.GetElemOffset());
+	        }
 
         void PrintGaussPointPlasticStrain(
             const std::vector<Eigen::Matrix<double, 6, 1> >& plastic_gauss) {

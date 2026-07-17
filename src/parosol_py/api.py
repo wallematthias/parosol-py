@@ -200,6 +200,43 @@ def solve(
                     export_root / f"{name}.nii.gz",
                 )
                 continue
+            tensor_array = _native_tensor_field(field_values)
+            if tensor_array is not None:
+                for component, axis in enumerate(("xx", "yy", "zz", "xy", "yz", "xz")):
+                    dense_component = mapper.scalar_to_dense(tensor_array[:, component])
+                    exported[f"{name}_{axis}"] = export_scalar_image(
+                        ImageGrid(
+                            array_xyz=_apply_postprocess_mask(
+                                dense_component, mask_xyz
+                            ),
+                            spacing=grid.spacing,
+                            origin=grid.origin,
+                        ),
+                        export_root / f"{name}_{axis}.nii.gz",
+                    )
+                continue
+            tensor_components = _native_tensor_components(field_values)
+            if tensor_components is not None:
+                for axis, component_values in tensor_components.items():
+                    field_array = _native_scalar_field(
+                        component_values,
+                        expected_sizes=(stiffness_gpa_xyz.size, active_size),
+                    )
+                    if field_array is None:
+                        raise ValueError(
+                            f"tensor component {name}_{axis} is not a native scalar field"
+                        )
+                    exported[f"{name}_{axis}"] = export_scalar_image(
+                        ImageGrid(
+                            array_xyz=_apply_postprocess_mask(
+                                mapper.scalar_to_dense(field_array), mask_xyz
+                            ),
+                            spacing=grid.spacing,
+                            origin=grid.origin,
+                        ),
+                        export_root / f"{name}_{axis}.nii.gz",
+                    )
+                continue
             vector_array = _native_vector_field(field_values)
             if vector_array is not None and name == "displacements":
                 dense_vector = mapper.nodal_vector_to_dense_element(vector_array)
@@ -377,6 +414,22 @@ def _native_vector_field(values) -> np.ndarray | None:
     if array.ndim == 2 and array.shape[1] == 3:
         return array
     return None
+
+
+def _native_tensor_field(values) -> np.ndarray | None:
+    array = np.asarray(values)
+    if array.ndim == 2 and array.shape[1] == 6:
+        return array
+    return None
+
+
+def _native_tensor_components(values) -> dict[str, Any] | None:
+    if not isinstance(values, dict):
+        return None
+    axes = ("xx", "yy", "zz", "xy", "yz", "xz")
+    if not all(axis in values for axis in axes):
+        return None
+    return {axis: values[axis] for axis in axes}
 
 
 def _postprocess_mask_xyz(

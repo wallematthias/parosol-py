@@ -212,6 +212,54 @@ def test_solve_exports_sparse_native_scalar_field_to_dense_xyz(monkeypatch, tmp_
     assert result.fields == {"sed": native_values}
 
 
+def test_solve_exports_native_tensor_components_to_dense_xyz(monkeypatch, tmp_path):
+    material_zyx = np.ones((1, 1, 2), dtype=np.float32) * 1000.0
+    component_values = {
+        "xx": np.array([1.0, 2.0], dtype=np.float32),
+        "yy": np.array([3.0, 4.0], dtype=np.float32),
+        "zz": np.array([5.0, 6.0], dtype=np.float32),
+        "xy": np.array([7.0, 8.0], dtype=np.float32),
+        "yz": np.array([9.0, 10.0], dtype=np.float32),
+        "xz": np.array([11.0, 12.0], dtype=np.float32),
+    }
+    captured = {}
+
+    def fake_run_parosol(command, *, cwd=None, stream=False):
+        return RunResult(
+            command=command,
+            stdout="",
+            stderr="",
+            returncode=0,
+            summary=RunSummary(),
+        )
+
+    def fake_export_scalar_image(grid, output_path):
+        captured[Path(output_path).name] = grid.array_xyz.copy()
+        return output_path
+
+    monkeypatch.setattr("parosol_py.api.run_parosol", fake_run_parosol)
+    monkeypatch.setattr(
+        "parosol_py.api.read_solution_fields",
+        lambda input_file, *, outputs: {"stress": component_values},
+    )
+    monkeypatch.setattr("parosol_py.api.export_scalar_image", fake_export_scalar_image)
+
+    result = solve(
+        material=material_zyx,
+        spacing=(1, 1, 1),
+        outputs=("stress",),
+        work_dir=tmp_path,
+        export_dir=tmp_path / "exports",
+    )
+
+    assert result.exported["stress_xx"].name == "stress_xx.nii.gz"
+    assert result.exported["stress_xz"].name == "stress_xz.nii.gz"
+    np.testing.assert_array_equal(captured["stress_xx.nii.gz"].reshape(-1), [1.0, 2.0])
+    np.testing.assert_array_equal(
+        captured["stress_xz.nii.gz"].reshape(-1), [11.0, 12.0]
+    )
+
+
 def test_solve_exports_nodal_displacement_components(monkeypatch, tmp_path):
     material_zyx = np.ones((1, 1, 1), dtype=np.float32) * 1000.0
     material_xyz = np.transpose(material_zyx, (2, 1, 0))
