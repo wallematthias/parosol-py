@@ -78,6 +78,10 @@ def test_pyproject_declares_native_wheel_build_settings():
     windows_deps = (
         ROOT / "scripts" / "install_windows_wheel_deps.ps1"
     ).read_text(encoding="utf-8")
+    assert "winget" not in windows_deps
+    assert "msmpisetup.exe" in windows_deps
+    assert "Invoke-WebRequest" in windows_deps
+    assert "-unattend" in windows_deps
     assert "MaxAttempts" in windows_deps
     assert "Start-Sleep" in windows_deps
     assert "hdf5[core,cpp,zlib]:x64-windows" in windows_deps

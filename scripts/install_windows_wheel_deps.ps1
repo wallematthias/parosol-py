@@ -14,7 +14,10 @@ function Invoke-Checked {
     }
 }
 
-Invoke-Checked winget install --id Microsoft.msmpi --exact --silent --accept-package-agreements --accept-source-agreements
+$MsmPiUrl = "https://download.microsoft.com/download/7/2/7/72731ebb-b63c-4170-ade7-836966263a8f/msmpisetup.exe"
+$MsmPiInstaller = Join-Path $env:TEMP "msmpisetup.exe"
+Invoke-WebRequest -Uri $MsmPiUrl -OutFile $MsmPiInstaller
+Invoke-Checked $MsmPiInstaller -unattend
 if (-not (Test-Path "C:\Program Files\Microsoft MPI\Bin\mpiexec.exe")) {
     throw "MS-MPI redistributable install did not produce mpiexec.exe"
 }
