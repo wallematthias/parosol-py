@@ -46,7 +46,12 @@ PlasticUpdate VonMisesMaterial::Update(
     const double delta_gamma = (seq - Y) / (3.0 * G);
     Eigen::Matrix<double, 6, 1> flow;
     flow.setZero();
-    flow = 1.5 * dev / seq;
+    flow(0) = 1.5 * dev(0) / seq;
+    flow(1) = 1.5 * dev(1) / seq;
+    flow(2) = 1.5 * dev(2) / seq;
+    flow(3) = 3.0 * dev(3) / seq;
+    flow(4) = 3.0 * dev(4) / seq;
+    flow(5) = 3.0 * dev(5) / seq;
     out.plastic_strain = old_plastic_strain + delta_gamma * flow;
     out.stress = D * (total_strain - out.plastic_strain);
 
