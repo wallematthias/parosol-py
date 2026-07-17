@@ -58,6 +58,7 @@ public:
   virtual int Scan(BaseGrid* Grid);
 
   bool nonlinear_enabled = false;
+  std::string nonlinear_config_error = "";
   std::string nonlinear_material_type = "";
   double nonlinear_E_mpa = 0.0;
   double nonlinear_nu = 0.3;

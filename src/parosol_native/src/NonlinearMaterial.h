@@ -20,6 +20,8 @@ public:
         const Eigen::Matrix<double, 6, 1>& old_plastic_strain) const;
 
     Eigen::Matrix<double, 6, 6> ElasticMatrix() const;
+    double YoungsModulus() const { return E; }
+    double PoissonRatio() const { return nu; }
 
 private:
     double E;

@@ -127,7 +127,55 @@ void Stiffness_Matrix(const double* mat_prop, const int& nprops, const int& nod,
      delete[] coord;
      delete[] BtD;
      delete[] BtDB;
-     delete[] jac1;
+	 delete[] jac1;
+}
+
+void Initial_Strain_Load(const double* mat_prop, const int& nprops, const int& nod, const int& ndof, const int& ndim, const int& nip, const int& nst, const double* g_num, const double* plastic_strain, double* load)
+{
+    char element = 'h';
+    int i;
+    double det, e, v;
+
+    double *points  = new double[nip * ndim];
+    double *D   = new double[nst * nst];
+    double *weights = new double[nip];
+    double *der   = new double[ndim * nod];
+    double *jac     = new double[ndim * ndim];
+    double *deriv = new double[ndim * nod];
+    double *B     = new double[nst * ndof];
+    double *stress = new double[nst];
+    double *gauss_load = new double[ndof];
+    double *jac1     = new double[ndim * ndim];
+
+    e = mat_prop[0];
+    v = mat_prop[1];
+    d_mat(D, e, v, nst);
+    sample(element, nip, points, weights);
+    for (i = 0; i < ndof; i++)
+        load[i] = 0.0;
+
+    for (i = 0; i < nip; i++) {
+        shape_der(der, points, i, nod, ndim, nip);
+        matmulABt(der, ndim, nod, g_num, ndim, nod, jac1, ndim, ndim);
+        det = determinant(jac1, ndim);
+        invert(jac1, jac, ndim);
+        matmulAB(jac, ndim, ndim, der, ndim, nod, deriv, ndim, nod);
+        b_mat(B, deriv, nod, ndof, nst);
+        matmulAB(D, nst, nst, plastic_strain + i * nst, nst, 1, stress, nst, 1);
+        matmulAtB(B, nst, ndof, stress, nst, 1, gauss_load, ndof, 1);
+        aXpY(det * weights[i], gauss_load, load, 1, ndof);
+    }
+
+    delete[] points;
+    delete[] D;
+    delete[] weights;
+    delete[] der;
+    delete[] jac;
+    delete[] deriv;
+    delete[] B;
+    delete[] stress;
+    delete[] gauss_load;
+    delete[] jac1;
 }
 using Eigen::EigenSolver;
 void Element_Stress(const double* mat_prop, const int& nprops, const int& nod, const int& ndof, const int& ndim, const int& nip, 

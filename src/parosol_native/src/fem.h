@@ -58,6 +58,11 @@
                         const int& nod, const int& ndof, const int& ndim,
                         const int& nip, const int& nst, const double* coord, double* km);
 
+  void Initial_Strain_Load(const double* mat_prop, const int& nprops,
+                           const int& nod, const int& ndof, const int& ndim,
+                           const int& nip, const int& nst, const double* coord,
+                           const double* plastic_strain, double* load);
+
 //! Element stress and strain computation routine.
 
   /*! This subroutine computes the element stress and strain at a given number of Gauss points.

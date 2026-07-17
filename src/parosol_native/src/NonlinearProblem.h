@@ -35,9 +35,55 @@ public:
         }
     }
 
-    Eigen::VectorXd BuildPlasticRHS() const {
+    Eigen::VectorXd BuildPlasticRHS() {
+        const int dimension = 3;
+        const int material_properties = 2;
+        const int nodes_per_element = 8;
+        const int dofs_per_element = 24;
+        const int gauss_points = 8;
+        const int stress_strain_size = 6;
+
         Eigen::VectorXd rhs(_matrix.GetNrDofs());
         rhs.setZero();
+        _grid.Recv_export_Ghost();
+
+        double grid_dimensions[3];
+        _grid.GetRes(grid_dimensions);
+        double coordinates[dimension * nodes_per_element];
+        setcoord(grid_dimensions, coordinates);
+
+        // Match GenericMatrix: local stiffness uses E=1000 and element weights
+        // carry the image modulus scaling.
+        double material[material_properties] = {1000.0, _material.PoissonRatio()};
+        Eigen::Matrix<double, dofs_per_element, 1> element_rhs;
+        std::vector<double> plastic_fem_order(stress_strain_size * gauss_points);
+        t_index element_index = 0;
+
+        for (_grid.initIterateOverElements(); _grid.TestIterateOverElements(); _grid.IncIterateOverElements()) {
+            for (int gauss_point = 0; gauss_point < gauss_points; ++gauss_point) {
+                const Eigen::Matrix<double, 6, 1>& plastic =
+                    _plastic_gauss[static_cast<size_t>(element_index) * gauss_points + gauss_point];
+                const int offset = gauss_point * stress_strain_size;
+                plastic_fem_order[offset + 0] = plastic(0);
+                plastic_fem_order[offset + 1] = plastic(1);
+                plastic_fem_order[offset + 2] = plastic(2);
+                plastic_fem_order[offset + 3] = plastic(3);
+                plastic_fem_order[offset + 4] = plastic(5);
+                plastic_fem_order[offset + 5] = plastic(4);
+            }
+
+            Initial_Strain_Load(
+                material, material_properties,
+                nodes_per_element, dofs_per_element,
+                dimension, gauss_points, stress_strain_size,
+                coordinates, plastic_fem_order.data(), element_rhs.data());
+            _grid.SearchIndexes();
+            _grid.SumInToNodalDisplacementsOfElement(rhs, element_rhs, _grid.GetElementWeight());
+            ++element_index;
+        }
+
+        _grid.Send_export_Ghost(rhs);
+        _grid.WaitAndCopy_export_Ghost(rhs);
         return rhs;
     }
 

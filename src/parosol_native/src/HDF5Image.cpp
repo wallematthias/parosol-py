@@ -25,6 +25,8 @@
 #include <iostream>
 #include <map>
 #include <cstdlib>
+#include <cmath>
+#include <sstream>
 
 #include "Timing.h"
 
@@ -199,16 +201,33 @@ int HDF5Image::Scan(BaseGrid* grid)
 
     if (reader.GroupExists("/Nonlinear")) {
       reader.Select("/Nonlinear");
-      int enabled = 1;
+      int enabled = 0;
       if (reader.AttributeExists("enabled")) {
         reader.ReadAttribute("enabled", enabled);
       }
       nonlinear_enabled = enabled != 0;
       if (nonlinear_enabled) {
-        reader.ReadAttribute("material_type", nonlinear_material_type);
-        reader.ReadAttribute("youngs_modulus_mpa", nonlinear_E_mpa);
-        reader.ReadAttribute("poisson_ratio", nonlinear_nu);
-        reader.ReadAttribute("yield_strength_mpa", nonlinear_Y_mpa);
+        std::ostringstream error;
+        if (reader.AttributeExists("material_type")) {
+          reader.ReadAttribute("material_type", nonlinear_material_type);
+        } else {
+          error << " missing material_type;";
+        }
+        if (reader.AttributeExists("youngs_modulus_mpa")) {
+          reader.ReadAttribute("youngs_modulus_mpa", nonlinear_E_mpa);
+        } else {
+          error << " missing youngs_modulus_mpa;";
+        }
+        if (reader.AttributeExists("poisson_ratio")) {
+          reader.ReadAttribute("poisson_ratio", nonlinear_nu);
+        } else {
+          error << " missing poisson_ratio;";
+        }
+        if (reader.AttributeExists("yield_strength_mpa")) {
+          reader.ReadAttribute("yield_strength_mpa", nonlinear_Y_mpa);
+        } else {
+          error << " missing yield_strength_mpa;";
+        }
         if (reader.AttributeExists("convergence_tolerance")) {
           reader.ReadAttribute("convergence_tolerance", nonlinear_convergence_tolerance);
         }
@@ -218,6 +237,25 @@ int HDF5Image::Scan(BaseGrid* grid)
         if (reader.AttributeExists("plastic_convergence_window")) {
           reader.ReadAttribute("plastic_convergence_window", nonlinear_plastic_convergence_window);
         }
+        if (!std::isfinite(nonlinear_E_mpa) || nonlinear_E_mpa <= 0.0) {
+          error << " youngs_modulus_mpa must be finite and positive;";
+        }
+        if (!std::isfinite(nonlinear_nu) || nonlinear_nu <= -1.0 || nonlinear_nu >= 0.5) {
+          error << " poisson_ratio must satisfy -1 < nu < 0.5;";
+        }
+        if (!std::isfinite(nonlinear_Y_mpa) || nonlinear_Y_mpa <= 0.0) {
+          error << " yield_strength_mpa must be finite and positive;";
+        }
+        if (!std::isfinite(nonlinear_convergence_tolerance) || nonlinear_convergence_tolerance <= 0.0) {
+          error << " convergence_tolerance must be finite and positive;";
+        }
+        if (nonlinear_maximum_plastic_iterations <= 0) {
+          error << " maximum_plastic_iterations must be positive;";
+        }
+        if (nonlinear_plastic_convergence_window <= 0) {
+          error << " plastic_convergence_window must be positive;";
+        }
+        nonlinear_config_error = error.str();
       }
     }
 

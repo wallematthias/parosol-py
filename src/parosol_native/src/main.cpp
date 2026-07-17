@@ -53,7 +53,7 @@ void mflops(GenericMatrix<T> &matr, int MyPID);
 */
 
 template <class T>
-void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag, const Eigen::VectorXd* plastic_strain, const std::vector<Eigen::Matrix<double, 6, 1> >* plastic_gauss, const NonlinearIterationSummary* nonlinear_summary);
+void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag, NonlinearProblem<T>* nonlinear_problem, const NonlinearIterationSummary* nonlinear_summary);
 
 static void nonlinear_material_compile_check() {
     VonMisesMaterial material(1000.0, 0.3, 25.0);
@@ -229,6 +229,11 @@ int main(int argc, char *argv[])
     NonlinearIterationSummary nonlinear_summary = {
         0, 0, 0.0, std::make_tuple(0, 0.0, 0.0)};
     if (ir.nonlinear_enabled) {
+        if (!ir.nonlinear_config_error.empty()) {
+            PCOUT(MyPID, "ERROR: invalid nonlinear configuration:" << ir.nonlinear_config_error << "\n");
+            MPI_Finalize();
+            return 2;
+        }
         if (ir.nonlinear_material_type != "VonMisesIsotropic") {
             PCOUT(MyPID, "ERROR: only VonMisesIsotropic nonlinear material is currently supported\n");
             MPI_Finalize();
@@ -253,10 +258,9 @@ int main(int argc, char *argv[])
 
     // Print out the solution / Write to file
     timer.Start("Print");
-	print(matr, problem, file, MyPID, SED_flag, EFF_flag, VonMises_flag, e_dev_flag, e_vol_flag, strain_flag, stress_flag, DP_s_flag, DP_e_flag,
-        nonlinear_problem ? &nonlinear_problem->PlasticStrain() : 0,
-        nonlinear_problem ? &nonlinear_problem->PlasticGauss() : 0,
-        nonlinear_problem ? &nonlinear_summary : 0);
+	    print(matr, problem, file, MyPID, SED_flag, EFF_flag, VonMises_flag, e_dev_flag, e_vol_flag, strain_flag, stress_flag, DP_s_flag, DP_e_flag,
+	        nonlinear_problem.get(),
+	        nonlinear_problem ? &nonlinear_summary : 0);
     timer.Stop("Print");
 
     // Timings
@@ -273,7 +277,7 @@ int main(int argc, char *argv[])
     PCOUT(MyPID, "#  Constant: " << constant_time.avg << "\n");
     t_timing solving_time = timer.ElapsedTime("Solve");
     PCOUT(MyPID, "#  Solving:  " << solving_time.avg << "\n");
-    PCOUT(MyPID, "#  Solve/It: " << solving_time.avg/iterations << "\n");
+    PCOUT(MyPID, "#  Solve/It: " << (iterations > 0 ? solving_time.avg/iterations : 0.0) << "\n");
 
     // Additional timings
     /*
@@ -297,7 +301,7 @@ int main(int argc, char *argv[])
 }
 
 template <class T>
-void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag, const Eigen::VectorXd* plastic_strain, const std::vector<Eigen::Matrix<double, 6, 1> >* plastic_gauss, const NonlinearIterationSummary* nonlinear_summary)
+void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag, NonlinearProblem<T>* nonlinear_problem, const NonlinearIterationSummary* nonlinear_summary)
 {
 	//VTKPrinter<OctreeKey_Lookup> print("out", matr.GetGrid());
 	HDF5Printer<OctreeKey_Lookup> print(file, matr.GetGrid());
@@ -305,10 +309,13 @@ void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int My
 	int dofs = matr.GetGrid().GetNrDofs();
 	Eigen::VectorXd force(dofs);
 	matr.Apply_NoResetBoundaries(problem.GetSol(), force);
+	if (nonlinear_problem != 0) {
+		force -= nonlinear_problem->BuildPlasticRHS();
+	}
 	print.PrintAll(problem.GetSol(), force, problem.GetRes(), SED_flag, EFF_flag, VonMises_flag, e_dev_flag, e_vol_flag, strain_flag, stress_flag, DP_s_flag, DP_e_flag);
-	if (plastic_strain != 0 && plastic_gauss != 0 && nonlinear_summary != 0) {
-		print.PrintPlasticStrain(*plastic_strain);
-		print.PrintGaussPointPlasticStrain(*plastic_gauss);
+	if (nonlinear_problem != 0 && nonlinear_summary != 0) {
+		print.PrintPlasticStrain(nonlinear_problem->PlasticStrain());
+		print.PrintGaussPointPlasticStrain(nonlinear_problem->PlasticGauss());
 		print.PrintNonlinearResults(
 			nonlinear_summary->plastic_iterations,
 			nonlinear_summary->yielded_last,
