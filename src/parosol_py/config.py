@@ -444,6 +444,9 @@ def run_case_config(
     if spacing_preprocess:
         extra["preprocessing"] = {"resample_isotropic": spacing_preprocess}
     extra["quality"] = _quality_config(solver_cfg)
+    nonlinear_summary = _nonlinear_summary_config(material_cfg, solver_cfg)
+    if nonlinear_summary:
+        extra["nonlinear"] = nonlinear_summary
     summary_path = _resolve_path(
         output_cfg.get(
             "run_summary",
@@ -1049,6 +1052,31 @@ def _quality_config(solver_cfg: dict[str, Any]) -> dict[str, Any]:
             ),
         }
     }
+
+
+def _nonlinear_summary_config(
+    material_cfg: dict[str, Any], solver_cfg: dict[str, Any]
+) -> dict[str, Any]:
+    nonlinear_material_cfg = material_cfg.get("nonlinear")
+    nonlinear_solver_cfg = solver_cfg.get("nonlinear")
+    if not isinstance(nonlinear_material_cfg, dict) and not isinstance(
+        nonlinear_solver_cfg, dict
+    ):
+        return {}
+    summary: dict[str, Any] = {"material": "nonlinear density"}
+    if isinstance(nonlinear_material_cfg, dict):
+        for key in ("preset", "site"):
+            if nonlinear_material_cfg.get(key) is not None:
+                summary[key] = nonlinear_material_cfg[key]
+    if isinstance(nonlinear_solver_cfg, dict):
+        for key in (
+            "convergence_tolerance",
+            "maximum_plastic_iterations",
+            "plastic_convergence_window",
+        ):
+            if nonlinear_solver_cfg.get(key) is not None:
+                summary[key] = nonlinear_solver_cfg[key]
+    return summary
 
 
 def _nonlinear_solver_options(

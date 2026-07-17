@@ -79,6 +79,10 @@ def solve_summary_dict(
                     data["solver"], checks=data["quality"].get("checks", {})
                 )
             )
+        if "nonlinear" in extra_json and isinstance(extra_json["nonlinear"], dict):
+            nonlinear = data.setdefault("nonlinear", {})
+            if isinstance(nonlinear, dict):
+                nonlinear.update(extra_json.pop("nonlinear"))
         data.update(extra_json)
     _add_postprocess_quality_issues(data)
     return data
@@ -146,11 +150,21 @@ def compact_summary_dict(summary: dict[str, Any]) -> dict[str, Any]:
     if "model" in summary:
         compact["model"] = summary["model"]
     if nonlinear:
-        compact["nonlinear"] = {
+        compact["nonlinear"] = _drop_empty_values({
+            "material": nonlinear.get("material"),
+            "preset": nonlinear.get("preset"),
+            "site": nonlinear.get("site"),
+            "convergence_tolerance": nonlinear.get("convergence_tolerance"),
+            "maximum_plastic_iterations": nonlinear.get(
+                "maximum_plastic_iterations"
+            ),
+            "plastic_convergence_window": nonlinear.get(
+                "plastic_convergence_window"
+            ),
             "plastic_iterations": nonlinear.get("plastic_iterations"),
             "yielded_last": nonlinear.get("yielded_last"),
             "plastic_convergence_last": nonlinear.get("plastic_convergence_last"),
-        }
+        })
     return _jsonable(compact)
 
 
@@ -279,6 +293,10 @@ def write_solve_summary_json(
     result, path: str | Path, *, extra: dict[str, Any] | None = None
 ) -> Path:
     return write_summary_json(path, solve_summary_dict(result, extra=extra))
+
+
+def _drop_empty_values(values: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if value is not None}
 
 
 def parse_legacy_analysis_text(text: str) -> dict[str, Any]:

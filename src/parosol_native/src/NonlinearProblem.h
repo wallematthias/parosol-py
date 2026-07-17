@@ -11,9 +11,11 @@
 #include <Eigen/Core>
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <memory>
 #include <mpi.h>
 #include <stdexcept>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -126,9 +128,21 @@ public:
         Problem<Grid>& problem,
         PCGSolver& solver,
         int maximum_plastic_iterations,
-        double plastic_tolerance) {
+        double plastic_tolerance,
+        const std::string& material_type,
+        int my_pid) {
         NonlinearIterationSummary summary = {0, 0, 0.0, std::make_tuple(0, 0.0, 0.0)};
+        if (my_pid == 0) {
+            std::cout << "### Nonlinear solve\n";
+            std::cout << "   material: " << material_type << "\n";
+            std::cout << "   max plastic iterations: " << maximum_plastic_iterations << "\n";
+            std::cout << "   plastic tolerance: " << plastic_tolerance << "\n";
+        }
         for (int iteration = 1; iteration <= maximum_plastic_iterations; ++iteration) {
+            if (my_pid == 0) {
+                std::cout << "Nonlinear it " << iteration << "/" << maximum_plastic_iterations
+                          << ": solving equilibrium with current plastic strain\n";
+            }
             Eigen::VectorXd plastic_rhs = BuildPlasticRHS();
             problem.Impose(0);
             problem.AddToRHS(plastic_rhs);
@@ -140,8 +154,24 @@ public:
                 problem.GetSol(),
                 summary.yielded_last,
                 summary.plastic_convergence_last);
+            if (my_pid == 0) {
+                std::cout << "Nonlinear it " << iteration << "/" << maximum_plastic_iterations
+                          << ": PCG it=" << std::get<0>(summary.final_inner_solve)
+                          << " rel_res=" << std::get<1>(summary.final_inner_solve)
+                          << " abs_res=" << std::get<2>(summary.final_inner_solve)
+                          << " yielded_elements=" << summary.yielded_last
+                          << " plastic_change=" << summary.plastic_convergence_last
+                          << "\n";
+            }
             if (summary.plastic_convergence_last <= plastic_tolerance) {
                 break;
+            }
+        }
+        if (my_pid == 0) {
+            if (summary.plastic_convergence_last <= plastic_tolerance) {
+                std::cout << "Nonlinear converged: plastic_change <= tolerance\n";
+            } else {
+                std::cout << "Nonlinear stopped: reached maximum plastic iterations\n";
             }
         }
         return summary;

@@ -517,7 +517,11 @@ def test_run_case_config_writes_nonlinear_solver_options(tmp_path: Path):
                         "plastic_convergence_window": 3,
                     }
                 },
-                "output": {"summary": "summary.json", "dry_run": True},
+                "output": {
+                    "result": "result.json",
+                    "summary": "summary.json",
+                    "dry_run": True,
+                },
             }
         ),
         encoding="utf-8",
@@ -530,6 +534,14 @@ def test_run_case_config_writes_nonlinear_solver_options(tmp_path: Path):
         assert nonlinear.attrs["convergence_tolerance"] == pytest.approx(5.0e-7)
         assert nonlinear.attrs["maximum_plastic_iterations"] == 120
         assert nonlinear.attrs["plastic_convergence_window"] == 3
+    compact = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
+    assert compact["nonlinear"] == {
+        "material": "nonlinear density",
+        "preset": "spine_nonlinear",
+        "convergence_tolerance": pytest.approx(5.0e-7),
+        "maximum_plastic_iterations": 120,
+        "plastic_convergence_window": 3,
+    }
 
 
 def test_run_case_config_resampled_density_keeps_nonlinear_map_in_sync(

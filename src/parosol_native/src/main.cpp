@@ -259,7 +259,9 @@ int main(int argc, char *argv[])
             problem,
             solver,
             ir.nonlinear_maximum_plastic_iterations,
-            ir.nonlinear_convergence_tolerance);
+            ir.nonlinear_convergence_tolerance,
+            ir.nonlinear_material_type,
+            MyPID);
         output = nonlinear_summary.final_inner_solve;
     } else {
         output = problem.Solve(startvector_flag, extrapolation_flag);   // STORE STARTVECTOR

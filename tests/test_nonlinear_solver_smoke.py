@@ -91,6 +91,51 @@ def test_native_nonlinear_cube_writes_plastic_state_and_diagnostics(tmp_path: Pa
     assert result.summary.run.absolute_residual > 0.0
 
 
+def test_native_nonlinear_stdout_labels_outer_iterations(tmp_path: Path):
+    executable = packaged_executable()
+    material = np.ones((3, 3, 3), dtype=np.float32)
+    input_file = tmp_path / "nonlinear_log.h5"
+    fixed_coordinates, fixed_values = axial_compression(
+        material,
+        axis="z",
+        strain=-0.05,
+        voxel_size_mm=1.0,
+    )
+    write_parosol_input(
+        input_file,
+        stiffness_gpa_xyz=material,
+        fixed_displacement_coordinates=fixed_coordinates,
+        fixed_displacement_values=fixed_values,
+        voxel_size_mm=1.0,
+        poisson_ratio=0.3,
+        nonlinear_material=VonMisesMaterial(1000.0, 0.3, 10.0),
+        nonlinear_solver=NonlinearSolverOptions(
+            convergence_tolerance=1.0e-4,
+            maximum_plastic_iterations=3,
+        ),
+    )
+
+    command = build_parosol_command(
+        input_file=input_file,
+        executable=executable,
+        outputs=(),
+        mpi_processes=1,
+        level=2,
+        tolerance=1.0e-4,
+        mpi_launcher="auto",
+    )
+    run = run_parosol(command, cwd=tmp_path)
+
+    assert run.returncode == 0, run.stderr
+    assert "### Nonlinear solve" in run.stdout
+    assert "material: VonMisesIsotropic" in run.stdout
+    assert "Nonlinear it 1/3: solving equilibrium with current plastic strain" in run.stdout
+    assert "Nonlinear it 1/3: PCG it=" in run.stdout
+    assert "yielded_elements=" in run.stdout
+    assert "plastic_change=" in run.stdout
+    assert "Nonlinear converged:" in run.stdout or "Nonlinear stopped:" in run.stdout
+
+
 def test_native_disabled_nonlinear_group_uses_linear_path(tmp_path: Path):
     executable = packaged_executable()
     assert executable.exists(), f"packaged executable not found: {executable}"

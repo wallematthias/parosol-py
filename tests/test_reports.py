@@ -126,6 +126,11 @@ def test_compact_summary_includes_nonlinear_diagnostics():
     compact = compact_summary_dict(
         {
             "nonlinear": {
+                "material": "nonlinear density",
+                "preset": "hip_nonlinear",
+                "site": "femoral_neck",
+                "convergence_tolerance": 1.0e-4,
+                "maximum_plastic_iterations": 150,
                 "plastic_iterations": 4,
                 "yielded_last": 27,
                 "plastic_convergence_last": 5.0e-7,
@@ -135,10 +140,49 @@ def test_compact_summary_includes_nonlinear_diagnostics():
     )
 
     assert compact["nonlinear"] == {
+        "material": "nonlinear density",
+        "preset": "hip_nonlinear",
+        "site": "femoral_neck",
+        "convergence_tolerance": pytest.approx(1.0e-4),
+        "maximum_plastic_iterations": 150,
         "plastic_iterations": 4,
         "yielded_last": 27,
         "plastic_convergence_last": pytest.approx(5.0e-7),
     }
+
+
+def test_solve_summary_merges_nonlinear_metadata_with_solver_diagnostics(tmp_path: Path):
+    result = SolveResult(
+        input_file=tmp_path / "input.h5",
+        command=["parosol"],
+        fields={},
+        summary=SolveSummary(dimensions_xyz=(1, 1, 1), spacing=(1, 1, 1), origin=(0, 0, 0)),
+        diagnostics={
+            "nonlinear": {
+                "plastic_iterations": 6,
+                "yielded_last": 12,
+                "plastic_convergence_last": 8.0e-5,
+            }
+        },
+    )
+
+    summary = solve_summary_dict(
+        result,
+        extra={
+            "nonlinear": {
+                "material": "nonlinear density",
+                "preset": "spine_nonlinear",
+                "convergence_tolerance": 1.0e-4,
+            }
+        },
+    )
+
+    assert summary["nonlinear"]["plastic_iterations"] == 6
+    assert summary["nonlinear"]["yielded_last"] == 12
+    assert summary["nonlinear"]["plastic_convergence_last"] == pytest.approx(8.0e-5)
+    assert summary["nonlinear"]["material"] == "nonlinear density"
+    assert summary["nonlinear"]["preset"] == "spine_nonlinear"
+    assert summary["nonlinear"]["convergence_tolerance"] == pytest.approx(1.0e-4)
 
 
 def test_write_results_csv_exports_compact_single_row(tmp_path: Path):

@@ -92,6 +92,25 @@ def test_xtremect_workflows_pin_scanner_voxel_size_with_tolerance():
         assert resample["canonicalize_within_tolerance"] is True
 
 
+def test_hip_sideways_fall_workflows_pin_bct_voxel_size():
+    from parosol_py.workflow_registry import builtin_profile_path
+
+    for profile in (
+        "hip-sideways-fall-left",
+        "hip-sideways-fall-right",
+        "hip-sideways-fall-left-nonlinear",
+        "hip-sideways-fall-right-nonlinear",
+    ):
+        loaded, _source = load_workflow_template(builtin_profile_path(profile))
+        resample = loaded["preprocessing"]["resample_isotropic"]
+
+        assert resample["enabled"] is True
+        assert resample["mode"] == "fixed"
+        assert resample["target_spacing_mm"] == pytest.approx(1.5)
+        assert resample["spacing_tolerance_mm"] == pytest.approx(0.001)
+        assert resample["canonicalize_within_tolerance"] is True
+
+
 def test_packaged_workflows_use_npy_references_and_intrusion_schema():
     import zipfile
 
