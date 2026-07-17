@@ -443,10 +443,55 @@ def test_run_case_config_writes_spine_keaveny_nonlinear_map(tmp_path: Path):
     result = run_case_config(config_path)
 
     with h5py.File(result.input_file, "r") as h5:
+        np.testing.assert_allclose(
+            h5["Image_Data"]["Image"][...],
+            h5["Nonlinear"]["YoungsModulusMPa"][...] / 1000.0,
+        )
         nonlinear = h5["Nonlinear"]
         assert nonlinear.attrs["material_type"] == "AsymmetricPerfectPlasticDensityMap"
         assert "CompressiveYieldStressMPa" in nonlinear
         assert "TensileYieldStressMPa" in nonlinear
+
+
+def test_run_case_config_resampled_density_keeps_nonlinear_map_in_sync(
+    tmp_path: Path,
+):
+    density = np.ones((2, 2, 2), dtype=np.float32)
+    np.save(tmp_path / "density.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.npy",
+                    "image_type": "density",
+                    "spacing": [1, 1, 2],
+                },
+                "materials": {
+                    "density": {
+                        "E": {
+                            "equation": "power",
+                            "coefficient": 3814.4,
+                            "exponent": 1.05,
+                        },
+                        "nu": 0.3,
+                    },
+                    "nonlinear": {"preset": "spine_keaveny"},
+                },
+                "preprocessing": {"resample_isotropic": True},
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_case_config(config_path)
+
+    with h5py.File(result.input_file, "r") as h5:
+        image = h5["Image_Data"]["Image"][...]
+        youngs = h5["Nonlinear"]["YoungsModulusMPa"][...] / 1000.0
+        assert image.shape == youngs.shape
+        np.testing.assert_allclose(image, youngs)
 
 
 def test_run_case_config_writes_hip_keaveny_nonlinear_map_for_rho_app(
@@ -487,6 +532,10 @@ def test_run_case_config_writes_hip_keaveny_nonlinear_map_for_rho_app(
     result = run_case_config(config_path)
 
     with h5py.File(result.input_file, "r") as h5:
+        np.testing.assert_allclose(
+            h5["Image_Data"]["Image"][...],
+            h5["Nonlinear"]["YoungsModulusMPa"][...] / 1000.0,
+        )
         nonlinear = h5["Nonlinear"]
         assert nonlinear.attrs["material_type"] == "AsymmetricPerfectPlasticDensityMap"
         assert "CompressiveYieldStressMPa" in nonlinear
@@ -558,6 +607,56 @@ def test_run_case_config_rejects_unknown_nonlinear_preset(tmp_path: Path):
     with pytest.raises(
         ValueError,
         match="^materials\\.nonlinear\\.preset must be 'spine_keaveny' or 'hip_keaveny'$",
+    ):
+        run_case_config(config_path)
+
+
+@pytest.mark.parametrize(
+    "image_type",
+    ["material_mpa", "material_gpa", "material_labels"],
+)
+def test_run_case_config_rejects_nonlinear_preset_for_unsupported_input_type(
+    tmp_path: Path,
+    image_type: str,
+):
+    values = np.ones((2, 2, 2), dtype=np.float32)
+    np.save(tmp_path / "image.npy", values)
+    materials: dict[str, object]
+    if image_type == "material_labels":
+        materials = {
+            "labels": {
+                "1": {
+                    "name": "bone",
+                    "E": 1000,
+                    "nu": 0.3,
+                }
+            },
+            "nonlinear": {"preset": "spine_keaveny"},
+        }
+    else:
+        materials = {
+            "poisson_ratio": 0.3,
+            "nonlinear": {"preset": "spine_keaveny"},
+        }
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "image.npy",
+                    "image_type": image_type,
+                    "spacing": [1, 1, 1],
+                },
+                "materials": materials,
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="materials\\.nonlinear\\.preset is supported only for density inputs",
     ):
         run_case_config(config_path)
 

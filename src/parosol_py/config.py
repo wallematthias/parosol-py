@@ -99,7 +99,7 @@ def run_case_config(
     failure_load_cfg = _failure_load_config(postprocess_cfg)
     solver_profile = get_solver_profile(config.get("solver_profile"))
     output_profile = get_output_profile(config.get("output_profile"))
-    nonlinear_preset_from_material_config(material_cfg)
+    nonlinear_preset = nonlinear_preset_from_material_config(material_cfg)
 
     case_name = str(case_cfg.get("name") or config_path.stem)
     run_dir = _resolve_path(
@@ -132,6 +132,16 @@ def run_case_config(
     else:
         image_path = _resolve_path(input_cfg["image"], base_dir=base_dir)
         image_type = str(input_cfg.get("image_type", "material_mpa")).strip().lower()
+        if nonlinear_preset is not None and image_type not in {
+            "density",
+            "density_mg_ha",
+            "density_mgcm3",
+            "rho",
+        }:
+            raise ValueError(
+                "materials.nonlinear.preset is supported only for density inputs "
+                "and workflow replay density models"
+            )
         spacing = _spacing(input_cfg, image_path=image_path)
         origin = _origin(input_cfg, image_path=image_path)
     poisson_ratio = _poisson_ratio(
@@ -292,19 +302,32 @@ def run_case_config(
         )
         if _connectivity_filter_enabled(preprocessing_cfg):
             material = largest_connected_component(material)
-        material, mapped_poisson_ratio, spacing, spacing_preprocess = (
+            nonlinear_material = _sync_nonlinear_material_to_final_material(
+                nonlinear_material,
+                material,
+                poisson_ratio=mapped_poisson_ratio,
+            )
+        material, mapped_poisson_ratio, nonlinear_material, spacing, spacing_preprocess = (
             _apply_resample_isotropic_preprocessing(
                 material,
                 mapped_poisson_ratio,
+                nonlinear_material,
                 spacing=spacing,
                 preprocessing_cfg=preprocessing_cfg,
                 image_type=image_type,
             )
         )
-        material, spacing = _coarsen_material(
+        material, nonlinear_material, spacing = _coarsen_material(
             material,
+            nonlinear_material=nonlinear_material,
+            poisson_ratio=mapped_poisson_ratio,
             spacing=spacing,
             preprocessing_cfg=preprocessing_cfg,
+        )
+        nonlinear_material = _sync_nonlinear_material_to_final_material(
+            nonlinear_material,
+            material,
+            poisson_ratio=mapped_poisson_ratio,
         )
         postprocess_mask = None
         if _mask_fields_to_segmentation(postprocess_cfg):
@@ -540,30 +563,47 @@ def _input_density_active_mask(
 def _apply_resample_isotropic_preprocessing(
     material: np.ndarray,
     poisson_ratio: float | np.ndarray,
+    nonlinear_material: Any | None,
     *,
     spacing: tuple[float, float, float],
     preprocessing_cfg: dict[str, Any],
     image_type: str,
-) -> tuple[np.ndarray, float | np.ndarray, tuple[float, float, float], dict[str, Any] | None]:
+) -> tuple[
+    np.ndarray,
+    float | np.ndarray,
+    Any | None,
+    tuple[float, float, float],
+    dict[str, Any] | None,
+]:
     decision = _resample_isotropic_decision(
         preprocessing_cfg.get("resample_isotropic"),
         spacing=spacing,
     )
     if decision is None:
-        return material, poisson_ratio, spacing, None
+        return material, poisson_ratio, nonlinear_material, spacing, None
     target = decision["target_spacing"]
     if decision["within_tolerance"]:
         if not decision["canonicalize_within_tolerance"]:
-            return material, poisson_ratio, spacing, None
-        return material, poisson_ratio, target, {
-            "enabled": True,
-            "resampled": False,
-            "canonicalized": True,
-            "input_spacing": list(spacing),
-            "target_spacing": list(target),
-            "spacing_tolerance_mm": decision["spacing_tolerance_mm"],
-            "spacing_tolerance_relative": decision["spacing_tolerance_relative"],
-        }
+            return material, poisson_ratio, nonlinear_material, spacing, None
+        return (
+            material,
+            poisson_ratio,
+            _sync_nonlinear_material_to_final_material(
+                nonlinear_material,
+                material,
+                poisson_ratio=poisson_ratio,
+            ),
+            target,
+            {
+                "enabled": True,
+                "resampled": False,
+                "canonicalized": True,
+                "input_spacing": list(spacing),
+                "target_spacing": list(target),
+                "spacing_tolerance_mm": decision["spacing_tolerance_mm"],
+                "spacing_tolerance_relative": decision["spacing_tolerance_relative"],
+            },
+        )
 
     interpolation = (
         "nearest"
@@ -584,16 +624,32 @@ def _apply_resample_isotropic_preprocessing(
             target_spacing=target,
             interpolation=interpolation,
         )
-    return resampled_material, resampled_poisson, target, {
-        "enabled": True,
-        "resampled": True,
-        "canonicalized": False,
-        "input_spacing": list(spacing),
-        "target_spacing": list(target),
-        "spacing_tolerance_mm": decision["spacing_tolerance_mm"],
-        "spacing_tolerance_relative": decision["spacing_tolerance_relative"],
-        "interpolation": interpolation,
-    }
+    resampled_nonlinear = _resample_nonlinear_material_zyx(
+        nonlinear_material,
+        spacing=spacing,
+        target_spacing=target,
+        interpolation=interpolation,
+    )
+    return (
+        resampled_material,
+        resampled_poisson,
+        _sync_nonlinear_material_to_final_material(
+            resampled_nonlinear,
+            resampled_material,
+            poisson_ratio=resampled_poisson,
+        ),
+        target,
+        {
+            "enabled": True,
+            "resampled": True,
+            "canonicalized": False,
+            "input_spacing": list(spacing),
+            "target_spacing": list(target),
+            "spacing_tolerance_mm": decision["spacing_tolerance_mm"],
+            "spacing_tolerance_relative": decision["spacing_tolerance_relative"],
+            "interpolation": interpolation,
+        },
+    )
 
 
 def _resample_isotropic_decision(
@@ -655,12 +711,14 @@ def _resample_spec_enabled(value: Any) -> bool:
 def _coarsen_material(
     material: np.ndarray,
     *,
+    nonlinear_material: Any | None = None,
+    poisson_ratio: float | np.ndarray | None = None,
     spacing: tuple[float, float, float],
     preprocessing_cfg: dict[str, Any],
-) -> tuple[np.ndarray, tuple[float, float, float]]:
+) -> tuple[np.ndarray, Any | None, tuple[float, float, float]]:
     coarsen = preprocessing_cfg.get("coarsen")
     if not coarsen:
-        return material, spacing
+        return material, nonlinear_material, spacing
     if isinstance(coarsen, dict):
         factor = int(coarsen.get("factor", 1))
         reducer = str(coarsen.get("reducer", "mean"))
@@ -668,9 +726,141 @@ def _coarsen_material(
         factor = int(coarsen)
         reducer = "mean"
     if factor == 1:
-        return material, spacing
-    return coarsen_array(material, factor=factor, reducer=reducer), tuple(
-        float(value) * factor for value in spacing
+        return material, nonlinear_material, spacing
+    coarsened = coarsen_array(material, factor=factor, reducer=reducer)
+    coarsened_nonlinear = _coarsen_nonlinear_material(
+        nonlinear_material,
+        factor=factor,
+        reducer=reducer,
+    )
+    return (
+        coarsened,
+        _sync_nonlinear_material_to_final_material(
+            coarsened_nonlinear,
+            coarsened,
+            poisson_ratio=poisson_ratio,
+        ),
+        tuple(float(value) * factor for value in spacing),
+    )
+
+
+def _resample_nonlinear_material_zyx(
+    nonlinear_material: Any | None,
+    *,
+    spacing: tuple[float, float, float],
+    target_spacing: tuple[float, float, float],
+    interpolation: str,
+) -> Any | None:
+    if nonlinear_material is None:
+        return None
+
+    def resample_field(name: str, *, field_interpolation: str = interpolation):
+        return _resample_array_zyx(
+            np.asarray(getattr(nonlinear_material, name)),
+            spacing=spacing,
+            target_spacing=target_spacing,
+            interpolation=field_interpolation,
+        )
+
+    poisson = nonlinear_material.poisson_ratio
+    if isinstance(poisson, np.ndarray):
+        poisson = _resample_array_zyx(
+            poisson,
+            spacing=spacing,
+            target_spacing=target_spacing,
+            interpolation=interpolation,
+        )
+    return replace(
+        nonlinear_material,
+        youngs_modulus_mpa=resample_field("youngs_modulus_mpa"),
+        poisson_ratio=poisson,
+        compressive_yield_mpa=resample_field("compressive_yield_mpa"),
+        tensile_yield_mpa=resample_field("tensile_yield_mpa"),
+        plateau_mpa=resample_field("plateau_mpa"),
+        material_id=resample_field("material_id", field_interpolation="nearest").astype(
+            np.uint16,
+            copy=False,
+        ),
+    )
+
+
+def _coarsen_nonlinear_material(
+    nonlinear_material: Any | None,
+    *,
+    factor: int,
+    reducer: str,
+) -> Any | None:
+    if nonlinear_material is None:
+        return None
+
+    def coarsen_field(name: str, *, field_reducer: str = reducer):
+        return coarsen_array(
+            np.asarray(getattr(nonlinear_material, name)),
+            factor=factor,
+            reducer=field_reducer,
+        )
+
+    poisson = nonlinear_material.poisson_ratio
+    if isinstance(poisson, np.ndarray):
+        poisson = coarsen_array(poisson, factor=factor, reducer=reducer)
+    return replace(
+        nonlinear_material,
+        youngs_modulus_mpa=coarsen_field("youngs_modulus_mpa"),
+        poisson_ratio=poisson,
+        compressive_yield_mpa=coarsen_field("compressive_yield_mpa"),
+        tensile_yield_mpa=coarsen_field("tensile_yield_mpa"),
+        plateau_mpa=coarsen_field("plateau_mpa"),
+        material_id=coarsen_field("material_id", field_reducer="max").astype(
+            np.uint16,
+            copy=False,
+        ),
+    )
+
+
+def _sync_nonlinear_material_to_final_material(
+    nonlinear_material: Any | None,
+    material: np.ndarray,
+    *,
+    poisson_ratio: float | np.ndarray | None,
+) -> Any | None:
+    if nonlinear_material is None:
+        return None
+    final_material = np.asarray(material, dtype=np.float64)
+    active = final_material > 0.0
+
+    def synced_field(name: str) -> np.ndarray:
+        values = np.asarray(getattr(nonlinear_material, name), dtype=np.float64)
+        if values.shape != final_material.shape:
+            raise ValueError(
+                "nonlinear material map shape must match final material shape; "
+                f"{name} has shape {values.shape}, material has shape {final_material.shape}"
+            )
+        return np.where(active, values, 0.0)
+
+    poisson = nonlinear_material.poisson_ratio
+    if (
+        isinstance(poisson_ratio, np.ndarray)
+        and poisson_ratio.shape == final_material.shape
+    ):
+        poisson = np.where(active, poisson_ratio, 0.0)
+    elif poisson_ratio is not None and not isinstance(poisson_ratio, np.ndarray):
+        poisson = float(poisson_ratio)
+    elif isinstance(poisson, np.ndarray):
+        if poisson.shape != final_material.shape:
+            raise ValueError(
+                "nonlinear material Poisson ratio shape must match final material shape; "
+                f"got {poisson.shape}, expected {final_material.shape}"
+            )
+        poisson = np.where(active, poisson, 0.0)
+
+    return replace(
+        nonlinear_material,
+        youngs_modulus_mpa=np.where(active, final_material, 0.0),
+        poisson_ratio=poisson,
+        compressive_yield_mpa=synced_field("compressive_yield_mpa"),
+        tensile_yield_mpa=synced_field("tensile_yield_mpa"),
+        plateau_mpa=synced_field("plateau_mpa"),
+        material_id=np.where(active, 1, 0).astype(np.uint16),
     )
 
 

@@ -291,6 +291,11 @@ def build_workflow_replay_model(
         node_label_xyz = np.transpose(np.asarray(nodeset_labels_zyx, dtype=np.uint16), (2, 1, 0))
     disk_xyz = np.transpose(np.asarray(disk_labels_zyx, dtype=np.uint16), (2, 1, 0))
     if np.any(disk_xyz > 0):
+        if nonlinear_material is not None:
+            raise ValueError(
+                "nonlinear workflow replay with loading disks is not supported "
+                "until disk nonlinear properties are defined"
+            )
         pmma = material_config.get("pmma", {})
         pmma_e = float(pmma.get("E", 2500.0))
         material_xyz[disk_xyz > 0] = pmma_e

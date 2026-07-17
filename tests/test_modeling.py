@@ -1304,6 +1304,72 @@ def test_workflow_replay_model_builds_spine_keaveny_nonlinear_material(
     assert built.nonlinear_material.tensile_yield_mpa.shape == built.material.shape
 
 
+def test_workflow_replay_nonlinear_rejects_nonzero_loading_disks(
+    tmp_path: Path,
+):
+    density = np.ones((4, 4, 4), dtype=np.float32)
+    mask = np.ones_like(density, dtype=np.uint8) * 20
+    disk_labels = np.zeros_like(mask, dtype=np.uint16)
+    disk_labels[0, :, :] = 201
+    nodeset_labels = np.zeros_like(mask, dtype=np.uint16)
+    nodeset_labels[0, :, :] = 101
+    nodeset_labels[-1, :, :] = 202
+    np.save(tmp_path / "density.npy", density)
+    np.save(tmp_path / "mask.npy", mask)
+    np.save(tmp_path / "disk_labels.npy", disk_labels)
+    np.save(tmp_path / "nodesets.npy", nodeset_labels)
+
+    with pytest.raises(
+        ValueError,
+        match="nonlinear workflow replay with loading disks is not supported",
+    ):
+        build_workflow_replay_model(
+            {
+                "type": "workflow_replay",
+                "density_image": "density.npy",
+                "mask_image": "mask.npy",
+                "labels": {"body": 20},
+                "workflow_replay": {
+                    "enabled": True,
+                    "disk_labels": "disk_labels.npy",
+                    "nodesets": "nodesets.npy",
+                },
+                "registration": {"enabled": False},
+            },
+            base_dir=tmp_path,
+            material_config={
+                "density": {
+                    "E": {
+                        "equation": "power",
+                        "coefficient": 3814.4,
+                        "exponent": 1.05,
+                    },
+                    "nu": 0.3,
+                },
+                "nonlinear": {"preset": "spine_keaveny"},
+            },
+            load_case_config={
+                "type": "nodeset",
+                "fixed": [
+                    {"nodeset": "inferior", "dofs": ["x", "y", "z"], "value": 0.0}
+                ],
+                "prescribed": [{"nodeset": "superior", "dof": "z", "value": -0.1}],
+            },
+            nodeset_config={
+                "inferior": {
+                    "type": "label_image",
+                    "label": 101,
+                    "selection": "surface_nodes",
+                },
+                "superior": {
+                    "type": "label_image",
+                    "label": 202,
+                    "selection": "surface_nodes",
+                },
+            },
+        )
+
+
 def test_workflow_replay_pads_sample_extent_before_resampling_saved_disks(
     tmp_path: Path,
 ):

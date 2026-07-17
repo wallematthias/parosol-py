@@ -23,3 +23,27 @@ Adjacent changes:
 
 Concerns:
 - Existing unrelated local modification remains in `.superpowers/sdd/keaveny/task-5-6-report.md`; it was not touched for this task.
+
+### Task 7 Review Findings Fix: Nonlinear Integration Safety
+
+Status: complete
+
+Summary:
+- Direct density nonlinear configs now keep nonlinear material maps in sync with the final preprocessed stiffness grid. Resampling/coarsening transform nonlinear fields alongside material, and the final nonlinear Young's modulus/active material ID are reconciled to the final active material grid before HDF5 write.
+- Direct non-density input types with `materials.nonlinear.preset` now fail early with a clear `ValueError` instead of silently writing a linear HDF5 input.
+- Workflow replay with nonlinear material and nonzero loading disk labels now fails before PMMA disk stiffness can be written with bone nonlinear yield fields.
+- Existing unknown preset error remains exactly `materials.nonlinear.preset must be 'spine_keaveny' or 'hip_keaveny'`.
+- Hip nonlinear still requires `materials.density.basis='rho_app'`.
+- Linear behavior remains unchanged when no nonlinear preset is configured.
+
+Tests:
+- `conda run -n ogoloco-n88 pytest tests/test_config_cli.py -k nonlinear -v`
+  - 8 passed, 51 deselected
+- `conda run -n ogoloco-n88 pytest tests/test_modeling.py -k nonlinear -v`
+  - 2 passed, 60 deselected
+- `python -m py_compile src/parosol_py/config.py src/parosol_py/modeling/workflow_replay.py`
+  - passed
+
+Notes:
+- `conda run -n ogoloco-n88 ruff check ...` was attempted, but `ruff` is not installed in the `ogoloco-n88` environment.
+- Existing unrelated local modification remains in `.superpowers/sdd/keaveny/task-5-6-report.md`; it was not touched for this task.
