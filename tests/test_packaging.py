@@ -18,7 +18,7 @@ def test_pyproject_declares_native_wheel_build_settings():
     cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 
     assert pyproject["build-system"]["build-backend"] == "scikit_build_core.build"
-    assert pyproject["project"]["requires-python"] == ">=3.11,<3.14"
+    assert pyproject["project"]["requires-python"] == ">=3.11"
     assert "numpy>=1.24" in pyproject["project"]["dependencies"]
     assert not any(
         dependency.startswith("numpy") and "<2" in dependency
@@ -64,7 +64,7 @@ def test_pyproject_declares_native_wheel_build_settings():
     assert pyproject["tool"]["scikit-build"]["wheel"]["packages"] == [
         "src/parosol_py",
     ]
-    assert pyproject["tool"]["cibuildwheel"]["build"] == "cp311-* cp312-* cp313-*"
+    assert pyproject["tool"]["cibuildwheel"]["build"] == "cp3??-*"
     assert pyproject["tool"]["scikit-build"]["cmake"]["version"] == ">=3.18"
     assert "torch" not in pyproject["project"].get("optional-dependencies", {})
     assert "PAROSOL_MPI_RUNTIME openmpi msmpi" in cmake
@@ -109,6 +109,7 @@ def test_github_workflows_build_test_and_wheels():
         "3.11",
         "3.12",
         "3.13",
+        "3.14",
     ]
     coverage_setup_steps = [
         step
