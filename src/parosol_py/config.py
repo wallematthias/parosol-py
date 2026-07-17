@@ -256,10 +256,7 @@ def run_case_config(
         if _mask_fields_to_segmentation(postprocess_cfg):
             common["postprocess_mask"] = built_model.postprocess_mask
         if built_model.nonlinear_material is not None:
-            common["nonlinear_material"] = _nonlinear_material_for_solve(
-                built_model.nonlinear_material,
-                array_order="zyx",
-            )
+            common["nonlinear_material"] = built_model.nonlinear_material
         result = solve(material=material, array_order="zyx", **common)
         result.exported.update(built_model.exported)
         result.exported.update(
@@ -341,10 +338,7 @@ def run_case_config(
         common["spacing"] = spacing
         common["poisson_ratio"] = mapped_poisson_ratio
         if nonlinear_material is not None:
-            common["nonlinear_material"] = _nonlinear_material_for_solve(
-                nonlinear_material,
-                array_order="zyx",
-            )
+            common["nonlinear_material"] = nonlinear_material
         common["strain"] = _effective_strain_for_displacement(
             material,
             spacing=spacing,
@@ -1754,32 +1748,6 @@ def _load_material_array(
         poisson_ratio=material_cfg.get("poisson_ratio", material_cfg.get("nu")),
     )
     return mapped.youngs_modulus_mpa, mapped.poisson_ratio, None
-
-
-def _nonlinear_material_for_solve(nonlinear_material, *, array_order: str):
-    if nonlinear_material is None:
-        return None
-    order = array_order.strip().lower()
-    if order in {"xyz", "x-y-z"}:
-        return nonlinear_material
-    if order not in {"zyx", "z-y-x"}:
-        raise ValueError("array_order must be 'zyx' or 'xyz'")
-
-    def to_xyz(array):
-        return np.transpose(np.asarray(array), (2, 1, 0))
-
-    poisson = nonlinear_material.poisson_ratio
-    if isinstance(poisson, np.ndarray):
-        poisson = to_xyz(poisson)
-    return replace(
-        nonlinear_material,
-        youngs_modulus_mpa=to_xyz(nonlinear_material.youngs_modulus_mpa),
-        poisson_ratio=poisson,
-        compressive_yield_mpa=to_xyz(nonlinear_material.compressive_yield_mpa),
-        tensile_yield_mpa=to_xyz(nonlinear_material.tensile_yield_mpa),
-        plateau_mpa=to_xyz(nonlinear_material.plateau_mpa),
-        material_id=to_xyz(nonlinear_material.material_id),
-    )
 
 
 def _continuous_poisson_ratio(
