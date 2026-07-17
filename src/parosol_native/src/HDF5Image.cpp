@@ -30,9 +30,51 @@
 
 #include "Timing.h"
 
+static int GetDatasetRankAndDims(const std::string& filename, const std::string& dataset_path, hsize_t* dims)
+{
+  int mpi_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+  int rank = -1;
+  if (mpi_rank == 0) {
+    hid_t file = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (file >= 0) {
+      hid_t dataset = H5Dopen(file, dataset_path.c_str(), H5P_DEFAULT);
+      if (dataset >= 0) {
+        hid_t dataspace = H5Dget_space(dataset);
+        if (dataspace >= 0) {
+          rank = H5Sget_simple_extent_ndims(dataspace);
+          if (rank > 0 && rank <= 3) {
+            hsize_t actual_dims[3] = {};
+            H5Sget_simple_extent_dims(dataspace, actual_dims, 0);
+            for (int d=0; d<rank; d++) {
+              dims[d] = actual_dims[d];
+            }
+          }
+          H5Sclose(dataspace);
+        }
+        H5Dclose(dataset);
+      }
+      H5Fclose(file);
+    }
+  }
+  MPI_Bcast(&rank, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(dims, 3*sizeof(hsize_t), MPI_BYTE, 0, MPI_COMM_WORLD);
+  return rank;
+}
+
+template<typename T>
+static bool ReadRequiredMapDataset(HDF5_GReader& reader, const char* dataset_name, T* target, hsize_t* my_offset, hsize_t* my_count, std::ostringstream& error)
+{
+  if (reader.Read(dataset_name, target, my_offset, my_count, 3) <= 0) {
+    error << " failed to read " << dataset_name << ";";
+    return false;
+  }
+  return true;
+}
+
 void HDF5Image::ReadBC(HDF5_GReader &reader, std::string s,std::vector<unsigned short> & coordinates, std::vector<float> & values)
 {
-  hsize_t global_dims_of_hdf5[3];
+  hsize_t global_dims_of_hdf5[3] = {};
   if (reader.GetSizeOfDataset((s+"_Values").c_str(),global_dims_of_hdf5, 1) > 0)
   {
     std::map<bcitem, double> bcmap;
@@ -106,7 +148,7 @@ int HDF5Image::Scan(BaseGrid* grid)
 
   HDF5_GReader reader(_file);
 
-  hsize_t global_dims_of_hdf5[3];
+  hsize_t global_dims_of_hdf5[3] = {};
   if (!reader.Select("Image_Data")) {
       PCOUT(MyPID, "Error Selecting Image!!!\n")
       MPI_Finalize();
@@ -172,12 +214,17 @@ int HDF5Image::Scan(BaseGrid* grid)
     //t_timing elapsed_time = timer.ElapsedTime("Image");
     //PCOUT(MyPID, "Time for Reading the Image: " << COUTTIME(elapsed_time) << "s\n");
 
-    hsize_t poisson_dims_of_hdf5[3];
+    hsize_t poisson_dims_of_hdf5[3] = {};
     std::string poisson_dataset = "";
     if (reader.GetSizeOfDataset("Poissons_ratio_Image", poisson_dims_of_hdf5, 3) > 0) {
       poisson_dataset = "Poissons_ratio_Image";
-    } else if (reader.GetSizeOfDataset("Poisons_ratio_Image", poisson_dims_of_hdf5, 3) > 0) {
-      poisson_dataset = "Poisons_ratio_Image";
+    } else {
+      for(int d=0; d<3; d++) {
+        poisson_dims_of_hdf5[d] = 0;
+      }
+      if (reader.GetSizeOfDataset("Poisons_ratio_Image", poisson_dims_of_hdf5, 3) > 0) {
+        poisson_dataset = "Poisons_ratio_Image";
+      }
     }
     if (!poisson_dataset.empty()) {
       for(int d=0; d<3; d++) {
@@ -248,10 +295,19 @@ int HDF5Image::Scan(BaseGrid* grid)
           };
           bool map_datasets_valid = true;
           for (int dataset_index = 0; dataset_index < 6; dataset_index++) {
-            hsize_t dataset_dims[3];
+            hsize_t dataset_dims[3] = {};
             const char* dataset_name = dataset_names[dataset_index];
             if (reader.GetSizeOfDataset(dataset_name, dataset_dims, 3) <= 0) {
               error << " missing " << dataset_name << ";";
+              map_datasets_valid = false;
+              continue;
+            }
+            for (int d=0; d<3; d++) {
+              dataset_dims[d] = 0;
+            }
+            int dataset_rank = GetDatasetRankAndDims(_file, std::string("/Nonlinear/") + dataset_name, dataset_dims);
+            if (dataset_rank != 3) {
+              error << " " << dataset_name << " rank must be 3;";
               map_datasets_valid = false;
               continue;
             }
@@ -270,12 +326,12 @@ int HDF5Image::Scan(BaseGrid* grid)
             nonlinear_map_sigma_t_mpa = new double[imagesize];
             nonlinear_map_plateau_mpa = new double[imagesize];
             nonlinear_map_material_id = new unsigned short[imagesize];
-            reader.Read("YoungsModulusMPa", nonlinear_map_E_mpa, my_offset, my_count, 3);
-            reader.Read("PoissonRatio", nonlinear_map_nu, my_offset, my_count, 3);
-            reader.Read("CompressiveYieldStressMPa", nonlinear_map_sigma_c_mpa, my_offset, my_count, 3);
-            reader.Read("TensileYieldStressMPa", nonlinear_map_sigma_t_mpa, my_offset, my_count, 3);
-            reader.Read("PlateauStressMPa", nonlinear_map_plateau_mpa, my_offset, my_count, 3);
-            reader.Read("MaterialID", nonlinear_map_material_id, my_offset, my_count, 3);
+            ReadRequiredMapDataset(reader, "YoungsModulusMPa", nonlinear_map_E_mpa, my_offset, my_count, error);
+            ReadRequiredMapDataset(reader, "PoissonRatio", nonlinear_map_nu, my_offset, my_count, error);
+            ReadRequiredMapDataset(reader, "CompressiveYieldStressMPa", nonlinear_map_sigma_c_mpa, my_offset, my_count, error);
+            ReadRequiredMapDataset(reader, "TensileYieldStressMPa", nonlinear_map_sigma_t_mpa, my_offset, my_count, error);
+            ReadRequiredMapDataset(reader, "PlateauStressMPa", nonlinear_map_plateau_mpa, my_offset, my_count, error);
+            ReadRequiredMapDataset(reader, "MaterialID", nonlinear_map_material_id, my_offset, my_count, error);
           }
         } else {
           if (reader.AttributeExists("youngs_modulus_mpa")) {
