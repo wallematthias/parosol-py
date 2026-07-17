@@ -2,6 +2,7 @@ import json
 import math
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pytest
 import SimpleITK as sitk
@@ -408,6 +409,157 @@ def test_run_case_config_accepts_label_material_map(monkeypatch, tmp_path: Path)
         sitk.ReadImage(str(result.exported["material_image"]))
     )
     np.testing.assert_allclose(exported_material, [[[6829.0, 8748.0]]])
+
+
+def test_run_case_config_writes_spine_keaveny_nonlinear_map(tmp_path: Path):
+    density = np.ones((2, 2, 2), dtype=np.float32)
+    np.save(tmp_path / "density.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.npy",
+                    "image_type": "density",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "density": {
+                        "E": {
+                            "equation": "power",
+                            "coefficient": 3814.4,
+                            "exponent": 1.05,
+                        },
+                        "nu": 0.3,
+                    },
+                    "nonlinear": {"preset": "spine_keaveny"},
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_case_config(config_path)
+
+    with h5py.File(result.input_file, "r") as h5:
+        nonlinear = h5["Nonlinear"]
+        assert nonlinear.attrs["material_type"] == "AsymmetricPerfectPlasticDensityMap"
+        assert "CompressiveYieldStressMPa" in nonlinear
+        assert "TensileYieldStressMPa" in nonlinear
+
+
+def test_run_case_config_writes_hip_keaveny_nonlinear_map_for_rho_app(
+    tmp_path: Path,
+):
+    density = np.ones((2, 2, 2), dtype=np.float32)
+    np.save(tmp_path / "rho_app.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "rho_app.npy",
+                    "image_type": "density",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "density": {
+                        "basis": "rho_app",
+                        "E": {
+                            "equation": "power",
+                            "coefficient": 8768.0,
+                            "exponent": 1.49,
+                        },
+                        "nu": 0.3,
+                    },
+                    "nonlinear": {
+                        "preset": "hip_keaveny",
+                        "site": "femoral_neck",
+                    },
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_case_config(config_path)
+
+    with h5py.File(result.input_file, "r") as h5:
+        nonlinear = h5["Nonlinear"]
+        assert nonlinear.attrs["material_type"] == "AsymmetricPerfectPlasticDensityMap"
+        assert "CompressiveYieldStressMPa" in nonlinear
+        assert "TensileYieldStressMPa" in nonlinear
+
+
+def test_run_case_config_rejects_hip_keaveny_nonlinear_without_rho_app_basis(
+    tmp_path: Path,
+):
+    density = np.ones((2, 2, 2), dtype=np.float32)
+    np.save(tmp_path / "density.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.npy",
+                    "image_type": "density",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "density": {
+                        "E": {
+                            "equation": "power",
+                            "coefficient": 8768.0,
+                            "exponent": 1.49,
+                        }
+                    },
+                    "nonlinear": {
+                        "preset": "hip_keaveny",
+                        "site": "femoral_neck",
+                    },
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="materials\\.density\\.basis='rho_app'",
+    ):
+        run_case_config(config_path)
+
+
+def test_run_case_config_rejects_unknown_nonlinear_preset(tmp_path: Path):
+    density = np.ones((2, 2, 2), dtype=np.float32)
+    np.save(tmp_path / "density.npy", density)
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "density.npy",
+                    "image_type": "density",
+                    "spacing": [1, 1, 1],
+                },
+                "materials": {
+                    "density": {"E": {"equation": "linear", "slope": 1.0}},
+                    "nonlinear": {"preset": "keyak"},
+                },
+                "output": {"summary": "summary.json", "dry_run": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="^materials\\.nonlinear\\.preset must be 'spine_keaveny' or 'hip_keaveny'$",
+    ):
+        run_case_config(config_path)
 
 
 def test_run_case_config_can_disable_field_export(monkeypatch, tmp_path: Path):

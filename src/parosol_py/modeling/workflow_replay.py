@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ from .common import (
     fixture_margin_voxels,
     load_density_and_mask,
     material_from_density,
+    nonlinear_material_from_density,
     occupied_length_mm,
     pad_arrays_to_foreground_margin,
     require_non_empty,
@@ -236,6 +237,14 @@ def build_workflow_replay_model(
         model_mask_zyx,
         material_config=material_config,
     )
+    nonlinear_material = nonlinear_material_from_density(
+        density_zyx,
+        model_mask_zyx,
+        material_config=material_config,
+        poisson_ratio=poisson_ratio,
+    )
+    if nonlinear_material is not None:
+        bone_mpa_zyx = nonlinear_material.youngs_modulus_mpa
     material_xyz = np.transpose(bone_mpa_zyx, (2, 1, 0))
     labels_xyz = np.zeros(material_xyz.shape, dtype=np.uint16)
 
@@ -328,6 +337,10 @@ def build_workflow_replay_model(
     node_sets = cropped.node_sets
     generated_reference_node_sets = cropped.percent_reference_node_sets
     disk_xyz = _crop_array_to_workflow_crop(disk_xyz, cropped.crop)
+    nonlinear_material = _crop_nonlinear_material_to_workflow_crop(
+        nonlinear_material,
+        cropped.crop,
+    )
 
     require_non_empty(node_sets)
     effective_load_case_config = _workflow_effective_load_case_config(
@@ -406,6 +419,7 @@ def build_workflow_replay_model(
         node_sets=node_sets,
         element_sets=element_sets,
         postprocess_mask=np.asarray(to_zyx(postprocess_mask_xyz), dtype=bool),
+        nonlinear_material=nonlinear_material,
         exported=exported,
         metadata=metadata,
     )
@@ -1260,6 +1274,28 @@ def _crop_array_to_workflow_crop(array_xyz: np.ndarray, crop: dict[str, Any]) ->
         raise ValueError("workflow crop metadata must contain three-dimensional bounds")
     slices = tuple(slice(int(lower[axis]), int(upper[axis])) for axis in range(3))
     return array[slices]
+
+
+def _crop_nonlinear_material_to_workflow_crop(nonlinear_material, crop: dict[str, Any]):
+    if nonlinear_material is None:
+        return None
+
+    def crop_zyx(array_zyx):
+        array_xyz = np.transpose(np.asarray(array_zyx), (2, 1, 0))
+        return to_zyx(_crop_array_to_workflow_crop(array_xyz, crop))
+
+    poisson = nonlinear_material.poisson_ratio
+    if isinstance(poisson, np.ndarray):
+        poisson = crop_zyx(poisson)
+    return replace(
+        nonlinear_material,
+        youngs_modulus_mpa=crop_zyx(nonlinear_material.youngs_modulus_mpa),
+        poisson_ratio=poisson,
+        compressive_yield_mpa=crop_zyx(nonlinear_material.compressive_yield_mpa),
+        tensile_yield_mpa=crop_zyx(nonlinear_material.tensile_yield_mpa),
+        plateau_mpa=crop_zyx(nonlinear_material.plateau_mpa),
+        material_id=crop_zyx(nonlinear_material.material_id),
+    )
 
 
 def _workflow_crop_metadata(

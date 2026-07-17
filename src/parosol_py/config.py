@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +39,11 @@ from .materials import (
     poisson_ratio_from_spec,
 )
 from .modeling import build_model
-from .modeling.common import _resample_array_zyx
+from .modeling.common import (
+    _resample_array_zyx,
+    nonlinear_material_from_density,
+    nonlinear_preset_from_material_config,
+)
 from .modeling.io import read_image_zyx
 from .nodesets import boundary_conditions_from_nodesets, nodes_from_labeled_voxels
 from .paths import suffix_text
@@ -94,6 +99,7 @@ def run_case_config(
     failure_load_cfg = _failure_load_config(postprocess_cfg)
     solver_profile = get_solver_profile(config.get("solver_profile"))
     output_profile = get_output_profile(config.get("output_profile"))
+    nonlinear_preset_from_material_config(material_cfg)
 
     case_name = str(case_cfg.get("name") or config_path.stem)
     run_dir = _resolve_path(
@@ -239,6 +245,11 @@ def run_case_config(
         common["boundary_conditions"] = built_model.boundary_conditions
         if _mask_fields_to_segmentation(postprocess_cfg):
             common["postprocess_mask"] = built_model.postprocess_mask
+        if built_model.nonlinear_material is not None:
+            common["nonlinear_material"] = _nonlinear_material_for_solve(
+                built_model.nonlinear_material,
+                array_order="zyx",
+            )
         result = solve(material=material, array_order="zyx", **common)
         result.exported.update(built_model.exported)
         result.exported.update(
@@ -269,7 +280,7 @@ def run_case_config(
             )
         result = solve_aim(image_path, **common)
     else:
-        material, mapped_poisson_ratio = _load_material_array(
+        material, mapped_poisson_ratio, nonlinear_material = _load_material_array(
             image_path,
             image_type=image_type,
             material_cfg=material_cfg,
@@ -306,6 +317,11 @@ def run_case_config(
                 common["postprocess_mask"] = postprocess_mask
         common["spacing"] = spacing
         common["poisson_ratio"] = mapped_poisson_ratio
+        if nonlinear_material is not None:
+            common["nonlinear_material"] = _nonlinear_material_for_solve(
+                nonlinear_material,
+                array_order="zyx",
+            )
         common["strain"] = _effective_strain_for_displacement(
             material,
             spacing=spacing,
@@ -1432,19 +1448,27 @@ def _load_material_array(
     base_dir: Path,
     fallback_poisson_ratio: float,
     active_mask_zyx: np.ndarray | None = None,
-) -> tuple[np.ndarray, float | np.ndarray]:
+) -> tuple[np.ndarray, float | np.ndarray, Any | None]:
     array_zyx = _read_image_array_zyx(image_path)
     if image_type in {"material_mpa", "mpa", "material"}:
-        return array_zyx.astype(np.float64, copy=False), _continuous_poisson_ratio(
-            material_cfg,
-            array_zyx,
-            fallback=fallback_poisson_ratio,
+        return (
+            array_zyx.astype(np.float64, copy=False),
+            _continuous_poisson_ratio(
+                material_cfg,
+                array_zyx,
+                fallback=fallback_poisson_ratio,
+            ),
+            None,
         )
     if image_type in {"material_gpa", "gpa"}:
-        return array_zyx.astype(np.float64, copy=False), _continuous_poisson_ratio(
-            material_cfg,
-            array_zyx,
-            fallback=fallback_poisson_ratio,
+        return (
+            array_zyx.astype(np.float64, copy=False),
+            _continuous_poisson_ratio(
+                material_cfg,
+                array_zyx,
+                fallback=fallback_poisson_ratio,
+            ),
+            None,
         )
     if image_type in {"density", "density_mg_ha", "density_mgcm3", "rho"}:
         if active_mask_zyx is not None and active_mask_zyx.shape != array_zyx.shape:
@@ -1511,7 +1535,17 @@ def _load_material_array(
                 }
             },
         )
-        return mapped.youngs_modulus_mpa, mapped.poisson_ratio
+        nonlinear_material = nonlinear_material_from_density(
+            array_zyx,
+            active_mask_zyx,
+            material_config=material_cfg,
+            poisson_ratio=mapped.poisson_ratio,
+        )
+        if nonlinear_material is not None:
+            mapped_youngs = nonlinear_material.youngs_modulus_mpa
+        else:
+            mapped_youngs = mapped.youngs_modulus_mpa
+        return mapped_youngs, mapped.poisson_ratio, nonlinear_material
     if image_type not in {"material_labels", "labels", "segmentation"}:
         raise ValueError(
             "input.image_type must be material_mpa, material_gpa, material_labels, or density"
@@ -1529,7 +1563,33 @@ def _load_material_array(
         table,
         poisson_ratio=material_cfg.get("poisson_ratio", material_cfg.get("nu")),
     )
-    return mapped.youngs_modulus_mpa, mapped.poisson_ratio
+    return mapped.youngs_modulus_mpa, mapped.poisson_ratio, None
+
+
+def _nonlinear_material_for_solve(nonlinear_material, *, array_order: str):
+    if nonlinear_material is None:
+        return None
+    order = array_order.strip().lower()
+    if order in {"xyz", "x-y-z"}:
+        return nonlinear_material
+    if order not in {"zyx", "z-y-x"}:
+        raise ValueError("array_order must be 'zyx' or 'xyz'")
+
+    def to_xyz(array):
+        return np.transpose(np.asarray(array), (2, 1, 0))
+
+    poisson = nonlinear_material.poisson_ratio
+    if isinstance(poisson, np.ndarray):
+        poisson = to_xyz(poisson)
+    return replace(
+        nonlinear_material,
+        youngs_modulus_mpa=to_xyz(nonlinear_material.youngs_modulus_mpa),
+        poisson_ratio=poisson,
+        compressive_yield_mpa=to_xyz(nonlinear_material.compressive_yield_mpa),
+        tensile_yield_mpa=to_xyz(nonlinear_material.tensile_yield_mpa),
+        plateau_mpa=to_xyz(nonlinear_material.plateau_mpa),
+        material_id=to_xyz(nonlinear_material.material_id),
+    )
 
 
 def _continuous_poisson_ratio(

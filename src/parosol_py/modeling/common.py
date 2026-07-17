@@ -13,6 +13,7 @@ from parosol_py.core import BoundaryConditionSet
 from parosol_py.images import ImageGrid, export_scalar_image, to_output_order
 from parosol_py.images import largest_connected_component
 from parosol_py.materials import apply_density_input_transform, density_to_material_map
+from parosol_py.nonlinear import hip_keaveny_nonlinear, spine_keaveny_nonlinear
 from parosol_py.nodesets import (
     boundary_conditions_from_nodesets,
     nodes_from_labeled_voxels,
@@ -23,6 +24,9 @@ from parosol_py.visualization import write_case_overview
 from .io import read_image_zyx, resolve_path
 
 AXIS_TO_INDEX = {"x": 0, "y": 1, "z": 2}
+NONLINEAR_PRESET_ERROR = (
+    "materials.nonlinear.preset must be 'spine_keaveny' or 'hip_keaveny'"
+)
 
 
 @dataclass(frozen=True)
@@ -986,6 +990,72 @@ def material_from_density(
         },
     )
     return mapped.youngs_modulus_mpa, mapped.poisson_ratio
+
+
+def nonlinear_material_from_density(
+    density_zyx: np.ndarray,
+    active_mask_zyx: np.ndarray | None,
+    *,
+    material_config: dict[str, Any],
+    poisson_ratio: float | np.ndarray,
+):
+    parsed = nonlinear_preset_from_material_config(material_config)
+    if parsed is None:
+        return None
+    preset, nonlinear_cfg = parsed
+
+    density_cfg = dict(material_config.get("density", {}))
+    density_values = _apply_density_input_transform(
+        np.asarray(density_zyx, dtype=np.float64),
+        density_cfg=density_cfg,
+    )
+    bin_material = _enabled(nonlinear_cfg.get("bin_material", False))
+    number_bins = int(nonlinear_cfg.get("number_bins", nonlinear_cfg.get("bins", 128)))
+    if preset == "spine_keaveny":
+        return spine_keaveny_nonlinear(
+            density_values,
+            active_mask=active_mask_zyx,
+            poisson_ratio=poisson_ratio,
+            bin_material=bin_material,
+            number_bins=number_bins,
+        )
+
+    basis = _density_basis(density_cfg)
+    if basis != "rho_app":
+        raise ValueError(
+            "materials.nonlinear.preset='hip_keaveny' requires "
+            "materials.density.basis='rho_app'"
+        )
+    return hip_keaveny_nonlinear(
+        density_values,
+        site=str(nonlinear_cfg.get("site", "femoral_neck")),
+        active_mask=active_mask_zyx,
+        poisson_ratio=poisson_ratio,
+        bin_material=bin_material,
+        number_bins=number_bins,
+    )
+
+
+def nonlinear_preset_from_material_config(
+    material_config: dict[str, Any],
+) -> tuple[str, dict[str, Any]] | None:
+    nonlinear_cfg = material_config.get("nonlinear")
+    if not nonlinear_cfg:
+        return None
+    if not isinstance(nonlinear_cfg, dict):
+        raise ValueError("materials.nonlinear must be an object")
+    preset = str(nonlinear_cfg.get("preset", "")).strip().lower()
+    if preset not in {"spine_keaveny", "hip_keaveny"}:
+        raise ValueError(NONLINEAR_PRESET_ERROR)
+    return preset, nonlinear_cfg
+
+
+def _density_basis(density_cfg: dict[str, Any]) -> str | None:
+    for key in ("basis", "density_basis", "units", "unit"):
+        value = density_cfg.get(key)
+        if value is not None:
+            return str(value).strip().lower().replace("-", "_")
+    return None
 
 
 def _apply_density_input_transform(
