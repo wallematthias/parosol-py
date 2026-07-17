@@ -17,7 +17,10 @@ function Invoke-Checked {
 $MsmPiUrl = "https://download.microsoft.com/download/7/2/7/72731ebb-b63c-4170-ade7-836966263a8f/msmpisetup.exe"
 $MsmPiInstaller = Join-Path $env:TEMP "msmpisetup.exe"
 Invoke-WebRequest -Uri $MsmPiUrl -OutFile $MsmPiInstaller
-Invoke-Checked $MsmPiInstaller -unattend
+$MsmPiInstall = Start-Process -FilePath $MsmPiInstaller -ArgumentList "-unattend" -Wait -PassThru
+if ($MsmPiInstall.ExitCode -ne 0) {
+    throw "$MsmPiInstaller failed with exit code $($MsmPiInstall.ExitCode)"
+}
 if (-not (Test-Path "C:\Program Files\Microsoft MPI\Bin\mpiexec.exe")) {
     throw "MS-MPI redistributable install did not produce mpiexec.exe"
 }

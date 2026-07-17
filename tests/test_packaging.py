@@ -81,6 +81,7 @@ def test_pyproject_declares_native_wheel_build_settings():
     assert "winget" not in windows_deps
     assert "msmpisetup.exe" in windows_deps
     assert "Invoke-WebRequest" in windows_deps
+    assert "Start-Process" in windows_deps
     assert "-unattend" in windows_deps
     assert "MaxAttempts" in windows_deps
     assert "Start-Sleep" in windows_deps
