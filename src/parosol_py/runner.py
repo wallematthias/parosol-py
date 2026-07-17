@@ -314,7 +314,19 @@ def _packaged_msmpi_dir_for_launcher(launcher: Path) -> Path | None:
 
 
 def _package_bin_dir() -> Path:
-    return Path(resources.files("parosol_py").joinpath("bin"))
+    bin_resource = resources.files("parosol_py").joinpath("bin")
+    try:
+        return Path(bin_resource)
+    except TypeError:
+        pass
+    try:
+        distribution = metadata.distribution("parosol-py")
+    except metadata.PackageNotFoundError:
+        raise TypeError(
+            "parosol_py/bin resource is not a filesystem path and "
+            "parosol-py distribution metadata is unavailable"
+        )
+    return Path(distribution.locate_file("parosol_py/bin"))
 
 
 def _platform_executable_names(base: str) -> tuple[str, ...]:

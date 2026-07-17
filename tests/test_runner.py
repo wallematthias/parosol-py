@@ -8,6 +8,7 @@ import pytest
 import parosol_py.runner as runner
 from parosol_py.runner import (
     _platform_executable_names,
+    _package_bin_dir,
     build_parosol_command,
     mpi_runtime_environment,
     packaged_executable,
@@ -329,6 +330,27 @@ def test_run_parosol_can_stream_and_still_parse_summary(capsys):
 
 def test_packaged_executable_returns_path():
     assert packaged_executable().name in {"parosol", "parosol.exe"}
+
+
+def test_package_bin_dir_handles_non_path_editable_resource(monkeypatch, tmp_path):
+    class FakeResource:
+        def joinpath(self, name):
+            assert name == "bin"
+            return self
+
+    class FakeDistribution:
+        def locate_file(self, relative):
+            assert relative == "parosol_py/bin"
+            return tmp_path / relative
+
+    bin_dir = tmp_path / "parosol_py" / "bin"
+    bin_dir.mkdir(parents=True)
+    monkeypatch.setattr("parosol_py.runner.resources.files", lambda name: FakeResource())
+    monkeypatch.setattr(
+        "parosol_py.runner.metadata.distribution", lambda name: FakeDistribution()
+    )
+
+    assert _package_bin_dir() == bin_dir
 
 
 def test_platform_executable_names_include_windows_suffix():
