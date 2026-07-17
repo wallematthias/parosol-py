@@ -52,6 +52,18 @@ def read_reference_points(
     return sample_points(points_array(points, "reference points"), max_points=max_points)
 
 
+def convert_points_coordinate_system(
+    points: np.ndarray,
+    coordinate_system: str,
+) -> np.ndarray:
+    """Convert point coordinates into RAS-mm using a named source convention."""
+    return _points_for_coordinate_system(
+        np.asarray(points, dtype=float),
+        coordinate_system,
+        path=Path("<points>"),
+    )
+
+
 def resolve_reference_space_editor(
     editor: dict[str, Any],
     *,

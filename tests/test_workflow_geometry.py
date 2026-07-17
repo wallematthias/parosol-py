@@ -5,6 +5,7 @@ import pytest
 
 from parosol_py.nodesets import nodes_from_labeled_voxels
 from parosol_py.workflow_geometry import (
+    convert_points_coordinate_system,
     derive_reference_plane,
     estimate_reference_to_sample_transform,
     generate_disk_and_nodeset_geometry,
@@ -19,6 +20,20 @@ from parosol_py.workflow_geometry import (
     scale_reference_points_preserving_pose,
     transform_points,
 )
+
+
+def test_convert_points_coordinate_system_exposes_lps_to_ras_adapter():
+    points = np.asarray(
+        [[1.0, 2.0, 3.0], [-4.0, 5.0, 6.0], [7.0, -8.0, 9.0]],
+        dtype=float,
+    )
+
+    converted = convert_points_coordinate_system(points, "lps_to_ras")
+
+    np.testing.assert_allclose(
+        converted,
+        [[-1.0, -2.0, 3.0], [4.0, -5.0, 6.0], [-7.0, 8.0, 9.0]],
+    )
 
 
 def test_resolve_reference_space_editor_maps_reference_plane_to_sample_space():
