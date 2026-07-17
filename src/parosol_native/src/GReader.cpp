@@ -409,6 +409,10 @@ int HDF5_GReader::Read(const std::string& name, hid_t type, void* data, hsize_t*
   
   //Get dataspace of the dataset.
   hid_t dataspace = H5Dget_space(dataset);
+  if (dataspace < 0) {
+    H5Dclose(dataset);
+    return -1;
+  }
   
 // std::cout << "reading from " << my_offset[0] << " " << my_offset[1] << " " << my_offset[2] << "\n";
 //  std::cout << "to " << count[0] << " " << count[1] << " " << count[2] << "\n";
@@ -417,20 +421,27 @@ int HDF5_GReader::Read(const std::string& name, hid_t type, void* data, hsize_t*
   
    if (status <0) {
       std::cout << "Error in Selection";
+      H5Sclose(dataspace);
+      H5Dclose(dataset);
       return -1;
    }
    
   hid_t memspace = H5Screate_simple( dims, count, NULL );
   if (memspace <= 0) {
     std::cout << "Error in memspace";
+    H5Sclose(dataspace);
+    H5Dclose(dataset);
     return -1;
   }
   
-  H5Dread(dataset, type, memspace, dataspace, plist, data);
+  status = H5Dread(dataset, type, memspace, dataspace, plist, data);
 
   H5Sclose(dataspace);
   H5Sclose(memspace);
   H5Dclose(dataset);
+  if (status < 0) {
+    return -1;
+  }
   return 1;
 }
 

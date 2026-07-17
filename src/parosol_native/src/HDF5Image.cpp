@@ -297,15 +297,12 @@ int HDF5Image::Scan(BaseGrid* grid)
           for (int dataset_index = 0; dataset_index < 6; dataset_index++) {
             hsize_t dataset_dims[3] = {};
             const char* dataset_name = dataset_names[dataset_index];
-            if (reader.GetSizeOfDataset(dataset_name, dataset_dims, 3) <= 0) {
+            int dataset_rank = GetDatasetRankAndDims(_file, std::string("/Nonlinear/") + dataset_name, dataset_dims);
+            if (dataset_rank < 0) {
               error << " missing " << dataset_name << ";";
               map_datasets_valid = false;
               continue;
             }
-            for (int d=0; d<3; d++) {
-              dataset_dims[d] = 0;
-            }
-            int dataset_rank = GetDatasetRankAndDims(_file, std::string("/Nonlinear/") + dataset_name, dataset_dims);
             if (dataset_rank != 3) {
               error << " " << dataset_name << " rank must be 3;";
               map_datasets_valid = false;

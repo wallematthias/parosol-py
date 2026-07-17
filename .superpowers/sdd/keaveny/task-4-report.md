@@ -84,3 +84,39 @@
 
 **Concerns:**
 - None beyond the existing intentional `main.cpp` guard that still rejects valid `AsymmetricPerfectPlasticDensityMap` solves until that material type is implemented.
+
+---
+
+### Re-review Fix: Safe Map Rank Validation and Observable HDF5 Read Failures
+
+**Status:** Complete.
+
+**Files changed:**
+- `src/parosol_native/src/HDF5Image.cpp`
+- `src/parosol_native/src/GReader.cpp`
+- `tests/test_nonlinear_solver_smoke.py`
+
+**Implementation notes:**
+- Removed the unsafe `reader.GetSizeOfDataset(dataset_name, dataset_dims, 3)` call from nonlinear material-map validation.
+- Map validation now uses only the rank-aware `/Nonlinear/<dataset>` inspection path before comparing dimensions, so rank-4 datasets are rejected without writing past the 3-element buffer.
+- Updated `HDF5_GReader::Read(... hsize_t* offset, ...)` to return failure when `H5Dget_space`, hyperslab selection, memory-space creation, or `H5Dread` fails, with HDF5 handles closed on early exits.
+- Preserved the rank-2 malformed dataset regression and added coverage for rank-4 map datasets and shape-valid but unreadable map datasets.
+
+**Red checks before implementation:**
+- `conda run -n ogoloco-n88 pytest tests/test_nonlinear_solver_smoke.py::test_asymmetric_density_map_rejects_rank_four_dataset tests/test_nonlinear_solver_smoke.py::test_asymmetric_density_map_reports_dataset_read_failure -v`
+- Failed as expected:
+  - Rank-4 `TensileYieldStressMPa` caused a native segmentation fault instead of `nonlinear_config_error`.
+  - String-typed `MaterialID` fell through to `ERROR: only VonMisesIsotropic nonlinear material is currently supported` instead of reporting `failed to read MaterialID`.
+
+**Green checks after implementation:**
+- `conda run -n ogoloco-n88 python -m pip install -e .`
+  - Succeeded.
+- `conda run -n ogoloco-n88 pytest tests/test_nonlinear_solver_smoke.py::test_asymmetric_density_map_requires_all_datasets tests/test_nonlinear_solver_smoke.py::test_native_rejects_invalid_nonlinear_hdf5_config tests/test_nonlinear_solver_smoke.py::test_asymmetric_density_map_rejects_rank_two_dataset tests/test_nonlinear_solver_smoke.py::test_asymmetric_density_map_rejects_rank_four_dataset tests/test_nonlinear_solver_smoke.py::test_asymmetric_density_map_reports_dataset_read_failure -v`
+  - Passed: `5 passed, 3 warnings`.
+- `conda run -n ogoloco-n88 pytest tests/test_nonlinear_solver_smoke.py::test_native_disabled_nonlinear_group_uses_linear_path tests/test_nonlinear_solver_smoke.py::test_native_nonlinear_group_without_enabled_uses_linear_path tests/test_nonlinear_solver_smoke.py::test_native_rejects_invalid_nonlinear_hdf5_config -v`
+  - Passed: `3 passed, 3 warnings`.
+- `git diff --check -- src/parosol_native/src/HDF5Image.cpp src/parosol_native/src/GReader.cpp tests/test_nonlinear_solver_smoke.py`
+  - Passed with no output.
+
+**Concerns:**
+- None beyond the existing intentional `main.cpp` guard that still rejects valid `AsymmetricPerfectPlasticDensityMap` solves until that material type is implemented.

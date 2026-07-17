@@ -309,6 +309,106 @@ def test_asymmetric_density_map_rejects_rank_two_dataset(tmp_path: Path):
     assert "only VonMisesIsotropic nonlinear material" not in output
 
 
+def test_asymmetric_density_map_rejects_rank_four_dataset(tmp_path: Path):
+    executable = packaged_executable()
+    assert executable.exists(), f"packaged executable not found: {executable}"
+
+    rho_qct = np.ones((3, 3, 3), dtype=np.float64)
+    nonlinear_map = spine_keaveny_nonlinear(rho_qct)
+    stiffness_gpa_xyz = (nonlinear_map.youngs_modulus_mpa / 1000.0).astype(
+        np.float32
+    )
+    fixed_coordinates, fixed_values = axial_compression(
+        stiffness_gpa_xyz,
+        axis="z",
+        strain=-0.01,
+        voxel_size_mm=1.0,
+    )
+    input_file = write_parosol_input(
+        tmp_path / "rank_four_tensile_yield.h5",
+        stiffness_gpa_xyz=stiffness_gpa_xyz,
+        fixed_displacement_coordinates=fixed_coordinates,
+        fixed_displacement_values=fixed_values,
+        voxel_size_mm=1.0,
+        poisson_ratio=0.3,
+        nonlinear_material=nonlinear_map,
+        nonlinear_solver=NonlinearSolverOptions(maximum_plastic_iterations=3),
+    )
+    with h5py.File(input_file, "r+") as h5:
+        del h5["Nonlinear"]["TensileYieldStressMPa"]
+        h5["Nonlinear"].create_dataset(
+            "TensileYieldStressMPa",
+            data=np.ones((3, 3, 3, 1), dtype=np.float64),
+        )
+
+    run = run_parosol(
+        build_parosol_command(
+            executable=executable,
+            input_file=input_file,
+            outputs=("sed",),
+            tolerance=1.0e-4,
+            level=2,
+        ),
+        cwd=tmp_path,
+    )
+
+    output = run.stdout + run.stderr
+    assert run.returncode != 0
+    assert "invalid nonlinear configuration" in output
+    assert "TensileYieldStressMPa rank must be 3" in output
+    assert "only VonMisesIsotropic nonlinear material" not in output
+
+
+def test_asymmetric_density_map_reports_dataset_read_failure(tmp_path: Path):
+    executable = packaged_executable()
+    assert executable.exists(), f"packaged executable not found: {executable}"
+
+    rho_qct = np.ones((3, 3, 3), dtype=np.float64)
+    nonlinear_map = spine_keaveny_nonlinear(rho_qct)
+    stiffness_gpa_xyz = (nonlinear_map.youngs_modulus_mpa / 1000.0).astype(
+        np.float32
+    )
+    fixed_coordinates, fixed_values = axial_compression(
+        stiffness_gpa_xyz,
+        axis="z",
+        strain=-0.01,
+        voxel_size_mm=1.0,
+    )
+    input_file = write_parosol_input(
+        tmp_path / "unreadable_material_id.h5",
+        stiffness_gpa_xyz=stiffness_gpa_xyz,
+        fixed_displacement_coordinates=fixed_coordinates,
+        fixed_displacement_values=fixed_values,
+        voxel_size_mm=1.0,
+        poisson_ratio=0.3,
+        nonlinear_material=nonlinear_map,
+        nonlinear_solver=NonlinearSolverOptions(maximum_plastic_iterations=3),
+    )
+    with h5py.File(input_file, "r+") as h5:
+        del h5["Nonlinear"]["MaterialID"]
+        h5["Nonlinear"].create_dataset(
+            "MaterialID",
+            data=np.full((3, 3, 3), b"bad", dtype="S3"),
+        )
+
+    run = run_parosol(
+        build_parosol_command(
+            executable=executable,
+            input_file=input_file,
+            outputs=("sed",),
+            tolerance=1.0e-4,
+            level=2,
+        ),
+        cwd=tmp_path,
+    )
+
+    output = run.stdout + run.stderr
+    assert run.returncode != 0
+    assert "invalid nonlinear configuration" in output
+    assert "failed to read MaterialID" in output
+    assert "only VonMisesIsotropic nonlinear material" not in output
+
+
 def _active_node_coordinates(stiffness_gpa_xyz) -> list[tuple[int, int, int]]:
     elements = np.argwhere(np.asarray(stiffness_gpa_xyz) > 0.0).astype(
         np.int64, copy=False
