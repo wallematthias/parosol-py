@@ -442,22 +442,25 @@ int HDF5Image::Scan(BaseGrid* grid)
             nonlinear_map_sigma_t_mpa = new double[imagesize];
             nonlinear_map_plateau_mpa = new double[imagesize];
             nonlinear_map_material_id = new unsigned short[imagesize];
-            ReadRequiredFloatMapDatasetAsDouble(reader, "YoungsModulusMPa", nonlinear_map_E_mpa, imagesize, my_offset, my_count, error);
-            ReadRequiredFloatMapDatasetAsDouble(reader, "PoissonRatio", nonlinear_map_nu, imagesize, my_offset, my_count, error);
-            ReadRequiredFloatMapDatasetAsDouble(reader, "CompressiveYieldStressMPa", nonlinear_map_sigma_c_mpa, imagesize, my_offset, my_count, error);
-            ReadRequiredFloatMapDatasetAsDouble(reader, "TensileYieldStressMPa", nonlinear_map_sigma_t_mpa, imagesize, my_offset, my_count, error);
-            ReadRequiredFloatMapDatasetAsDouble(reader, "PlateauStressMPa", nonlinear_map_plateau_mpa, imagesize, my_offset, my_count, error);
-            ReadRequiredMaterialIdDataset(reader, nonlinear_map_material_id, imagesize, my_offset, my_count, error);
-            ValidateAsymmetricMaterialMap(
-              grid,
-              nonlinear_map_E_mpa,
-              nonlinear_map_nu,
-              nonlinear_map_sigma_c_mpa,
-              nonlinear_map_sigma_t_mpa,
-              nonlinear_map_plateau_mpa,
-              nonlinear_map_material_id,
-              imagesize,
-              error);
+            bool map_reads_valid = true;
+            map_reads_valid = ReadRequiredFloatMapDatasetAsDouble(reader, "YoungsModulusMPa", nonlinear_map_E_mpa, imagesize, my_offset, my_count, error) && map_reads_valid;
+            map_reads_valid = ReadRequiredFloatMapDatasetAsDouble(reader, "PoissonRatio", nonlinear_map_nu, imagesize, my_offset, my_count, error) && map_reads_valid;
+            map_reads_valid = ReadRequiredFloatMapDatasetAsDouble(reader, "CompressiveYieldStressMPa", nonlinear_map_sigma_c_mpa, imagesize, my_offset, my_count, error) && map_reads_valid;
+            map_reads_valid = ReadRequiredFloatMapDatasetAsDouble(reader, "TensileYieldStressMPa", nonlinear_map_sigma_t_mpa, imagesize, my_offset, my_count, error) && map_reads_valid;
+            map_reads_valid = ReadRequiredFloatMapDatasetAsDouble(reader, "PlateauStressMPa", nonlinear_map_plateau_mpa, imagesize, my_offset, my_count, error) && map_reads_valid;
+            map_reads_valid = ReadRequiredMaterialIdDataset(reader, nonlinear_map_material_id, imagesize, my_offset, my_count, error) && map_reads_valid;
+            if (map_reads_valid) {
+              ValidateAsymmetricMaterialMap(
+                grid,
+                nonlinear_map_E_mpa,
+                nonlinear_map_nu,
+                nonlinear_map_sigma_c_mpa,
+                nonlinear_map_sigma_t_mpa,
+                nonlinear_map_plateau_mpa,
+                nonlinear_map_material_id,
+                imagesize,
+                error);
+            }
           }
         } else {
           if (reader.AttributeExists("youngs_modulus_mpa")) {

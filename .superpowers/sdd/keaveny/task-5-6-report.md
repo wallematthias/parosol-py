@@ -35,4 +35,4 @@ One small change was required outside the initial ownership list in `src/parosol
 - `conda run -n ogoloco-n88 python -m pip install -e .`
 - `conda run -n ogoloco-n88 pytest tests/test_nonlinear_solver_smoke.py -v`
 
-Result: 10 passed, 3 warnings.
+Result: 14 passed, 3 warnings.
