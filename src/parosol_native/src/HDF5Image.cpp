@@ -123,6 +123,7 @@ static void ValidateAsymmetricMaterialMap(
   std::ostringstream& error)
 {
   bool invalid_material_id = false;
+  bool unsupported_material_id = false;
   bool invalid_youngs = false;
   bool mismatched_youngs = false;
   bool invalid_poisson = false;
@@ -141,6 +142,9 @@ static void ValidateAsymmetricMaterialMap(
     if (active_image_voxel && material_id[i] == 0) {
       invalid_material_id = true;
     }
+    if (active_material_voxel && material_id[i] != 1 && material_id[i] != 2) {
+      unsupported_material_id = true;
+    }
     if (!std::isfinite(youngs_mpa[i]) || youngs_mpa[i] <= 0.0) {
       invalid_youngs = true;
     } else {
@@ -157,19 +161,34 @@ static void ValidateAsymmetricMaterialMap(
         || poisson_ratio[i] >= 0.5) {
       invalid_poisson = true;
     }
-    if (!std::isfinite(sigma_c_mpa[i]) || sigma_c_mpa[i] <= 0.0) {
-      invalid_sigma_c = true;
-    }
-    if (!std::isfinite(sigma_t_mpa[i]) || sigma_t_mpa[i] <= 0.0) {
-      invalid_sigma_t = true;
-    }
-    if (!std::isfinite(plateau_mpa[i]) || plateau_mpa[i] <= 0.0) {
-      invalid_plateau = true;
+    if (material_id[i] == 1) {
+      if (!std::isfinite(sigma_c_mpa[i]) || sigma_c_mpa[i] <= 0.0) {
+        invalid_sigma_c = true;
+      }
+      if (!std::isfinite(sigma_t_mpa[i]) || sigma_t_mpa[i] <= 0.0) {
+        invalid_sigma_t = true;
+      }
+      if (!std::isfinite(plateau_mpa[i]) || plateau_mpa[i] <= 0.0) {
+        invalid_plateau = true;
+      }
+    } else if (material_id[i] == 2) {
+      if (!std::isfinite(sigma_c_mpa[i])) {
+        invalid_sigma_c = true;
+      }
+      if (!std::isfinite(sigma_t_mpa[i])) {
+        invalid_sigma_t = true;
+      }
+      if (!std::isfinite(plateau_mpa[i])) {
+        invalid_plateau = true;
+      }
     }
   }
 
   if (invalid_material_id) {
     error << " MaterialID must be positive for active Image voxels;";
+  }
+  if (unsupported_material_id) {
+    error << " MaterialID values must be 1 for nonlinear bone or 2 for elastic fixture voxels;";
   }
   if (invalid_youngs) {
     error << " YoungsModulusMPa values must be finite and positive;";
@@ -181,13 +200,13 @@ static void ValidateAsymmetricMaterialMap(
     error << " PoissonRatio values must satisfy -1 < nu < 0.5;";
   }
   if (invalid_sigma_c) {
-    error << " CompressiveYieldStressMPa values must be finite and positive;";
+    error << " CompressiveYieldStressMPa values must be finite and positive for nonlinear bone voxels;";
   }
   if (invalid_sigma_t) {
-    error << " TensileYieldStressMPa values must be finite and positive;";
+    error << " TensileYieldStressMPa values must be finite and positive for nonlinear bone voxels;";
   }
   if (invalid_plateau) {
-    error << " PlateauStressMPa values must be finite and positive;";
+    error << " PlateauStressMPa values must be finite and positive for nonlinear bone voxels;";
   }
 }
 

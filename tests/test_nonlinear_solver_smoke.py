@@ -618,6 +618,65 @@ def test_asymmetric_density_map_low_strength_voxels_yield_first(tmp_path: Path):
     assert not np.any(yielded_high)
 
 
+def test_asymmetric_density_map_pmma_fixture_ids_are_elastic_with_zero_yield_fields(
+    tmp_path: Path,
+):
+    shape = (4, 4, 4)
+    youngs_mpa = np.full(shape, 1000.0, dtype=np.float64)
+    poisson_ratio = np.full(shape, 0.3, dtype=np.float64)
+    tensile_yield_mpa = np.full(shape, 5.0, dtype=np.float64)
+    compressive_yield_mpa = np.full(shape, 5.0, dtype=np.float64)
+    plateau_mpa = np.full(shape, 5.0, dtype=np.float64)
+    material_id = np.ones(shape, dtype=np.uint16)
+
+    pmma_fixture = np.zeros(shape, dtype=bool)
+    pmma_fixture[:2, :, :] = True
+    youngs_mpa[pmma_fixture] = 2500.0
+    poisson_ratio[pmma_fixture] = 0.31
+    tensile_yield_mpa[pmma_fixture] = 0.0
+    compressive_yield_mpa[pmma_fixture] = 0.0
+    plateau_mpa[pmma_fixture] = 0.0
+    material_id[pmma_fixture] = 2
+
+    material_map = KeavenyNonlinearMaterialMap(
+        youngs_modulus_mpa=youngs_mpa,
+        poisson_ratio=poisson_ratio,
+        compressive_yield_mpa=compressive_yield_mpa,
+        tensile_yield_mpa=tensile_yield_mpa,
+        plateau_mpa=plateau_mpa,
+        material_id=material_id,
+        metadata={"preset": "test_pmma_fixture"},
+    )
+
+    result = solve(
+        material=(youngs_mpa / 1000.0).astype(np.float32),
+        material_unit="GPa",
+        spacing=(1.0, 1.0, 1.0),
+        array_order="xyz",
+        strain=0.008,
+        test="axial",
+        load_case_type="constrained_axial",
+        outputs=("plastic_strain",),
+        nonlinear_material=material_map,
+        nonlinear_solver=NonlinearSolverOptions(
+            convergence_tolerance=1.0e-6,
+            maximum_plastic_iterations=20,
+        ),
+        work_dir=tmp_path / "pmma_fixture",
+        tolerance=1.0e-4,
+        level=2,
+    )
+
+    plastic_norm = np.linalg.norm(result.fields["plastic_strain"], axis=1)
+    element_coords = _active_element_coordinates(np.ones(shape, dtype=np.float32))
+    pmma_indices = [i for i, coord in enumerate(element_coords) if coord[0] < 2]
+    bone_indices = [i for i, coord in enumerate(element_coords) if coord[0] >= 2]
+
+    assert result.diagnostics["nonlinear"]["yielded_last"] > 0
+    assert not np.any(plastic_norm[pmma_indices] > 0.0)
+    assert np.any(plastic_norm[bone_indices] > 0.0)
+
+
 def _constant_asymmetric_map(
     *,
     shape: tuple[int, int, int],

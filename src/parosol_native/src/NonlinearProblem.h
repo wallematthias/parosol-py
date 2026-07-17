@@ -193,6 +193,7 @@ private:
             element_properties.sigma_c = sigma_c_mpa[dense_index];
             element_properties.sigma_t = sigma_t_mpa[dense_index];
             element_properties.plateau = plateau_mpa[dense_index];
+            element_properties.plasticity_enabled = material_id[dense_index] == 1;
             properties.push_back(element_properties);
         }
         if (properties.size() != static_cast<size_t>(grid.GetNrElem())) {
@@ -226,10 +227,28 @@ private:
         if (_material_mode == MaterialMode::VonMises) {
             return _von_mises_material->Update(total_strain, old_plastic);
         }
-        return _asymmetric_material->Update(
-            total_strain,
-            old_plastic,
-            _asymmetric_properties[static_cast<size_t>(element_index)]);
+        const AsymmetricMaterialProperties& properties =
+            _asymmetric_properties[static_cast<size_t>(element_index)];
+        if (!properties.plasticity_enabled) {
+            PlasticUpdate update;
+            const Eigen::Matrix<double, 6, 6> D =
+                _asymmetric_material->ElasticMatrix(properties);
+            update.stress = D * total_strain;
+            update.plastic_strain = old_plastic;
+            const double mean =
+                (update.stress(0) + update.stress(1) + update.stress(2)) / 3.0;
+            Eigen::Matrix<double, 6, 1> dev = update.stress;
+            dev(0) -= mean;
+            dev(1) -= mean;
+            dev(2) -= mean;
+            update.von_mises = std::sqrt(
+                1.5 * (dev(0)*dev(0) + dev(1)*dev(1) + dev(2)*dev(2)
+                     + 2.0 * (dev(3)*dev(3) + dev(4)*dev(4) + dev(5)*dev(5))));
+            update.yield_function = 0.0;
+            update.yielded = false;
+            return update;
+        }
+        return _asymmetric_material->Update(total_strain, old_plastic, properties);
     }
 
     void UpdatePlasticState(

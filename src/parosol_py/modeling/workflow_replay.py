@@ -291,14 +291,16 @@ def build_workflow_replay_model(
         node_label_xyz = np.transpose(np.asarray(nodeset_labels_zyx, dtype=np.uint16), (2, 1, 0))
     disk_xyz = np.transpose(np.asarray(disk_labels_zyx, dtype=np.uint16), (2, 1, 0))
     if np.any(disk_xyz > 0):
-        if nonlinear_material is not None:
-            raise ValueError(
-                "nonlinear workflow replay with loading disks is not supported "
-                "until disk nonlinear properties are defined"
-            )
         pmma = material_config.get("pmma", {})
         pmma_e = float(pmma.get("E", 2500.0))
+        pmma_nu = float(pmma.get("nu", 0.3))
         material_xyz[disk_xyz > 0] = pmma_e
+        nonlinear_material = _assign_pmma_disks_to_nonlinear_material(
+            nonlinear_material,
+            disk_mask_xyz=disk_xyz > 0,
+            pmma_e_mpa=pmma_e,
+            pmma_nu=pmma_nu,
+        )
         labels_xyz[disk_xyz > 0] = np.maximum(labels_xyz[disk_xyz > 0], disk_xyz[disk_xyz > 0])
 
     labels_xyz[node_label_xyz > 0] = np.maximum(
@@ -1300,6 +1302,59 @@ def _crop_nonlinear_material_to_workflow_crop(nonlinear_material, crop: dict[str
         tensile_yield_mpa=crop_zyx(nonlinear_material.tensile_yield_mpa),
         plateau_mpa=crop_zyx(nonlinear_material.plateau_mpa),
         material_id=crop_zyx(nonlinear_material.material_id),
+    )
+
+
+def _assign_pmma_disks_to_nonlinear_material(
+    nonlinear_material,
+    *,
+    disk_mask_xyz: np.ndarray,
+    pmma_e_mpa: float,
+    pmma_nu: float,
+):
+    if nonlinear_material is None:
+        return None
+
+    disk_mask = np.asarray(disk_mask_xyz, dtype=bool)
+
+    def to_xyz(array_zyx):
+        return np.transpose(np.asarray(array_zyx), (2, 1, 0)).copy()
+
+    def to_zyx_array(array_xyz):
+        return to_zyx(array_xyz)
+
+    youngs_xyz = to_xyz(nonlinear_material.youngs_modulus_mpa)
+    compressive_xyz = to_xyz(nonlinear_material.compressive_yield_mpa)
+    tensile_xyz = to_xyz(nonlinear_material.tensile_yield_mpa)
+    plateau_xyz = to_xyz(nonlinear_material.plateau_mpa)
+    material_id_xyz = to_xyz(nonlinear_material.material_id).astype(
+        np.uint16,
+        copy=False,
+    )
+    poisson = nonlinear_material.poisson_ratio
+    if isinstance(poisson, np.ndarray):
+        poisson_xyz = to_xyz(poisson)
+    else:
+        poisson_xyz = np.full(youngs_xyz.shape, float(poisson), dtype=np.float64)
+
+    youngs_xyz[disk_mask] = pmma_e_mpa
+    poisson_xyz[disk_mask] = pmma_nu
+    compressive_xyz[disk_mask] = 0.0
+    tensile_xyz[disk_mask] = 0.0
+    plateau_xyz[disk_mask] = 0.0
+    material_id_xyz[disk_mask] = 2
+
+    metadata = dict(getattr(nonlinear_material, "metadata", {}))
+    metadata["pmma_fixture_material_id"] = 2
+    return replace(
+        nonlinear_material,
+        youngs_modulus_mpa=to_zyx_array(youngs_xyz),
+        poisson_ratio=to_zyx_array(poisson_xyz),
+        compressive_yield_mpa=to_zyx_array(compressive_xyz),
+        tensile_yield_mpa=to_zyx_array(tensile_xyz),
+        plateau_mpa=to_zyx_array(plateau_xyz),
+        material_id=to_zyx_array(material_id_xyz).astype(np.uint16, copy=False),
+        metadata=metadata,
     )
 
 

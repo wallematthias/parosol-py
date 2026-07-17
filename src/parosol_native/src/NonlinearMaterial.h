@@ -35,6 +35,7 @@ struct AsymmetricMaterialProperties {
     double sigma_t;
     double sigma_c;
     double plateau;
+    bool plasticity_enabled;
 };
 
 class AsymmetricPerfectPlasticMaterial {

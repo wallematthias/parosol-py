@@ -1304,7 +1304,7 @@ def test_workflow_replay_model_builds_spine_keaveny_nonlinear_material(
     assert built.nonlinear_material.tensile_yield_mpa.shape == built.material.shape
 
 
-def test_workflow_replay_nonlinear_rejects_nonzero_loading_disks(
+def test_workflow_replay_nonlinear_assigns_pmma_disks_as_elastic_fixture_material(
     tmp_path: Path,
 ):
     density = np.ones((4, 4, 4), dtype=np.float32)
@@ -1319,55 +1319,61 @@ def test_workflow_replay_nonlinear_rejects_nonzero_loading_disks(
     np.save(tmp_path / "disk_labels.npy", disk_labels)
     np.save(tmp_path / "nodesets.npy", nodeset_labels)
 
-    with pytest.raises(
-        ValueError,
-        match="nonlinear workflow replay with loading disks is not supported",
-    ):
-        build_workflow_replay_model(
-            {
-                "type": "workflow_replay",
-                "density_image": "density.npy",
-                "mask_image": "mask.npy",
-                "labels": {"body": 20},
-                "workflow_replay": {
-                    "enabled": True,
-                    "disk_labels": "disk_labels.npy",
-                    "nodesets": "nodesets.npy",
-                },
-                "registration": {"enabled": False},
+    built = build_workflow_replay_model(
+        {
+            "type": "workflow_replay",
+            "density_image": "density.npy",
+            "mask_image": "mask.npy",
+            "labels": {"body": 20},
+            "workflow_replay": {
+                "enabled": True,
+                "disk_labels": "disk_labels.npy",
+                "nodesets": "nodesets.npy",
             },
-            base_dir=tmp_path,
-            material_config={
-                "density": {
-                    "E": {
-                        "equation": "power",
-                        "coefficient": 3814.4,
-                        "exponent": 1.05,
-                    },
-                    "nu": 0.3,
+            "registration": {"enabled": False},
+        },
+        base_dir=tmp_path,
+        material_config={
+            "density": {
+                "E": {
+                    "equation": "power",
+                    "coefficient": 3814.4,
+                    "exponent": 1.05,
                 },
-                "nonlinear": {"preset": "spine_keaveny"},
+                "nu": 0.3,
             },
-            load_case_config={
-                "type": "nodeset",
-                "fixed": [
-                    {"nodeset": "inferior", "dofs": ["x", "y", "z"], "value": 0.0}
-                ],
-                "prescribed": [{"nodeset": "superior", "dof": "z", "value": -0.1}],
+            "pmma": {"E": 2500.0, "nu": 0.31},
+            "nonlinear": {"preset": "spine_keaveny"},
+        },
+        load_case_config={
+            "type": "nodeset",
+            "fixed": [
+                {"nodeset": "inferior", "dofs": ["x", "y", "z"], "value": 0.0}
+            ],
+            "prescribed": [{"nodeset": "superior", "dof": "z", "value": -0.1}],
+        },
+        nodeset_config={
+            "inferior": {
+                "type": "label_image",
+                "label": 101,
+                "selection": "surface_nodes",
             },
-            nodeset_config={
-                "inferior": {
-                    "type": "label_image",
-                    "label": 101,
-                    "selection": "surface_nodes",
-                },
-                "superior": {
-                    "type": "label_image",
-                    "label": 202,
-                    "selection": "surface_nodes",
-                },
+            "superior": {
+                "type": "label_image",
+                "label": 202,
+                "selection": "surface_nodes",
             },
-        )
+        },
+    )
+
+    disk_mask = np.isclose(built.material, 2500.0)
+    assert np.count_nonzero(disk_mask) > 0
+    assert built.nonlinear_material is not None
+    assert np.all(built.nonlinear_material.material_id[disk_mask] == 2)
+    assert np.all(built.nonlinear_material.compressive_yield_mpa[disk_mask] == 0.0)
+    assert np.all(built.nonlinear_material.tensile_yield_mpa[disk_mask] == 0.0)
+    assert np.all(built.nonlinear_material.plateau_mpa[disk_mask] == 0.0)
+    assert np.allclose(built.nonlinear_material.poisson_ratio[disk_mask], 0.31)
 
 
 def test_workflow_replay_pads_sample_extent_before_resampling_saved_disks(
