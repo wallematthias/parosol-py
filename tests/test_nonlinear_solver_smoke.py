@@ -44,6 +44,11 @@ def test_native_nonlinear_cube_writes_plastic_state_and_diagnostics(tmp_path: Pa
     nonlinear = result.diagnostics["nonlinear"]
 
     assert plastic_strain.shape == (27, 6)
+    assert np.all(np.linalg.norm(plastic_strain, axis=1) > 0.0)
+    with h5py.File(result.input_file, "r") as h5:
+        gauss_plastic_strain = h5["Solution/GaussPoint8Values/PlasticStrain"]
+        assert gauss_plastic_strain.shape == (27, 48)
+        assert np.all(np.linalg.norm(gauss_plastic_strain[...], axis=1) > 0.0)
     assert nonlinear["plastic_iterations"] >= 1
     assert nonlinear["plastic_iterations"] < maximum_plastic_iterations
     assert nonlinear["yielded_last"] == 27

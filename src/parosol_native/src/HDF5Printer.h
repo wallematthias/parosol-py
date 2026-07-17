@@ -228,6 +228,34 @@ class HDF5Printer {
                 _grid.GetElemOffset());
         }
 
+        void PrintGaussPointPlasticStrain(
+            const std::vector<Eigen::Matrix<double, 6, 1> >& plastic_gauss) {
+            const int gauss_points = 8;
+            const int stress_strain_size = 6;
+            Eigen::VectorXd flattened(_grid.GetNrElem() * gauss_points * stress_strain_size);
+            for (t_index element = 0; element < _grid.GetNrElem(); ++element) {
+                for (int gauss_point = 0; gauss_point < gauss_points; ++gauss_point) {
+                    const Eigen::Matrix<double, 6, 1>& state =
+                        plastic_gauss[element * gauss_points + gauss_point];
+                    for (int component = 0; component < stress_strain_size; ++component) {
+                        flattened[
+                            element * gauss_points * stress_strain_size
+                            + gauss_point * stress_strain_size
+                            + component] = state(component);
+                    }
+                }
+            }
+
+            Writer->Select("/Solution/GaussPoint8Values");
+            Writer->Write(
+                "PlasticStrain",
+                flattened.data(),
+                _grid.GetNrElemGlobal(),
+                _grid.GetNrElem(),
+                gauss_points * stress_strain_size,
+                _grid.GetElemOffset());
+        }
+
         void PrintNonlinearResults(
             int plastic_iterations,
             int yielded_last,

@@ -29,6 +29,10 @@ public:
         : _grid(grid), _matrix(matrix), _material(material),
           _plastic_strain(grid.GetNrElem() * 6) {
         _plastic_strain.setZero();
+        _plastic_gauss.resize(_grid.GetNrElem() * 8);
+        for (size_t i = 0; i < _plastic_gauss.size(); ++i) {
+            _plastic_gauss[i].setZero();
+        }
     }
 
     Eigen::VectorXd BuildPlasticRHS() const {
@@ -64,6 +68,10 @@ public:
 
     const Eigen::VectorXd& PlasticStrain() const {
         return _plastic_strain;
+    }
+
+    const std::vector<Eigen::Matrix<double, 6, 1> >& PlasticGauss() const {
+        return _plastic_gauss;
     }
 
 private:
@@ -114,11 +122,7 @@ private:
                 0, 0, 0,
                 false, false, false, false);
 
-            Eigen::Matrix<double, 6, 1> old_plastic;
             Eigen::Matrix<double, 6, 1> averaged_plastic;
-            for (int component = 0; component < 6; ++component) {
-                old_plastic(component) = _plastic_strain[element_index * 6 + component];
-            }
             averaged_plastic.setZero();
             bool element_yielded = false;
 
@@ -132,16 +136,22 @@ private:
                 total_strain(4) = strain[offset + 5];
                 total_strain(5) = strain[offset + 4];
 
+                const size_t state_index =
+                    static_cast<size_t>(element_index) * gauss_points + gauss_point;
+                const Eigen::Matrix<double, 6, 1> old_plastic = _plastic_gauss[state_index];
                 const PlasticUpdate update = _material.Update(total_strain, old_plastic);
+                _plastic_gauss[state_index] = update.plastic_strain;
                 averaged_plastic += update.plastic_strain;
                 element_yielded = element_yielded || update.yielded;
+                for (int component = 0; component < 6; ++component) {
+                    local_max_change = std::max(
+                        local_max_change,
+                        std::abs(update.plastic_strain(component) - old_plastic(component)));
+                }
             }
             averaged_plastic /= static_cast<double>(gauss_points);
 
             for (int component = 0; component < 6; ++component) {
-                local_max_change = std::max(
-                    local_max_change,
-                    std::abs(averaged_plastic(component) - old_plastic(component)));
                 _plastic_strain[element_index * 6 + component] = averaged_plastic(component);
             }
             if (element_yielded) {
@@ -151,10 +161,6 @@ private:
         }
 
         MPI_Allreduce(&local_yielded, &yielded_last, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-        if (yielded_last == 0) {
-            plastic_convergence_last = 0.0;
-            return;
-        }
         MPI_Allreduce(
             &local_max_change,
             &plastic_convergence_last,
@@ -168,6 +174,7 @@ private:
     GenericMatrix<Grid>& _matrix;
     VonMisesMaterial _material;
     Eigen::VectorXd _plastic_strain;
+    std::vector<Eigen::Matrix<double, 6, 1> > _plastic_gauss;
 };
 
 #endif

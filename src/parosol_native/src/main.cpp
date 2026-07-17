@@ -53,7 +53,7 @@ void mflops(GenericMatrix<T> &matr, int MyPID);
 */
 
 template <class T>
-void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag, const Eigen::VectorXd* plastic_strain, const NonlinearIterationSummary* nonlinear_summary);
+void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag, const Eigen::VectorXd* plastic_strain, const std::vector<Eigen::Matrix<double, 6, 1> >* plastic_gauss, const NonlinearIterationSummary* nonlinear_summary);
 
 static void nonlinear_material_compile_check() {
     VonMisesMaterial material(1000.0, 0.3, 25.0);
@@ -255,6 +255,7 @@ int main(int argc, char *argv[])
     timer.Start("Print");
 	print(matr, problem, file, MyPID, SED_flag, EFF_flag, VonMises_flag, e_dev_flag, e_vol_flag, strain_flag, stress_flag, DP_s_flag, DP_e_flag,
         nonlinear_problem ? &nonlinear_problem->PlasticStrain() : 0,
+        nonlinear_problem ? &nonlinear_problem->PlasticGauss() : 0,
         nonlinear_problem ? &nonlinear_summary : 0);
     timer.Stop("Print");
 
@@ -296,7 +297,7 @@ int main(int argc, char *argv[])
 }
 
 template <class T>
-void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag, const Eigen::VectorXd* plastic_strain, const NonlinearIterationSummary* nonlinear_summary)
+void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int MyPID, int SED_flag, int EFF_flag, int VonMises_flag, int e_dev_flag, int e_vol_flag, int strain_flag, int stress_flag, int DP_s_flag, int DP_e_flag, const Eigen::VectorXd* plastic_strain, const std::vector<Eigen::Matrix<double, 6, 1> >* plastic_gauss, const NonlinearIterationSummary* nonlinear_summary)
 {
 	//VTKPrinter<OctreeKey_Lookup> print("out", matr.GetGrid());
 	HDF5Printer<OctreeKey_Lookup> print(file, matr.GetGrid());
@@ -305,8 +306,9 @@ void print(GenericMatrix<T> &matr, Problem<T> &problem, std::string file, int My
 	Eigen::VectorXd force(dofs);
 	matr.Apply_NoResetBoundaries(problem.GetSol(), force);
 	print.PrintAll(problem.GetSol(), force, problem.GetRes(), SED_flag, EFF_flag, VonMises_flag, e_dev_flag, e_vol_flag, strain_flag, stress_flag, DP_s_flag, DP_e_flag);
-	if (plastic_strain != 0 && nonlinear_summary != 0) {
+	if (plastic_strain != 0 && plastic_gauss != 0 && nonlinear_summary != 0) {
 		print.PrintPlasticStrain(*plastic_strain);
+		print.PrintGaussPointPlasticStrain(*plastic_gauss);
 		print.PrintNonlinearResults(
 			nonlinear_summary->plastic_iterations,
 			nonlinear_summary->yielded_last,
