@@ -463,6 +463,11 @@ bool HDF5_GReader::GroupExists(const std::string& path) const
   return H5Lexists(file, path.c_str(), H5P_DEFAULT) > 0;
 }
 
+bool HDF5_GReader::AttributeExists(const std::string& name) const
+{
+  return H5Aexists(group, name.c_str()) > 0;
+}
+
 void HDF5_GReader::ReadAttribute(const std::string& name, std::string& value)
 {
   hid_t attribute = H5Aopen(group, name.c_str(), H5P_DEFAULT);

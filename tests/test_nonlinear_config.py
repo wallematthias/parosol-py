@@ -183,3 +183,27 @@ def test_nonlinear_dry_run_builds_command_without_running_solver(tmp_path):
     assert result.input_file.name == "parosol_input.h5"
     with h5py.File(result.input_file, "r") as h5:
         assert h5["Nonlinear"].attrs["maximum_plastic_iterations"] == 3
+
+
+def test_material_only_nonlinear_input_runs_native_reader(tmp_path):
+    result = solve(
+        material=np.ones((3, 3, 3), dtype=np.float32) * 1000.0,
+        spacing=(1.0, 1.0, 1.0),
+        test="axial",
+        test_axis="z",
+        strain=-0.01,
+        outputs=("sed",),
+        nonlinear_material=VonMisesMaterial(1000.0, 0.3, 25.0),
+        executable=packaged_executable(),
+        work_dir=tmp_path,
+        tolerance=1.0e-4,
+        level=2,
+    )
+
+    with h5py.File(result.input_file, "r") as h5:
+        group = h5["Nonlinear"]
+        assert "convergence_tolerance" not in group.attrs
+        assert "maximum_plastic_iterations" not in group.attrs
+        assert "plastic_convergence_window" not in group.attrs
+    assert "sed" in result.fields
+    assert result.summary.run is not None
