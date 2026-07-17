@@ -116,6 +116,8 @@ PlasticUpdate AsymmetricPerfectPlasticMaterial::Update(
             if (capped_principal(i) > properties.sigma_t) {
                 capped_principal(i) = properties.sigma_t;
             } else if (-capped_principal(i) > properties.sigma_c) {
+                // Compression yield onset uses sigma_c; the post-yield
+                // compressive cap is the plateau and may intentionally differ.
                 capped_principal(i) = -properties.plateau;
             }
         }

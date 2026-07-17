@@ -111,6 +111,86 @@ static bool ReadRequiredMaterialIdDataset(
   return ok;
 }
 
+static void ValidateAsymmetricMaterialMap(
+  BaseGrid* grid,
+  const double* youngs_mpa,
+  const double* poisson_ratio,
+  const double* sigma_c_mpa,
+  const double* sigma_t_mpa,
+  const double* plateau_mpa,
+  const unsigned short* material_id,
+  long imagesize,
+  std::ostringstream& error)
+{
+  bool invalid_material_id = false;
+  bool invalid_youngs = false;
+  bool mismatched_youngs = false;
+  bool invalid_poisson = false;
+  bool invalid_sigma_c = false;
+  bool invalid_sigma_t = false;
+  bool invalid_plateau = false;
+  const double stiffness_tolerance = 1.0e-5;
+
+  for (long i = 0; i < imagesize; ++i) {
+    const bool active_image_voxel = grid->_grid[i] > 0.0;
+    const bool active_material_voxel = material_id[i] != 0;
+    if (!active_image_voxel && !active_material_voxel) {
+      continue;
+    }
+
+    if (active_image_voxel && material_id[i] == 0) {
+      invalid_material_id = true;
+    }
+    if (!std::isfinite(youngs_mpa[i]) || youngs_mpa[i] <= 0.0) {
+      invalid_youngs = true;
+    } else {
+      const double expected_stiffness_gpa = youngs_mpa[i] / 1000.0;
+      const double image_stiffness_gpa = grid->_grid[i];
+      const double tolerance = stiffness_tolerance
+        * std::max(1.0, std::fabs(image_stiffness_gpa));
+      if (std::fabs(expected_stiffness_gpa - image_stiffness_gpa) > tolerance) {
+        mismatched_youngs = true;
+      }
+    }
+    if (!std::isfinite(poisson_ratio[i])
+        || poisson_ratio[i] <= -1.0
+        || poisson_ratio[i] >= 0.5) {
+      invalid_poisson = true;
+    }
+    if (!std::isfinite(sigma_c_mpa[i]) || sigma_c_mpa[i] <= 0.0) {
+      invalid_sigma_c = true;
+    }
+    if (!std::isfinite(sigma_t_mpa[i]) || sigma_t_mpa[i] <= 0.0) {
+      invalid_sigma_t = true;
+    }
+    if (!std::isfinite(plateau_mpa[i]) || plateau_mpa[i] <= 0.0) {
+      invalid_plateau = true;
+    }
+  }
+
+  if (invalid_material_id) {
+    error << " MaterialID must be positive for active Image voxels;";
+  }
+  if (invalid_youngs) {
+    error << " YoungsModulusMPa values must be finite and positive;";
+  }
+  if (mismatched_youngs) {
+    error << " YoungsModulusMPa must match Image stiffness;";
+  }
+  if (invalid_poisson) {
+    error << " PoissonRatio values must satisfy -1 < nu < 0.5;";
+  }
+  if (invalid_sigma_c) {
+    error << " CompressiveYieldStressMPa values must be finite and positive;";
+  }
+  if (invalid_sigma_t) {
+    error << " TensileYieldStressMPa values must be finite and positive;";
+  }
+  if (invalid_plateau) {
+    error << " PlateauStressMPa values must be finite and positive;";
+  }
+}
+
 void HDF5Image::ReadBC(HDF5_GReader &reader, std::string s,std::vector<unsigned short> & coordinates, std::vector<float> & values)
 {
   hsize_t global_dims_of_hdf5[3] = {};
@@ -368,6 +448,16 @@ int HDF5Image::Scan(BaseGrid* grid)
             ReadRequiredFloatMapDatasetAsDouble(reader, "TensileYieldStressMPa", nonlinear_map_sigma_t_mpa, imagesize, my_offset, my_count, error);
             ReadRequiredFloatMapDatasetAsDouble(reader, "PlateauStressMPa", nonlinear_map_plateau_mpa, imagesize, my_offset, my_count, error);
             ReadRequiredMaterialIdDataset(reader, nonlinear_map_material_id, imagesize, my_offset, my_count, error);
+            ValidateAsymmetricMaterialMap(
+              grid,
+              nonlinear_map_E_mpa,
+              nonlinear_map_nu,
+              nonlinear_map_sigma_c_mpa,
+              nonlinear_map_sigma_t_mpa,
+              nonlinear_map_plateau_mpa,
+              nonlinear_map_material_id,
+              imagesize,
+              error);
           }
         } else {
           if (reader.AttributeExists("youngs_modulus_mpa")) {

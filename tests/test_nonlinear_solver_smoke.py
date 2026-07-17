@@ -410,6 +410,102 @@ def test_asymmetric_density_map_reports_dataset_read_failure(tmp_path: Path):
     assert "only VonMisesIsotropic nonlinear material" not in output
 
 
+def test_asymmetric_density_map_rejects_E_image_stiffness_mismatch(tmp_path: Path):
+    input_file = _write_valid_asymmetric_input(tmp_path, "mismatched_stiffness.h5")
+    with h5py.File(input_file, "r+") as h5:
+        h5["Nonlinear"]["YoungsModulusMPa"][1, 1, 1] = 2000.0
+
+    run = _run_native_sed(input_file, tmp_path)
+
+    output = run.stdout + run.stderr
+    assert run.returncode != 0
+    assert "invalid nonlinear configuration" in output
+    assert "YoungsModulusMPa must match Image stiffness" in output
+
+
+def test_asymmetric_density_map_rejects_invalid_active_poisson_ratio(tmp_path: Path):
+    input_file = _write_valid_asymmetric_input(tmp_path, "invalid_nu.h5")
+    with h5py.File(input_file, "r+") as h5:
+        h5["Nonlinear"]["PoissonRatio"][1, 1, 1] = 0.5
+
+    run = _run_native_sed(input_file, tmp_path)
+
+    output = run.stdout + run.stderr
+    assert run.returncode != 0
+    assert "invalid nonlinear configuration" in output
+    assert "PoissonRatio values must satisfy -1 < nu < 0.5" in output
+
+
+def test_asymmetric_density_map_rejects_nonpositive_active_yield_and_plateau(
+    tmp_path: Path,
+):
+    invalid_fields = [
+        (
+            "CompressiveYieldStressMPa",
+            "CompressiveYieldStressMPa values must be finite and positive",
+        ),
+        (
+            "TensileYieldStressMPa",
+            "TensileYieldStressMPa values must be finite and positive",
+        ),
+        (
+            "PlateauStressMPa",
+            "PlateauStressMPa values must be finite and positive",
+        ),
+    ]
+    for dataset_name, expected_error in invalid_fields:
+        input_file = _write_valid_asymmetric_input(
+            tmp_path,
+            f"invalid_{dataset_name}.h5",
+        )
+        with h5py.File(input_file, "r+") as h5:
+            h5["Nonlinear"][dataset_name][1, 1, 1] = 0.0
+
+        run = _run_native_sed(input_file, tmp_path)
+
+        output = run.stdout + run.stderr
+        assert run.returncode != 0
+        assert "invalid nonlinear configuration" in output
+        assert expected_error in output
+
+
+def test_asymmetric_density_map_accepts_plateau_distinct_from_compressive_yield(
+    tmp_path: Path,
+):
+    material_map = _constant_asymmetric_map(
+        shape=(3, 3, 3),
+        youngs_mpa=1000.0,
+        poisson_ratio=0.3,
+        tensile_yield_mpa=50.0,
+        compressive_yield_mpa=5.0,
+        plateau_mpa=20.0,
+    )
+    stiffness_gpa = (material_map.youngs_modulus_mpa / 1000.0).astype(np.float32)
+
+    result = solve(
+        material=stiffness_gpa,
+        material_unit="GPa",
+        spacing=(1.0, 1.0, 1.0),
+        array_order="xyz",
+        strain=-0.008,
+        test="axial",
+        load_case_type="constrained_axial",
+        outputs=("plastic_strain",),
+        nonlinear_material=material_map,
+        nonlinear_solver=NonlinearSolverOptions(
+            convergence_tolerance=1.0e-6,
+            maximum_plastic_iterations=20,
+        ),
+        work_dir=tmp_path / "plateau_distinct_from_sigma_c",
+        tolerance=1.0e-4,
+        level=2,
+    )
+
+    nonlinear = result.diagnostics["nonlinear"]
+    assert nonlinear["yielded_last"] > 0
+    assert np.linalg.norm(result.fields["plastic_strain"]) > 0.0
+
+
 def test_asymmetric_density_map_yields_in_tension_before_compression(tmp_path: Path):
     material_map = _constant_asymmetric_map(
         shape=(3, 3, 3),
@@ -539,6 +635,51 @@ def _constant_asymmetric_map(
         plateau_mpa=np.full(shape, plateau_mpa, dtype=np.float64),
         material_id=np.ones(shape, dtype=np.uint16),
         metadata={"preset": "test_constant_asymmetric"},
+    )
+
+
+def _write_valid_asymmetric_input(tmp_path: Path, filename: str) -> Path:
+    material_map = _constant_asymmetric_map(
+        shape=(3, 3, 3),
+        youngs_mpa=1000.0,
+        poisson_ratio=0.3,
+        tensile_yield_mpa=20.0,
+        compressive_yield_mpa=20.0,
+        plateau_mpa=20.0,
+    )
+    stiffness_gpa_xyz = (material_map.youngs_modulus_mpa / 1000.0).astype(
+        np.float32
+    )
+    fixed_coordinates, fixed_values = axial_compression(
+        stiffness_gpa_xyz,
+        axis="z",
+        strain=-0.01,
+        voxel_size_mm=1.0,
+    )
+    return write_parosol_input(
+        tmp_path / filename,
+        stiffness_gpa_xyz=stiffness_gpa_xyz,
+        fixed_displacement_coordinates=fixed_coordinates,
+        fixed_displacement_values=fixed_values,
+        voxel_size_mm=1.0,
+        poisson_ratio=0.3,
+        nonlinear_material=material_map,
+        nonlinear_solver=NonlinearSolverOptions(maximum_plastic_iterations=3),
+    )
+
+
+def _run_native_sed(input_file: Path, cwd: Path):
+    executable = packaged_executable()
+    assert executable.exists(), f"packaged executable not found: {executable}"
+    return run_parosol(
+        build_parosol_command(
+            executable=executable,
+            input_file=input_file,
+            outputs=("sed",),
+            tolerance=1.0e-4,
+            level=2,
+        ),
+        cwd=cwd,
     )
 
 
