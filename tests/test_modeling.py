@@ -718,6 +718,35 @@ def custom_preprocessing(image, mask=None):
     assert float(custom_density[0, 0, 0]) == pytest.approx(15.0)
 
 
+def test_model_preprocessing_fixed_proximal_length_keeps_high_z_side(tmp_path: Path):
+    density = np.zeros((140, 12, 12), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[10:130, 3:9, 3:9] = 10.0
+    mask[10:130, 3:9, 3:9] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "fixed_proximal_length": {
+                "enabled": True,
+                "retained_length_mm": 100.0,
+            }
+        },
+    )
+
+    assert cropped_density.shape == (100, 6, 6)
+    assert cropped_mask.shape == (100, 6, 6)
+    assert spacing == pytest.approx((1.0, 1.0, 1.0))
+    assert origin == pytest.approx((-8.0, -8.0, 30.0))
+
+
 def test_model_custom_preprocessing_selects_named_option(tmp_path: Path):
     density = np.ones((4, 4, 4), dtype=np.float32)
     mask = np.ones_like(density, dtype=np.uint8)
@@ -754,6 +783,84 @@ def second_crop(image, mask=None):
     )
 
     assert float(custom_density[0, 0, 0]) == pytest.approx(21.0)
+
+
+def test_post_registration_custom_preprocessing_runs_after_workflow_alignment(tmp_path: Path):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 10.0
+    mask[2:6, 2:6, 2:6] = 20
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+    reference_points = _canonical_surface_points_from_mask_image(
+        tmp_path / "mask.nii.gz",
+        20,
+    )
+    np.savez(tmp_path / "reference_points.npz", points=reference_points)
+    (tmp_path / "post_registration.py").write_text(
+        """
+from parosol_py.images import ImageGrid
+
+
+def custom_preprocessing(image, mask=None):
+    return (
+        ImageGrid(
+            array_xyz=image.array_xyz[:, :, 1:],
+            spacing=image.spacing,
+            origin=(image.origin[0], image.origin[1], image.origin[2] + image.spacing[2]),
+        ),
+        ImageGrid(
+            array_xyz=mask.array_xyz[:, :, 1:],
+            spacing=mask.spacing,
+            origin=(mask.origin[0], mask.origin[1], mask.origin[2] + mask.spacing[2]),
+        ),
+        {"stage": "post_registration"},
+    )
+""",
+        encoding="utf-8",
+    )
+    model_config = {
+        "type": "workflow_replay",
+        "density_image": "density.nii.gz",
+        "mask_image": "mask.nii.gz",
+        "labels": {"body": 20},
+        "workflow_replay": {
+            "enabled": True,
+            "model_space": "reference",
+            "reference_points": "reference_points.npz",
+        },
+        "registration": {
+            "enabled": True,
+            "reference_points": "reference_points.npz",
+            "max_points": 2000,
+            "iterations": 3,
+        },
+    }
+
+    density_pre, mask_pre, _spacing_pre, _origin_pre = load_density_and_mask(
+        model_config,
+        base_dir=tmp_path,
+        custom_preprocessing_config={
+            "script": "post_registration.py",
+            "stage": "post_registration",
+        },
+    )
+    preview = build_workflow_replay_preview(
+        model_config,
+        base_dir=tmp_path,
+        custom_preprocessing_config={
+            "script": "post_registration.py",
+            "stage": "post_registration",
+        },
+    )
+
+    assert density_pre.shape == (8, 8, 8)
+    assert mask_pre.shape == (8, 8, 8)
+    metadata = preview.metadata["custom_preprocessing"]
+    assert metadata["output_shape_xyz"][2] == metadata["input_shape_xyz"][2] - 1
+    assert preview.density_zyx.shape == tuple(reversed(metadata["output_shape_xyz"]))
+    assert preview.mask_zyx.shape == tuple(reversed(metadata["output_shape_xyz"]))
+    assert metadata["metadata"]["stage"] == "post_registration"
 
 
 def test_model_preprocessing_smooth_spacing_guard(tmp_path: Path):

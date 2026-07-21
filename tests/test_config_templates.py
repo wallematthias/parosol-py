@@ -74,6 +74,7 @@ def test_workflow_templates_are_available_by_profile_name():
     assert "preset: hip_nonlinear" in hip_nonlinear
     assert "basis: rho_app" in hip_nonlinear
     assert "custom_preprocessing:" in hip
+    assert "post_registration_flat_ratio_crop.py" in hip
     assert "proximal_max_xy_crop.py" in hip
     assert "legacy_bbox_aspect_crop.py" in hip
     assert "E: 8748" in xtremectii
@@ -133,20 +134,34 @@ def test_hip_sideways_fall_workflows_bundle_custom_crop_options():
         loaded, _source = load_workflow_template(builtin_profile_path(profile))
         custom = loaded["custom_preprocessing"]
 
-        assert custom["selected"] == "proximal_max_xy_crop"
+        assert custom["selected"] == "post_registration_flat_ratio_crop"
         options = {option["id"]: option for option in custom["options"]}
-        assert set(options) == {"proximal_max_xy_crop", "legacy_bbox_aspect_crop"}
+        assert set(options) == {
+            "post_registration_flat_ratio_crop",
+            "proximal_max_xy_crop",
+            "legacy_bbox_aspect_crop",
+        }
+        assert (
+            options["post_registration_flat_ratio_crop"]["function"]
+            == "post_registration_flat_ratio_crop"
+        )
+        assert options["post_registration_flat_ratio_crop"]["stage"] == "post_registration"
         assert options["proximal_max_xy_crop"]["function"] == "proximal_max_xy_crop"
         assert options["legacy_bbox_aspect_crop"]["function"] == "legacy_bbox_aspect_crop"
         for option in options.values():
             assert Path(option["script"]).is_file()
         with zipfile.ZipFile(builtin_profile_path(profile)) as archive:
+            post_script = archive.read(
+                "custom_preprocessing/post_registration_flat_ratio_crop.py"
+            ).decode()
             proximal_script = archive.read(
                 "custom_preprocessing/proximal_max_xy_crop.py"
             ).decode()
             legacy_script = archive.read(
                 "custom_preprocessing/legacy_bbox_aspect_crop.py"
             ).decode()
+        assert '"stage": "post_registration"' in post_script
+        assert "out_lo[2] = int(hi[2]) - target_z" in post_script
         assert "proximal_z0 = int(hi[2]) - proximal_voxels" in proximal_script
         assert "proximal = coords[coords[:, 2] >= proximal_z0]" in proximal_script
         assert "proximal_reference_distance_mm = 40.0" in proximal_script
@@ -325,9 +340,15 @@ def test_hip_workflow_cap_geometry_matches_maintained_sideways_fall_settings():
         }
         assert "bbox_ratio" not in loaded["preprocessing"]
         assert "bbox_crop_from" not in loaded["preprocessing"]
+        assert loaded["preprocessing"]["fixed_proximal_length"] == {
+            "enabled": True,
+            "retained_length_mm": 100.0,
+            "target_labels": [2],
+        }
         custom = loaded["custom_preprocessing"]
-        assert custom["selected"] == "proximal_max_xy_crop"
+        assert custom["selected"] == "post_registration_flat_ratio_crop"
         assert {option["id"] for option in custom["options"]} == {
+            "post_registration_flat_ratio_crop",
             "proximal_max_xy_crop",
             "legacy_bbox_aspect_crop",
         }

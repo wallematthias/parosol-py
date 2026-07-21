@@ -51,9 +51,9 @@
       "batch_case_count": 0,
       "bundle_member_sha256": {
         "reference/slicer_reference_points.npy": "8236fe3250260bc198cc0e18469820e2317299618dffa3c7278d8112a9b876ca",
-        "workflow.yaml": "9ba95709c3c710b02a1c16b399ca4e4a9f4b7e6ca3ba1ba976a967651f761497"
+        "workflow.yaml": "bafd2f9963e97f86bed8920bca76494e7ea3f50fb2941393038d57a4af9ae143"
       },
-      "config_sha256": "a64aec1e167c122944858225c80c09fa112e3a819dfc89082ad19f78dbdfa9d6",
+      "config_sha256": "995e30978d2156f51f79027f0d5a3e3218cebe60897d89b02b1eca2fde50328f",
       "load_case_type": "nodeset",
       "load_count": 3,
       "model_type": "workflow_replay",
@@ -69,9 +69,9 @@
       "batch_case_count": 0,
       "bundle_member_sha256": {
         "reference/slicer_reference_points.npy": "8236fe3250260bc198cc0e18469820e2317299618dffa3c7278d8112a9b876ca",
-        "workflow.yaml": "8f04365b2f094cb0b69add4a548a62477b16bc91844c770d19f51724ba538f44"
+        "workflow.yaml": "4117b41c1daa9071bc3abd43f57d1d4c2dee1deac7f933e6d7c279b02005ecbf"
       },
-      "config_sha256": "ac03021d97d326a0a670b84258cbf6a42bb53aaab8734ac9d5585895c03e9464",
+      "config_sha256": "16d9be28686fa34359bee5af14f6a2a18817a1334201a56e363822cd63f5c2e0",
       "load_case_type": "nodeset",
       "load_count": 3,
       "model_type": "workflow_replay",
@@ -87,9 +87,9 @@
       "batch_case_count": 0,
       "bundle_member_sha256": {
         "reference/slicer_reference_points.npy": "8236fe3250260bc198cc0e18469820e2317299618dffa3c7278d8112a9b876ca",
-        "workflow.yaml": "a6f4c63433b195dba3dc5a3a0cfc45dbac054f8a302742d080855693f9528870"
+        "workflow.yaml": "c11dc960cc2df25493705dcc4cec1c7fd9a1b9ed0ca74fa9d2da63309d51dedf"
       },
-      "config_sha256": "110b887878b8d1f851c5fbae2bfc45940452e1120e5c8d9f9e6ef91adc289f82",
+      "config_sha256": "948a8f0a43f94d409f28635ff62424b05a817d3f3c56e1abe808ccfaac1e8a0a",
       "load_case_type": "nodeset",
       "load_count": 3,
       "model_type": "workflow_replay",
@@ -105,9 +105,9 @@
       "batch_case_count": 0,
       "bundle_member_sha256": {
         "reference/slicer_reference_points.npy": "8236fe3250260bc198cc0e18469820e2317299618dffa3c7278d8112a9b876ca",
-        "workflow.yaml": "638d7fea5f79aca9d381b8ec09196d828612252075b385d0bda7c2af2ec71f4d"
+        "workflow.yaml": "30088a995b3037897456832b440b30cfffaff79aeaae52604670a34ea11bca75"
       },
-      "config_sha256": "e5106c98580f02ba24482df9806787ffcb38dbb44f7d82785d06c7a5e381eb04",
+      "config_sha256": "b19ccf7bcd88e9268fa1dc12d608d0b4cbf5eb88a4c82c7ee2f38dac83b4b14b",
       "load_case_type": "nodeset",
       "load_count": 3,
       "model_type": "workflow_replay",

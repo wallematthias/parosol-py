@@ -23,6 +23,8 @@ from .alignment import (
 )
 from .common import (
     AXIS_TO_INDEX,
+    _apply_custom_preprocessing,
+    _custom_preprocessing_enabled,
     export_model_artifacts,
     fixture_margin_voxels,
     load_density_and_mask_with_metadata,
@@ -176,6 +178,25 @@ def build_workflow_replay_preview(
             "mean_distance": 0.0,
         }
 
+    post_custom_metadata: dict[str, Any] = {}
+    if _custom_preprocessing_enabled(custom_preprocessing_config, stage="post_registration"):
+        density_zyx, mask_zyx, spacing, origin, post_custom_metadata = _apply_custom_preprocessing(
+            density_zyx,
+            mask_zyx,
+            spacing=spacing,
+            origin=origin,
+            base_dir=base_dir,
+            config=custom_preprocessing_config,
+        )
+        registration_mask_zyx = _workflow_active_mask(mask_zyx, model_config, replay_cfg)
+        projection_mask_zyx = _workflow_projection_mask(
+            mask_zyx,
+            model_config,
+            replay_cfg,
+            default_mask=registration_mask_zyx,
+        )
+        model_mask_zyx = _workflow_model_mask(mask_zyx, model_config)
+
     editor = model_config.get("slicer_editor")
     if isinstance(editor, dict) and isinstance(editor.get("planes"), list) and editor.get("planes"):
         padded_for_planes, origin = _pad_workflow_arrays_for_editor_planes(
@@ -208,6 +229,7 @@ def build_workflow_replay_preview(
             "model_space": model_space,
             "registration": registration_meta,
             **loaded.metadata,
+            **({"custom_preprocessing": post_custom_metadata} if post_custom_metadata else {}),
         },
         reference_points=reference_points,
     )

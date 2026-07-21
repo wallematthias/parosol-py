@@ -203,6 +203,17 @@ def load_density_and_mask_with_metadata(
             spec=proximal_box_spec,
             labels=crop_labels,
         )
+    fixed_proximal_spec = preprocessing.get("fixed_proximal_length")
+    if _enabled(fixed_proximal_spec):
+        crop_labels = _crop_labels(model_config, fixed_proximal_spec)
+        density_zyx, mask_zyx, origin = _crop_to_mask_fixed_proximal_length(
+            density_zyx,
+            mask_zyx,
+            spacing=spacing,
+            origin=origin,
+            spec=fixed_proximal_spec,
+            labels=crop_labels,
+        )
     if "spacing" in model_config:
         spacing = _triple(model_config["spacing"], "model.spacing")
     if "spacing" in geometry:
@@ -246,7 +257,7 @@ def load_density_and_mask_with_metadata(
     if "origin" in model_config:
         origin = _triple(model_config["origin"], "model.origin")
     custom_metadata: dict[str, Any] = {}
-    if _custom_preprocessing_enabled(custom_preprocessing_config):
+    if _custom_preprocessing_enabled(custom_preprocessing_config, stage="pre_registration"):
         density_zyx, mask_zyx, spacing, origin, custom_metadata = _apply_custom_preprocessing(
             density_zyx,
             mask_zyx,
@@ -266,19 +277,40 @@ def load_density_and_mask_with_metadata(
     )
 
 
-def _custom_preprocessing_enabled(config: Any | None) -> bool:
+def _custom_preprocessing_enabled(config: Any | None, *, stage: str = "pre_registration") -> bool:
     if config is None:
         return False
     if isinstance(config, dict):
         selected = _selected_custom_preprocessing_config(config)
         if selected is not config:
-            return _custom_preprocessing_enabled(selected)
+            return _custom_preprocessing_enabled(selected, stage=stage)
+        selected_stage = _custom_preprocessing_stage(config)
+        if selected_stage != str(stage).strip().lower():
+            return False
         return _enabled(config.get("enabled", True)) and bool(
             config.get("script", config.get("path"))
         )
     if isinstance(config, str):
         return bool(config.strip())
     return bool(config)
+
+
+def _custom_preprocessing_stage(config: Any) -> str:
+    if not isinstance(config, dict):
+        return "pre_registration"
+    value = str(config.get("stage", "pre_registration") or "pre_registration").strip().lower()
+    aliases = {
+        "pre": "pre_registration",
+        "before_registration": "pre_registration",
+        "image_prep": "pre_registration",
+        "post": "post_registration",
+        "after_registration": "post_registration",
+        "post_icp": "post_registration",
+    }
+    value = aliases.get(value, value)
+    if value not in {"pre_registration", "post_registration"}:
+        raise ValueError("custom_preprocessing.stage must be pre_registration or post_registration")
+    return value
 
 
 def _apply_custom_preprocessing(
@@ -766,6 +798,61 @@ def _crop_to_mask_proximal_box_ratio(
         for index in range(3)
     )
     return density_zyx[slices], mask_zyx[slices], cropped_origin
+
+
+def _crop_to_mask_fixed_proximal_length(
+    density_zyx: np.ndarray,
+    mask_zyx: np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    spec: Any,
+    labels: set[int] | None = None,
+) -> tuple[np.ndarray, np.ndarray, tuple[float, float, float]]:
+    mask = np.asarray(mask_zyx)
+    active = target_mask_from_labels(
+        mask,
+        labels,
+        context="fixed-proximal crop target labels",
+    )
+    if not np.any(active):
+        raise ValueError("model mask has no foreground voxels")
+    active = _largest_connected_boolean_component(active)
+    coords = np.argwhere(active)
+    lo_zyx = coords.min(axis=0).astype(np.int64)
+    hi_zyx = (coords.max(axis=0) + 1).astype(np.int64)
+    size_zyx = hi_zyx - lo_zyx
+    spacing_zyx = np.asarray((spacing[2], spacing[1], spacing[0]), dtype=np.float64)
+    retained_length_mm = _fixed_proximal_length_mm_value(spec)
+    target_voxels = min(
+        int(size_zyx[0]),
+        max(1, int(round(retained_length_mm / float(spacing_zyx[0])))),
+    )
+    out_lo = lo_zyx.copy()
+    out_hi = hi_zyx.copy()
+    if int(size_zyx[0]) > target_voxels:
+        out_lo[0] = int(hi_zyx[0]) - target_voxels
+    slices = tuple(slice(int(out_lo[axis]), int(out_hi[axis])) for axis in range(3))
+    lo_xyz = out_lo[[2, 1, 0]]
+    cropped_origin = tuple(
+        float(origin[index]) + float(lo_xyz[index]) * float(spacing[index])
+        for index in range(3)
+    )
+    return density_zyx[slices], mask_zyx[slices], cropped_origin
+
+
+def _fixed_proximal_length_mm_value(spec: Any) -> float:
+    if isinstance(spec, dict):
+        value = spec.get(
+            "retained_length_mm",
+            spec.get("length_mm", spec.get("proximal_length_mm", 100.0)),
+        )
+    else:
+        value = spec
+    value_float = float(value)
+    if value_float <= 0:
+        raise ValueError("fixed_proximal_length.retained_length_mm must be positive")
+    return value_float
 
 
 def _proximal_box_crop_bounds_zyx(
