@@ -25,7 +25,7 @@ from .common import (
     AXIS_TO_INDEX,
     export_model_artifacts,
     fixture_margin_voxels,
-    load_density_and_mask,
+    load_density_and_mask_with_metadata,
     material_from_density,
     nonlinear_material_from_density,
     occupied_length_mm,
@@ -73,6 +73,7 @@ def build_workflow_replay_preview(
     *,
     base_dir: Path,
     preprocessing_config: dict[str, Any] | None = None,
+    custom_preprocessing_config: Any | None = None,
 ) -> WorkflowReplayPreview:
     """Build the shared pre-boundary-condition replay grid."""
 
@@ -80,11 +81,16 @@ def build_workflow_replay_preview(
     if not isinstance(replay_cfg, dict) or not replay_cfg.get("enabled", False):
         raise ValueError("workflow replay requires model.workflow_replay.enabled=true")
 
-    density_zyx, mask_zyx, spacing, origin = load_density_and_mask(
+    loaded = load_density_and_mask_with_metadata(
         model_config,
         base_dir=base_dir,
         preprocessing_config=preprocessing_config,
+        custom_preprocessing_config=custom_preprocessing_config,
     )
+    density_zyx = loaded.density_zyx
+    mask_zyx = loaded.mask_zyx
+    spacing = loaded.spacing
+    origin = loaded.origin
     registration_mask_zyx = _workflow_active_mask(mask_zyx, model_config, replay_cfg)
     projection_mask_zyx = _workflow_projection_mask(
         mask_zyx,
@@ -201,6 +207,7 @@ def build_workflow_replay_preview(
         metadata={
             "model_space": model_space,
             "registration": registration_meta,
+            **loaded.metadata,
         },
         reference_points=reference_points,
     )
@@ -213,12 +220,14 @@ def build_workflow_replay_model(
     material_config: dict[str, Any],
     load_case_config: dict[str, Any] | None = None,
     preprocessing_config: dict[str, Any] | None = None,
+    custom_preprocessing_config: Any | None = None,
     nodeset_config: dict[str, Any] | None = None,
 ) -> BuiltModel:
     preview = build_workflow_replay_preview(
         model_config,
         base_dir=base_dir,
         preprocessing_config=preprocessing_config,
+        custom_preprocessing_config=custom_preprocessing_config,
     )
     replay_cfg = model_config.get("workflow_replay", {})
     density_zyx = preview.density_zyx
@@ -404,6 +413,8 @@ def build_workflow_replay_model(
             "pmma": material_config.get("pmma", {"E": 2500.0, "nu": 0.3}),
         },
     }
+    if "custom_preprocessing" in preview.metadata:
+        metadata["custom_preprocessing"] = preview.metadata["custom_preprocessing"]
     exported = export_model_artifacts(
         material_xyz=material_xyz,
         labels_xyz=artifact_labels_xyz,

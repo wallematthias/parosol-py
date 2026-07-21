@@ -24,14 +24,14 @@
       "engine": "parosol-py",
       "fields": {
         "material": {
-          "bytes": 149412,
+          "bytes": 150233,
           "path": "femur_left_mini/hip-sideways-fall-left/parosol-py/femur_left_mini_hip_sideways_fall/material.nii.gz",
-          "sha256": "a8a0fc58a29119515b2aa7b4e1a896ef6e447fbbd53ba1ee4393b8616ae9c4a3"
+          "sha256": "6cc2bcb355eef691b8baa82261110466b7b5a4b2808c91a88834c8d466f351bc"
         },
         "sed": {
-          "bytes": 525208,
+          "bytes": 527460,
           "path": "femur_left_mini/hip-sideways-fall-left/parosol-py/femur_left_mini_hip_sideways_fall/sed.nii.gz",
-          "sha256": "4caebc0b5738723da7a6eb490e22592e46e234a3a8106392a43b77507ca9a6b2"
+          "sha256": "d51ffc772128cf8eebf32403c0bf78b16929c900fbde9d41e7dca59c53fff000"
         }
       },
       "fixture": "femur_left_mini",

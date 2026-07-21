@@ -90,9 +90,32 @@ preprocessing:
   # bbox_crop_from: [null, max, null]
   # Optional downsampled solve. This changes the solve grid and scales spacing.
   # Use for exploratory coarse passes before full-resolution batches.
+  # resample_isotropic:
+  #   enabled: true
+  #   mode: fixed
+  #   target_spacing_mm: 1.0
+  #   # Continuous-density interpolation: linear, bspline, or nearest.
+  #   # Masks/labels are always resampled with nearest-neighbor.
+  #   density_interpolation: linear
   # coarsen:
   #   factor: 2
   #   reducer: mean
+
+# Optional trusted Python hook for workflow-specific preprocessing that is too
+# specialized for the standard preprocessing schema. Runs after all standard
+# preprocessing above and before registration/model generation. The script must
+# define custom_preprocessing(image, mask=None) and return (image, mask) or
+# (image, mask, metadata). image and mask are parosol_py.images.ImageGrid values.
+# custom_preprocessing:
+#   script: custom_preprocessing.py
+#   function: custom_preprocessing
+# Or define selectable workflow-bundled options:
+# custom_preprocessing:
+#   selected: proximal_max_xy_crop
+#   options:
+#     - id: proximal_max_xy_crop
+#       script: custom_preprocessing/proximal_max_xy_crop.py
+#       function: proximal_max_xy_crop
 
 nodesets:
   # Optional. Use for non-standard loading/fixation regions.

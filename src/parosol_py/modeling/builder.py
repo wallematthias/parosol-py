@@ -14,6 +14,7 @@ def build_model(
     material_config: dict[str, Any] | None = None,
     load_case_config: dict[str, Any] | None = None,
     preprocessing_config: dict[str, Any] | None = None,
+    custom_preprocessing_config: Any | None = None,
     nodeset_config: dict[str, Any] | None = None,
 ) -> BuiltModel:
     if not isinstance(model_config, dict):
@@ -28,6 +29,7 @@ def build_model(
             material_config=materials,
             load_case_config=load_case_config,
             preprocessing_config=preprocessing_config,
+            custom_preprocessing_config=custom_preprocessing_config,
             nodeset_config=nodeset_config,
         )
     raise NotImplementedError(

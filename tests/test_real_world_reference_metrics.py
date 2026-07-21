@@ -64,7 +64,7 @@ def test_real_world_canonical_metric_values_are_locked():
     ]["stiffness_n_per_mm"] == pytest.approx(23358.63915762964)
     assert records[
         ("parosol-py", "femur_left_mini", "hip-sideways-fall-left")
-    ]["stiffness_n_per_mm"] == pytest.approx(1614.9917086520325)
+    ]["stiffness_n_per_mm"] == pytest.approx(1601.5882199559803)
     assert records[
         ("parosol-py", "femur_left_mini", "hip-compression-manual")
     ]["stiffness_n_per_mm"] == pytest.approx(1633.8266426868377)

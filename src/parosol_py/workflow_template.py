@@ -266,6 +266,9 @@ def _resolve_template_paths(config: dict[str, Any], base_dir: Path) -> dict[str,
     workflow_template = config.get("workflow_template")
     if isinstance(workflow_template, dict):
         _resolve_paths_in_mapping(workflow_template, base_dir)
+    custom_preprocessing = config.get("custom_preprocessing")
+    if isinstance(custom_preprocessing, dict):
+        _resolve_paths_in_mapping(custom_preprocessing, base_dir)
     return config
 
 
@@ -273,6 +276,10 @@ def _resolve_paths_in_mapping(value: dict[str, Any], base_dir: Path) -> None:
     for key, item in list(value.items()):
         if isinstance(item, dict):
             _resolve_paths_in_mapping(item, base_dir)
+        elif isinstance(item, list):
+            for child in item:
+                if isinstance(child, dict):
+                    _resolve_paths_in_mapping(child, base_dir)
         elif (
             key
             in {
@@ -284,6 +291,8 @@ def _resolve_paths_in_mapping(value: dict[str, Any], base_dir: Path) -> None:
                 "editor_reference_points",
                 "disk_labels",
                 "nodesets",
+                "script",
+                "path",
             }
             and isinstance(item, str)
             and item

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import importlib.util
 import json
 import warnings
 from collections import deque
@@ -38,28 +40,40 @@ class PreprocessedInputsPreview:
     metadata: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class LoadedDensityAndMask:
+    density_zyx: np.ndarray
+    mask_zyx: np.ndarray
+    spacing: tuple[float, float, float]
+    origin: tuple[float, float, float]
+    metadata: dict[str, Any]
+
+
 def build_preprocessed_inputs_preview(
     model_config: dict[str, Any],
     *,
     base_dir: Path,
     preprocessing_config: dict[str, Any] | None = None,
+    custom_preprocessing_config: Any | None = None,
 ) -> PreprocessedInputsPreview:
     """Return the shared pre-boundary-condition input grid."""
 
-    density_zyx, mask_zyx, spacing, origin = load_density_and_mask(
+    loaded = load_density_and_mask_with_metadata(
         model_config,
         base_dir=base_dir,
         preprocessing_config=preprocessing_config,
+        custom_preprocessing_config=custom_preprocessing_config,
         allow_foreground_mask=True,
     )
     return PreprocessedInputsPreview(
-        density_zyx=np.asarray(density_zyx, dtype=np.float64),
-        mask_zyx=np.asarray(mask_zyx),
-        spacing=tuple(float(value) for value in spacing),
-        origin=tuple(float(value) for value in origin),
+        density_zyx=np.asarray(loaded.density_zyx, dtype=np.float64),
+        mask_zyx=np.asarray(loaded.mask_zyx),
+        spacing=tuple(float(value) for value in loaded.spacing),
+        origin=tuple(float(value) for value in loaded.origin),
         metadata={
             "model_space": "sample",
             "preprocessing": dict(preprocessing_config or {}),
+            **loaded.metadata,
         },
     )
 
@@ -69,10 +83,29 @@ def load_density_and_mask(
     *,
     base_dir: Path,
     preprocessing_config: dict[str, Any] | None = None,
+    custom_preprocessing_config: Any | None = None,
     allow_foreground_mask: bool = False,
 ) -> tuple[
     np.ndarray, np.ndarray, tuple[float, float, float], tuple[float, float, float]
 ]:
+    loaded = load_density_and_mask_with_metadata(
+        model_config,
+        base_dir=base_dir,
+        preprocessing_config=preprocessing_config,
+        custom_preprocessing_config=custom_preprocessing_config,
+        allow_foreground_mask=allow_foreground_mask,
+    )
+    return loaded.density_zyx, loaded.mask_zyx, loaded.spacing, loaded.origin
+
+
+def load_density_and_mask_with_metadata(
+    model_config: dict[str, Any],
+    *,
+    base_dir: Path,
+    preprocessing_config: dict[str, Any] | None = None,
+    custom_preprocessing_config: Any | None = None,
+    allow_foreground_mask: bool = False,
+) -> LoadedDensityAndMask:
     density_path = resolve_path(model_config["density_image"], base_dir=base_dir)
     density_zyx, spacing, origin = read_image_zyx(density_path)
     mask_path_value = model_config.get("mask_image")
@@ -159,6 +192,17 @@ def load_density_and_mask(
             crop_from=crop_from_zyx,
             labels=crop_labels,
         )
+    proximal_box_spec = preprocessing.get("proximal_box_ratio")
+    if _enabled(proximal_box_spec):
+        crop_labels = _crop_labels(model_config, proximal_box_spec)
+        density_zyx, mask_zyx, origin = _crop_to_mask_proximal_box_ratio(
+            density_zyx,
+            mask_zyx,
+            spacing=spacing,
+            origin=origin,
+            spec=proximal_box_spec,
+            labels=crop_labels,
+        )
     if "spacing" in model_config:
         spacing = _triple(model_config["spacing"], "model.spacing")
     if "spacing" in geometry:
@@ -172,11 +216,14 @@ def load_density_and_mask(
     if target_spacing is None:
         target_spacing = _target_resample_spacing(geometry, spacing)
     if target_spacing is not None:
+        density_interpolation = _resample_density_interpolation(
+            preprocessing.get("resample_isotropic")
+        )
         density_zyx = _resample_array_zyx(
             density_zyx,
             spacing=spacing,
             target_spacing=target_spacing,
-            interpolation="linear",
+            interpolation=density_interpolation,
         )
         mask_zyx = _resample_array_zyx(
             mask_zyx,
@@ -198,11 +245,191 @@ def load_density_and_mask(
         )
     if "origin" in model_config:
         origin = _triple(model_config["origin"], "model.origin")
+    custom_metadata: dict[str, Any] = {}
+    if _custom_preprocessing_enabled(custom_preprocessing_config):
+        density_zyx, mask_zyx, spacing, origin, custom_metadata = _apply_custom_preprocessing(
+            density_zyx,
+            mask_zyx,
+            spacing=spacing,
+            origin=origin,
+            base_dir=base_dir,
+            config=custom_preprocessing_config,
+        )
+    return LoadedDensityAndMask(
+        density_zyx=np.asarray(density_zyx, dtype=np.float64),
+        mask_zyx=np.asarray(mask_zyx),
+        spacing=spacing,
+        origin=origin,
+        metadata={"custom_preprocessing": custom_metadata}
+        if custom_metadata
+        else {},
+    )
+
+
+def _custom_preprocessing_enabled(config: Any | None) -> bool:
+    if config is None:
+        return False
+    if isinstance(config, dict):
+        selected = _selected_custom_preprocessing_config(config)
+        if selected is not config:
+            return _custom_preprocessing_enabled(selected)
+        return _enabled(config.get("enabled", True)) and bool(
+            config.get("script", config.get("path"))
+        )
+    if isinstance(config, str):
+        return bool(config.strip())
+    return bool(config)
+
+
+def _apply_custom_preprocessing(
+    density_zyx: np.ndarray,
+    mask_zyx: np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    base_dir: Path,
+    config: Any,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    tuple[float, float, float],
+    tuple[float, float, float],
+    dict[str, Any],
+]:
+    config = _selected_custom_preprocessing_config(config)
+    script_path = _custom_preprocessing_script_path(config, base_dir=base_dir)
+    function_name = (
+        str(config.get("function", "custom_preprocessing"))
+        if isinstance(config, dict)
+        else "custom_preprocessing"
+    )
+    function = _load_custom_preprocessing_function(script_path, function_name)
+    density_grid = ImageGrid(
+        array_xyz=np.ascontiguousarray(np.transpose(np.asarray(density_zyx), (2, 1, 0))),
+        spacing=tuple(float(value) for value in spacing),
+        origin=tuple(float(value) for value in origin),
+    )
+    mask_grid = ImageGrid(
+        array_xyz=np.ascontiguousarray(np.transpose(np.asarray(mask_zyx), (2, 1, 0))),
+        spacing=density_grid.spacing,
+        origin=density_grid.origin,
+    )
+    result = function(density_grid, mask_grid)
+    if not isinstance(result, tuple) or len(result) not in {2, 3}:
+        raise ValueError(
+            "custom preprocessing must return (image, mask) or (image, mask, metadata)"
+        )
+    out_image, out_mask = result[0], result[1]
+    user_metadata = result[2] if len(result) == 3 else {}
+    out_image_grid = _custom_preprocessing_output_grid(
+        out_image,
+        fallback=density_grid,
+        name="custom preprocessing image",
+    )
+    out_mask_grid = _custom_preprocessing_output_grid(
+        out_mask,
+        fallback=mask_grid,
+        name="custom preprocessing mask",
+    )
+    if out_image_grid.array_xyz.shape != out_mask_grid.array_xyz.shape:
+        raise ValueError("custom preprocessing image and mask shapes differ")
+    if not np.allclose(out_image_grid.spacing, out_mask_grid.spacing):
+        raise ValueError("custom preprocessing image and mask spacing differ")
+    if not np.allclose(out_image_grid.origin, out_mask_grid.origin):
+        raise ValueError("custom preprocessing image and mask origins differ")
+    metadata = {
+        "enabled": True,
+        "script": str(script_path),
+        "sha256": hashlib.sha256(script_path.read_bytes()).hexdigest(),
+        "function": function_name,
+        "input_shape_xyz": [int(value) for value in density_grid.array_xyz.shape],
+        "output_shape_xyz": [int(value) for value in out_image_grid.array_xyz.shape],
+        "spacing": [float(value) for value in out_image_grid.spacing],
+        "origin": [float(value) for value in out_image_grid.origin],
+    }
+    if isinstance(user_metadata, dict):
+        metadata["metadata"] = user_metadata
+    elif user_metadata is not None:
+        raise ValueError("custom preprocessing metadata must be a mapping")
     return (
-        np.asarray(density_zyx, dtype=np.float64),
-        np.asarray(mask_zyx),
-        spacing,
-        origin,
+        np.ascontiguousarray(np.transpose(out_image_grid.array_xyz, (2, 1, 0))),
+        np.ascontiguousarray(np.transpose(out_mask_grid.array_xyz, (2, 1, 0))),
+        tuple(float(value) for value in out_image_grid.spacing),
+        tuple(float(value) for value in out_image_grid.origin),
+        metadata,
+    )
+
+
+def _custom_preprocessing_script_path(config: Any, *, base_dir: Path) -> Path:
+    if isinstance(config, dict):
+        value = config.get("script", config.get("path"))
+    else:
+        value = config
+    if not value:
+        raise ValueError("custom_preprocessing.script is required")
+    return resolve_path(value, base_dir=base_dir)
+
+
+def _selected_custom_preprocessing_config(config: Any) -> Any:
+    if not isinstance(config, dict):
+        return config
+    options = config.get("options", config.get("scripts"))
+    if not isinstance(options, (list, tuple)):
+        return config
+    selected = str(config.get("selected", config.get("default", "")) or "").strip()
+    first_enabled: Any | None = None
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        if not _enabled(option.get("enabled", True)):
+            continue
+        if first_enabled is None:
+            first_enabled = option
+        keys = (
+            option.get("id"),
+            option.get("name"),
+            option.get("label"),
+            option.get("preset"),
+            option.get("script"),
+            option.get("path"),
+        )
+        if selected and any(str(key or "").strip() == selected for key in keys):
+            return option
+    if selected:
+        raise ValueError(f"custom_preprocessing selected option not found: {selected}")
+    if first_enabled is not None:
+        return first_enabled
+    return config
+
+
+def _load_custom_preprocessing_function(script_path: Path, function_name: str):
+    if not script_path.is_file():
+        raise ValueError(f"custom preprocessing script does not exist: {script_path}")
+    module_name = f"_parosol_custom_preprocessing_{hashlib.sha256(str(script_path).encode()).hexdigest()[:16]}"
+    spec = importlib.util.spec_from_file_location(module_name, script_path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"cannot load custom preprocessing script: {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    function = getattr(module, function_name, None)
+    if function is None or not callable(function):
+        raise ValueError(
+            f"custom preprocessing script must define callable {function_name}()"
+        )
+    return function
+
+
+def _custom_preprocessing_output_grid(
+    value: Any, *, fallback: ImageGrid, name: str
+) -> ImageGrid:
+    if isinstance(value, ImageGrid):
+        return value
+    if value is None:
+        raise ValueError(f"{name} cannot be None")
+    return ImageGrid(
+        array_xyz=np.ascontiguousarray(np.asarray(value)),
+        spacing=fallback.spacing,
+        origin=fallback.origin,
     )
 
 
@@ -506,6 +733,164 @@ def _stable_aspect_crop_bounds_zyx(
         out_lo, out_hi = next_lo, next_hi
 
     return out_lo, out_hi
+
+
+def _crop_to_mask_proximal_box_ratio(
+    density_zyx: np.ndarray,
+    mask_zyx: np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    spec: Any,
+    labels: set[int] | None = None,
+) -> tuple[np.ndarray, np.ndarray, tuple[float, float, float]]:
+    mask = np.asarray(mask_zyx)
+    active = target_mask_from_labels(
+        mask,
+        labels,
+        context="proximal-box crop target labels",
+    )
+    if not np.any(active):
+        raise ValueError("model mask has no foreground voxels")
+    active = _largest_connected_boolean_component(active)
+    spacing_zyx = np.asarray((spacing[2], spacing[1], spacing[0]), dtype=np.float64)
+    lo_zyx, hi_zyx = _proximal_box_crop_bounds_zyx(
+        active=active,
+        spacing_zyx=spacing_zyx,
+        spec=spec,
+    )
+    slices = tuple(slice(int(lo_zyx[axis]), int(hi_zyx[axis])) for axis in range(3))
+    lo_xyz = lo_zyx[[2, 1, 0]]
+    cropped_origin = tuple(
+        float(origin[index]) + float(lo_xyz[index]) * float(spacing[index])
+        for index in range(3)
+    )
+    return density_zyx[slices], mask_zyx[slices], cropped_origin
+
+
+def _proximal_box_crop_bounds_zyx(
+    *,
+    active: np.ndarray,
+    spacing_zyx: np.ndarray,
+    spec: Any,
+) -> tuple[np.ndarray, np.ndarray]:
+    coords = np.argwhere(active)
+    lo_zyx = coords.min(axis=0).astype(np.int64)
+    hi_zyx = (coords.max(axis=0) + 1).astype(np.int64)
+    size_zyx = hi_zyx - lo_zyx
+    ratio = _proximal_box_ratio_value(spec)
+    reference_width_mode = _proximal_box_reference_width_mode(spec)
+    crop_from = _proximal_box_crop_from_value(spec)
+
+    proximal_fraction = _proximal_box_fraction_value(spec)
+    if proximal_fraction is not None:
+        proximal_voxels = max(1, int(round(float(proximal_fraction) * int(size_zyx[0]))))
+    else:
+        proximal_distance_mm = _proximal_box_reference_distance_mm_value(spec)
+        proximal_voxels = min(
+            int(size_zyx[0]),
+            max(1, int(round(float(proximal_distance_mm) / float(spacing_zyx[0])))),
+        )
+    proximal_start = int(hi_zyx[0]) - proximal_voxels
+    proximal = active[int(proximal_start) : int(hi_zyx[0]), :, :]
+    proximal_coords = np.argwhere(proximal)
+    if not len(proximal_coords):
+        proximal_coords = coords - np.asarray([proximal_start, 0, 0], dtype=np.int64)
+
+    y_width_mm = _percentile_index_width_mm(
+        proximal_coords[:, 1],
+        float(spacing_zyx[1]),
+    )
+    x_width_mm = _percentile_index_width_mm(
+        proximal_coords[:, 2],
+        float(spacing_zyx[2]),
+    )
+    if reference_width_mode == "max_xy":
+        reference_width_mm = max(x_width_mm, y_width_mm)
+    elif reference_width_mode == "rms_xy":
+        reference_width_mm = float(np.sqrt((x_width_mm**2 + y_width_mm**2) / 2.0))
+    else:
+        raise ValueError("proximal_box_ratio.reference_width must be max_xy or rms_xy")
+
+    target_mm = float(ratio) * float(reference_width_mm)
+    target_voxels = min(
+        int(size_zyx[0]),
+        max(1, int(round(target_mm / float(spacing_zyx[0])))),
+    )
+    out_lo = lo_zyx.copy()
+    out_hi = hi_zyx.copy()
+    if int(size_zyx[0]) <= target_voxels:
+        return out_lo, out_hi
+    if crop_from == "min":
+        out_lo[0] = int(hi_zyx[0]) - target_voxels
+    elif crop_from == "max":
+        out_hi[0] = int(lo_zyx[0]) + target_voxels
+    else:
+        center = 0.5 * (float(lo_zyx[0]) + float(hi_zyx[0]))
+        start = int(round(center - 0.5 * float(target_voxels)))
+        out_lo[0] = max(int(lo_zyx[0]), min(start, int(hi_zyx[0]) - target_voxels))
+        out_hi[0] = int(out_lo[0]) + target_voxels
+    return out_lo, out_hi
+
+
+def _proximal_box_ratio_value(spec: Any) -> float:
+    if isinstance(spec, dict):
+        value = spec.get("ratio", spec.get("value", 1.2))
+    else:
+        value = spec
+    value_float = float(value)
+    if value_float <= 0:
+        raise ValueError("proximal_box_ratio.ratio must be positive")
+    return value_float
+
+
+def _proximal_box_fraction_value(spec: Any) -> float | None:
+    if not isinstance(spec, dict) or (
+        "proximal_fraction" not in spec and "fraction" not in spec
+    ):
+        return None
+    value_float = float(spec.get("proximal_fraction", spec.get("fraction")))
+    if not 0 < value_float <= 1:
+        raise ValueError("proximal_box_ratio.proximal_fraction must be in (0, 1]")
+    return value_float
+
+
+def _proximal_box_reference_distance_mm_value(spec: Any) -> float:
+    value = (
+        spec.get(
+            "proximal_reference_distance_mm",
+            spec.get("reference_distance_mm", spec.get("proximal_distance_mm")),
+        )
+        if isinstance(spec, dict)
+        else None
+    )
+    if value is None:
+        value = 40.0
+    value_float = float(value)
+    if value_float <= 0:
+        raise ValueError("proximal_box_ratio.proximal_reference_distance_mm must be positive")
+    return value_float
+
+
+def _proximal_box_reference_width_mode(spec: Any) -> str:
+    value = spec.get("reference_width", "max_xy") if isinstance(spec, dict) else "max_xy"
+    return str(value).strip().lower()
+
+
+def _proximal_box_crop_from_value(spec: Any) -> str | None:
+    value = spec.get("crop_from", "min") if isinstance(spec, dict) else "min"
+    return _crop_from_value(value)
+
+
+def _percentile_index_width_mm(
+    indices: np.ndarray,
+    spacing: float,
+    *,
+    low: float = 1.0,
+    high: float = 99.0,
+) -> float:
+    lo, hi = np.percentile(indices.astype(np.float64), [float(low), float(high)])
+    return float(hi - lo + 1.0) * float(spacing)
 
 
 def _largest_connected_boolean_component(active: np.ndarray) -> np.ndarray:
@@ -847,6 +1232,28 @@ def _target_preprocessing_resample_spacing(
     if np.allclose(spacing, target, rtol=rtol, atol=tolerance):
         return None
     return target
+
+
+def _resample_density_interpolation(resample_spec: Any) -> str:
+    spec = resample_spec if isinstance(resample_spec, dict) else {}
+    value = str(
+        spec.get(
+            "density_interpolation",
+            spec.get("image_interpolation", spec.get("interpolation", "linear")),
+        )
+    ).strip().lower()
+    aliases = {
+        "b-spline": "bspline",
+        "b_spline": "bspline",
+        "cubic": "bspline",
+    }
+    value = aliases.get(value, value)
+    if value not in {"linear", "bspline", "nearest"}:
+        raise ValueError(
+            "preprocessing.resample_isotropic.density_interpolation must be "
+            "'linear', 'bspline', or 'nearest'"
+        )
+    return value
 
 
 def _resample_array_zyx(

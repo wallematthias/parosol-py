@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import SimpleITK as sitk
 
 try:
     import tomllib
@@ -95,6 +94,7 @@ def run_case_config(
     solver_cfg = _section(config, "solver")
     output_cfg = _section(config, "output")
     preprocessing_cfg = _section(config, "preprocessing")
+    custom_preprocessing_cfg = config.get("custom_preprocessing")
     postprocess_cfg = _section(config, "postprocess")
     pistoia_cfg = _pistoia_config(postprocess_cfg)
     failure_load_cfg = _failure_load_config(postprocess_cfg)
@@ -228,6 +228,7 @@ def run_case_config(
             material_config=material_cfg,
             load_case_config=load_case_cfg,
             preprocessing_config=preprocessing_cfg,
+            custom_preprocessing_config=custom_preprocessing_cfg,
             nodeset_config=nodeset_cfg,
         )
         material = built_model.material

@@ -64,22 +64,22 @@
     },
     {
       "applied_displacement_mm": -3.5199999809265137,
-      "bottom_node_count": 1035,
+      "bottom_node_count": 1097,
       "engine": "parosol-py",
       "fixture": "femur_left_mini",
-      "generalized_load_n": -5684.770783651632,
+      "generalized_load_n": -5637.59050369718,
       "metric_family": "reference_deformation",
       "name": "femur_left_mini_hip_sideways_fall",
-      "pistoia_factor": 0.1056883626771452,
-      "pistoia_failure_load_n": -600.8141163190126,
+      "pistoia_factor": 0.10492884154430247,
+      "pistoia_failure_load_n": -591.5458406541057,
       "profile": "hip-sideways-fall-left",
-      "reaction_force_n": -5684.770783651632,
+      "reaction_force_n": -5637.590503697185,
       "reference_length_mm": 88.0,
       "status": "passed",
-      "stiffness_n_per_mm": 1614.9917086520325,
+      "stiffness_n_per_mm": 1601.5882199559803,
       "target_axis": "y",
       "target_deformation_percent": 3.9999999783255835,
-      "top_node_count": 704
+      "top_node_count": 720
     },
     {
       "applied_displacement_mm": -1.0,
@@ -487,16 +487,16 @@
     },
     {
       "analysis_var": "fy_ns1",
-      "applied_displacement_mm": -3.5199998474121093,
+      "applied_displacement_mm": -3.52,
       "engine": "ogo",
       "fixture": "femur_left_mini",
       "metric_family": "reference_deformation",
       "name": "femur_left_mini_hip_sideways_fall",
       "profile": "hip-sideways-fall-left",
-      "reaction_force_n": -5688.0,
-      "reference_length_mm": 87.99999618530273,
+      "reaction_force_n": -5641.0,
+      "reference_length_mm": 88.0,
       "status": "passed",
-      "stiffness_n_per_mm": 1615.9091609568666,
+      "stiffness_n_per_mm": 1602.5568181818182,
       "target_axis": "y",
       "target_deformation_percent": 4.0
     },
@@ -690,7 +690,7 @@
   "schema_version": 1,
   "source": {
     "core_metric_source": "core_metrics.json",
-    "locked_on": "2026-07-15",
-    "run_label": "reference_workflow_runs_20260715_current"
+    "locked_on": "2026-07-21",
+    "run_label": "reference_workflow_runs_20260721_cubic_density_resampling"
   }
 }

@@ -182,6 +182,50 @@ def test_model_preprocessing_resample_isotropic_targets_requested_spacing(
     assert resampled_mask.shape == resampled_density.shape
 
 
+def test_model_preprocessing_resample_isotropic_uses_requested_density_interpolation(
+    tmp_path: Path,
+):
+    z, y, x = np.indices((5, 6, 7), dtype=np.float32)
+    density = (x**2 + 3.0 * y + 0.5 * z).astype(np.float32)
+    mask = np.ones_like(density, dtype=np.uint8)
+    density_image = sitk.GetImageFromArray(density)
+    mask_image = sitk.GetImageFromArray(mask)
+    density_image.SetSpacing((0.8, 0.8, 0.8))
+    mask_image.SetSpacing((0.8, 0.8, 0.8))
+    sitk.WriteImage(density_image, str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(mask_image, str(tmp_path / "mask.nii.gz"))
+
+    model_config = {
+        "density_image": "density.nii.gz",
+        "mask_image": "mask.nii.gz",
+    }
+    base_resample = {
+        "enabled": True,
+        "mode": "fixed",
+        "target_spacing_mm": 1.0,
+    }
+
+    linear_density, linear_mask, _spacing, _origin = load_density_and_mask(
+        model_config,
+        base_dir=tmp_path,
+        preprocessing_config={"resample_isotropic": base_resample},
+    )
+    bspline_density, bspline_mask, _spacing, _origin = load_density_and_mask(
+        model_config,
+        base_dir=tmp_path,
+        preprocessing_config={
+            "resample_isotropic": {
+                **base_resample,
+                "density_interpolation": "bspline",
+            }
+        },
+    )
+
+    assert bspline_density.shape == linear_density.shape
+    assert np.array_equal(bspline_mask, linear_mask)
+    assert not np.allclose(bspline_density, linear_density)
+
+
 def test_model_preprocessing_crop_to_bb_margin_mm_uses_image_spacing(
     tmp_path: Path,
 ):
@@ -395,6 +439,44 @@ def test_model_preprocessing_bbox_ratio_recomputes_reference_after_crop(
     assert final_size[0] <= 26
 
 
+def test_model_preprocessing_proximal_box_ratio_uses_proximal_transverse_width(
+    tmp_path: Path,
+):
+    density = np.zeros((120, 120, 110), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[70:110, 45:73, 30:82] = 700.0
+    mask[70:110, 45:73, 30:82] = 2
+    density[10:70, 45:105, 46:66] = 700.0
+    mask[10:70, 45:105, 46:66] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    _cropped_density, cropped_mask, _spacing, _origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "proximal_box_ratio": {
+                "enabled": True,
+                "ratio": 1.2,
+                "proximal_fraction": 0.4,
+                "reference_width": "max_xy",
+                "crop_from": "min",
+            }
+        },
+    )
+
+    coords = np.argwhere(cropped_mask == 2)
+    final_size = coords.max(axis=0) - coords.min(axis=0) + 1
+
+    assert final_size[0] == 62
+    assert final_size[1] == 60
+    assert final_size[2] == 52
+
+
 def test_workflow_replay_bbox_crop_from_uses_slicer_ijk_z_direction(
     tmp_path: Path,
 ):
@@ -588,6 +670,90 @@ def test_preprocessed_inputs_preview_uses_shared_model_preprocessing(tmp_path: P
     assert tuple(preview.origin) == expected_origin
     assert set(np.unique(preview.mask_zyx).astype(int)) == {20}
     assert preview.metadata["preprocessing"]["largest_cc"] is True
+
+
+def test_model_custom_preprocessing_runs_after_standard_preprocessing(tmp_path: Path):
+    density = np.zeros((8, 8, 8), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[2:6, 2:6, 2:6] = 10.0
+    mask[2:6, 2:6, 2:6] = 1
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+    (tmp_path / "custom_preprocessing.py").write_text(
+        """
+from parosol_py.images import ImageGrid
+
+
+def custom_preprocessing(image, mask=None):
+    assert image.array_xyz.shape == (4, 4, 4)
+    cropped_image = ImageGrid(
+        array_xyz=image.array_xyz[1:, :, :] + 5.0,
+        spacing=image.spacing,
+        origin=(image.origin[0] + image.spacing[0], image.origin[1], image.origin[2]),
+    )
+    cropped_mask = ImageGrid(
+        array_xyz=mask.array_xyz[1:, :, :],
+        spacing=mask.spacing,
+        origin=cropped_image.origin,
+    )
+    return cropped_image, cropped_mask, {"step": "post_standard_crop"}
+""",
+        encoding="utf-8",
+    )
+
+    custom_density, custom_mask, spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+        },
+        base_dir=tmp_path,
+        preprocessing_config={"crop_to_bb": {"enabled": True, "margin_voxels": 0}},
+        custom_preprocessing_config={"script": "custom_preprocessing.py"},
+    )
+
+    assert custom_density.shape == (4, 4, 3)
+    assert custom_mask.shape == (4, 4, 3)
+    assert spacing == pytest.approx((1.0, 1.0, 1.0))
+    assert origin == pytest.approx((-4.0, -5.0, 2.0))
+    assert float(custom_density[0, 0, 0]) == pytest.approx(15.0)
+
+
+def test_model_custom_preprocessing_selects_named_option(tmp_path: Path):
+    density = np.ones((4, 4, 4), dtype=np.float32)
+    mask = np.ones_like(density, dtype=np.uint8)
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+    (tmp_path / "first.py").write_text(
+        """
+def first_crop(image, mask=None):
+    return image.array_xyz + 10.0, mask, {"selected": "first"}
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "second.py").write_text(
+        """
+def second_crop(image, mask=None):
+    return image.array_xyz + 20.0, mask, {"selected": "second"}
+""",
+        encoding="utf-8",
+    )
+
+    custom_density, _custom_mask, _spacing, _origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+        },
+        base_dir=tmp_path,
+        custom_preprocessing_config={
+            "selected": "second",
+            "options": [
+                {"id": "first", "script": "first.py", "function": "first_crop"},
+                {"id": "second", "script": "second.py", "function": "second_crop"},
+            ],
+        },
+    )
+
+    assert float(custom_density[0, 0, 0]) == pytest.approx(21.0)
 
 
 def test_model_preprocessing_smooth_spacing_guard(tmp_path: Path):

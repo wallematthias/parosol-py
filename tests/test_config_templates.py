@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -31,6 +33,7 @@ def test_default_config_template_documents_material_and_nodeset_workflow():
     assert "load_history:" in text
     assert "Material-specific nu" in text
     assert "values are preserved" in text
+    assert "density_interpolation: linear" in text
     assert "bbox_ratio: [1, 1.2, null]" in text
 
 
@@ -70,7 +73,9 @@ def test_workflow_templates_are_available_by_profile_name():
     assert "workflow_template:" in hip_nonlinear
     assert "preset: hip_nonlinear" in hip_nonlinear
     assert "basis: rho_app" in hip_nonlinear
-    assert "bbox_ratio:" in hip
+    assert "custom_preprocessing:" in hip
+    assert "proximal_max_xy_crop.py" in hip
+    assert "legacy_bbox_aspect_crop.py" in hip
     assert "E: 8748" in xtremectii
     assert ("tolerance: 1.0e-4" in xtremectii) or ("tolerance: 0.0001" in xtremectii)
     assert "type: constrained_axial" in xtremectii
@@ -92,7 +97,31 @@ def test_xtremect_workflows_pin_scanner_voxel_size_with_tolerance():
         assert resample["canonicalize_within_tolerance"] is True
 
 
-def test_hip_sideways_fall_workflows_pin_bct_voxel_size():
+def test_hip_and_spine_density_workflows_pin_voxel_size_and_cubic_resampling():
+    from parosol_py.workflow_registry import builtin_profile_path
+
+    profiles = (
+        "hip-sideways-fall-left",
+        "hip-sideways-fall-right",
+        "hip-sideways-fall-left-nonlinear",
+        "hip-sideways-fall-right-nonlinear",
+        "spine-compression",
+        "spine-compression-nonlinear",
+    )
+    for profile in profiles:
+        loaded, _source = load_workflow_template(builtin_profile_path(profile))
+        resample = loaded["preprocessing"]["resample_isotropic"]
+
+        assert resample["enabled"] is True
+        assert resample["target_spacing_mm"] == pytest.approx(1.0)
+        assert resample["spacing_tolerance_mm"] == pytest.approx(0.001)
+        assert resample["canonicalize_within_tolerance"] is True
+        assert resample["density_interpolation"] == "bspline"
+
+
+def test_hip_sideways_fall_workflows_bundle_custom_crop_options():
+    import zipfile
+
     from parosol_py.workflow_registry import builtin_profile_path
 
     for profile in (
@@ -102,13 +131,30 @@ def test_hip_sideways_fall_workflows_pin_bct_voxel_size():
         "hip-sideways-fall-right-nonlinear",
     ):
         loaded, _source = load_workflow_template(builtin_profile_path(profile))
-        resample = loaded["preprocessing"]["resample_isotropic"]
+        custom = loaded["custom_preprocessing"]
 
-        assert resample["enabled"] is True
-        assert resample["mode"] == "fixed"
-        assert resample["target_spacing_mm"] == pytest.approx(1.5)
-        assert resample["spacing_tolerance_mm"] == pytest.approx(0.001)
-        assert resample["canonicalize_within_tolerance"] is True
+        assert custom["selected"] == "proximal_max_xy_crop"
+        options = {option["id"]: option for option in custom["options"]}
+        assert set(options) == {"proximal_max_xy_crop", "legacy_bbox_aspect_crop"}
+        assert options["proximal_max_xy_crop"]["function"] == "proximal_max_xy_crop"
+        assert options["legacy_bbox_aspect_crop"]["function"] == "legacy_bbox_aspect_crop"
+        for option in options.values():
+            assert Path(option["script"]).is_file()
+        with zipfile.ZipFile(builtin_profile_path(profile)) as archive:
+            proximal_script = archive.read(
+                "custom_preprocessing/proximal_max_xy_crop.py"
+            ).decode()
+            legacy_script = archive.read(
+                "custom_preprocessing/legacy_bbox_aspect_crop.py"
+            ).decode()
+        assert "proximal_z0 = int(hi[2]) - proximal_voxels" in proximal_script
+        assert "proximal = coords[coords[:, 2] >= proximal_z0]" in proximal_script
+        assert "proximal_reference_distance_mm = 40.0" in proximal_script
+        assert "proximal_fraction = 0.4" not in proximal_script
+        assert "out_lo[2] = int(hi[2]) - target_z" in proximal_script
+        assert "out_hi[2] = int(lo[2]) + target_z" not in proximal_script
+        assert "out_lo[2] = int(hi[2]) - target_z" in legacy_script
+        assert "out_hi[2] = int(lo[2]) + target_z" not in legacy_script
 
 
 def test_packaged_workflows_use_npy_references_and_intrusion_schema():
@@ -277,8 +323,16 @@ def test_hip_workflow_cap_geometry_matches_maintained_sideways_fall_settings():
             "reference_density": 1000.0,
             "floor_e_mpa": 0.0,
         }
-        assert loaded["preprocessing"]["bbox_ratio"] == [1.0, 1.3, None]
-        assert loaded["preprocessing"]["bbox_crop_from"] == [None, "max", None]
+        assert "bbox_ratio" not in loaded["preprocessing"]
+        assert "bbox_crop_from" not in loaded["preprocessing"]
+        custom = loaded["custom_preprocessing"]
+        assert custom["selected"] == "proximal_max_xy_crop"
+        assert {option["id"] for option in custom["options"]} == {
+            "proximal_max_xy_crop",
+            "legacy_bbox_aspect_crop",
+        }
+        for option in custom["options"]:
+            assert Path(option["script"]).is_file()
         assert "normalize_aspect_ratio" not in loaded["preprocessing"]
         assert "icp_direction" not in loaded["model"]["registration"]
         assert loaded["nodesets"] == {

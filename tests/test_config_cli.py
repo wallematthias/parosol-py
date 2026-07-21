@@ -2888,6 +2888,37 @@ materials: {}
     assert resolved_reference.name == "vertebra_ref.vtk"
 
 
+def test_workflow_bundle_resolves_custom_preprocessing_script(tmp_path: Path):
+    template_dir = tmp_path / "template"
+    template_dir.mkdir()
+    (template_dir / "custom_preprocessing.py").write_text(
+        "def custom_preprocessing(image, mask=None):\n    return image, mask\n",
+        encoding="utf-8",
+    )
+    (template_dir / "workflow.yaml").write_text(
+        """
+custom_preprocessing:
+  script: custom_preprocessing.py
+model:
+  type: workflow_replay
+  density_image: density.nii.gz
+  mask_image: segmentation.nii.gz
+""",
+        encoding="utf-8",
+    )
+    workflow_bundle = create_workflow_bundle(
+        template_dir, tmp_path / "with_custom_preprocessing.parosol-workflow"
+    )
+
+    loaded, source = load_workflow_template(workflow_bundle)
+
+    assert source == workflow_bundle.resolve()
+    script = Path(loaded["custom_preprocessing"]["script"])
+    assert script.is_absolute()
+    assert script.is_file()
+    assert script.name == "custom_preprocessing.py"
+
+
 @pytest.mark.parametrize("reference_suffix", ["npz", "npy"])
 def test_apply_workflow_template_sets_editor_reference_points_when_available(
     tmp_path: Path,
