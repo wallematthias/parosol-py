@@ -88,6 +88,15 @@ preprocessing:
   # crops around the bbox center. Workflow replay uses Slicer's IJK index
   # convention for these anchors; authored plane geometry remains in RAS.
   # bbox_crop_from: [null, max, null]
+  # Crop to physical intervals relative to the foreground bbox in z/y/x order.
+  # Positive interval endpoints count from the low-index bbox side. Negative
+  # interval endpoints count back from the high-index bbox side. For example,
+  # [0, 100] keeps the first 100 mm on an axis, [0, -100] keeps the last
+  # 100 mm, and [null, null] keeps the full bbox extent on that axis.
+  # bbox_range_mm:
+  #   enabled: false
+  #   range: [[0, -100], [null, null], [null, null]]
+  #   target_labels: [2]
   # Optional downsampled solve. This changes the solve grid and scales spacing.
   # Use for exploratory coarse passes before full-resolution batches.
   # resample_isotropic:

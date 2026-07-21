@@ -203,6 +203,17 @@ def load_density_and_mask_with_metadata(
             spec=proximal_box_spec,
             labels=crop_labels,
         )
+    bbox_range_spec = preprocessing.get("bbox_range_mm")
+    if _enabled(bbox_range_spec):
+        crop_labels = _crop_labels(model_config, bbox_range_spec)
+        density_zyx, mask_zyx, origin = _crop_to_mask_bbox_range_mm(
+            density_zyx,
+            mask_zyx,
+            spacing=spacing,
+            origin=origin,
+            spec=bbox_range_spec,
+            labels=crop_labels,
+        )
     fixed_proximal_spec = preprocessing.get("fixed_proximal_length")
     if _enabled(fixed_proximal_spec):
         crop_labels = _crop_labels(model_config, fixed_proximal_spec)
@@ -798,6 +809,145 @@ def _crop_to_mask_proximal_box_ratio(
         for index in range(3)
     )
     return density_zyx[slices], mask_zyx[slices], cropped_origin
+
+
+def _crop_to_mask_bbox_range_mm(
+    density_zyx: np.ndarray,
+    mask_zyx: np.ndarray,
+    *,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    spec: Any,
+    labels: set[int] | None = None,
+) -> tuple[np.ndarray, np.ndarray, tuple[float, float, float]]:
+    mask = np.asarray(mask_zyx)
+    active = target_mask_from_labels(
+        mask,
+        labels,
+        context="bbox-range crop target labels",
+    )
+    if not np.any(active):
+        raise ValueError("model mask has no foreground voxels")
+    active = _largest_connected_boolean_component(active)
+    spacing_zyx = np.asarray((spacing[2], spacing[1], spacing[0]), dtype=np.float64)
+    ranges = _bbox_range_mm_to_zyx(spec)
+    lo_zyx, hi_zyx = _bbox_range_crop_bounds_zyx(
+        active=active,
+        spacing_zyx=spacing_zyx,
+        ranges=ranges,
+    )
+    slices = tuple(slice(int(lo_zyx[axis]), int(hi_zyx[axis])) for axis in range(3))
+    lo_xyz = lo_zyx[[2, 1, 0]]
+    cropped_origin = tuple(
+        float(origin[index]) + float(lo_xyz[index]) * float(spacing[index])
+        for index in range(3)
+    )
+    return density_zyx[slices], mask_zyx[slices], cropped_origin
+
+
+def _bbox_range_crop_bounds_zyx(
+    *,
+    active: np.ndarray,
+    spacing_zyx: np.ndarray,
+    ranges: tuple[tuple[float | None, float | None], ...],
+) -> tuple[np.ndarray, np.ndarray]:
+    coords = np.argwhere(active)
+    bbox_lo = coords.min(axis=0).astype(np.int64)
+    bbox_hi = (coords.max(axis=0) + 1).astype(np.int64)
+    out_lo = bbox_lo.copy()
+    out_hi = bbox_hi.copy()
+    for axis, axis_range in enumerate(ranges):
+        start_mm, stop_mm = axis_range
+        if start_mm is None and stop_mm is None:
+            continue
+        start_index, stop_index = _bbox_range_axis_bounds(
+            int(bbox_lo[axis]),
+            int(bbox_hi[axis]),
+            float(spacing_zyx[axis]),
+            start_mm,
+            stop_mm,
+        )
+        out_lo[axis] = start_index
+        out_hi[axis] = stop_index
+    if np.any(out_hi <= out_lo):
+        raise ValueError("bbox_range_mm crop removed all foreground voxels")
+    return out_lo, out_hi
+
+
+def _bbox_range_axis_bounds(
+    bbox_lo: int,
+    bbox_hi: int,
+    spacing: float,
+    start_mm: float | None,
+    stop_mm: float | None,
+) -> tuple[int, int]:
+    if spacing <= 0.0:
+        raise ValueError("bbox_range_mm spacing must be positive")
+    start = 0.0 if start_mm is None else float(start_mm)
+    stop = None if stop_mm is None else float(stop_mm)
+    if stop is None:
+        if start < 0.0:
+            lo = bbox_hi + int(round(start / spacing))
+            hi = bbox_hi
+        else:
+            lo = bbox_lo + int(round(start / spacing))
+            hi = bbox_hi
+    elif start < 0.0 and stop <= 0.0:
+        lo = bbox_hi + int(round(start / spacing))
+        hi = bbox_hi + int(round(stop / spacing))
+    elif start == 0.0 and stop < 0.0:
+        lo = bbox_hi + int(round(stop / spacing))
+        hi = bbox_hi
+    elif start >= 0.0 and stop >= 0.0:
+        lo = bbox_lo + int(round(start / spacing))
+        hi = bbox_lo + int(round(stop / spacing))
+    else:
+        lo = bbox_lo + int(round(start / spacing))
+        hi = bbox_hi + int(round(stop / spacing))
+    lo = max(bbox_lo, min(int(lo), bbox_hi))
+    hi = max(bbox_lo, min(int(hi), bbox_hi))
+    if hi < lo:
+        lo, hi = hi, lo
+    if hi == lo:
+        raise ValueError("bbox_range_mm axis interval is empty after clamping")
+    return lo, hi
+
+
+def _bbox_range_mm_to_zyx(
+    spec: Any,
+) -> tuple[tuple[float | None, float | None], ...]:
+    if isinstance(spec, dict):
+        raw = spec.get("range", spec.get("ranges", spec.get("bbox_range_mm", spec)))
+    else:
+        raw = spec
+    if isinstance(raw, dict):
+        ordered = [raw.get("z"), raw.get("y"), raw.get("x")]
+    else:
+        ordered = list(raw) if isinstance(raw, (list, tuple)) else []
+    if len(ordered) != 3:
+        raise ValueError("bbox_range_mm must contain three z/y/x intervals")
+    return tuple(_bbox_range_axis_interval(item) for item in ordered)
+
+
+def _bbox_range_axis_interval(item: Any) -> tuple[float | None, float | None]:
+    if item is None:
+        return None, None
+    if isinstance(item, dict):
+        raw = [item.get("start", item.get("from")), item.get("stop", item.get("to"))]
+    else:
+        raw = list(item) if isinstance(item, (list, tuple)) else []
+    if len(raw) != 2:
+        raise ValueError("bbox_range_mm axis intervals must contain [start_mm, stop_mm]")
+    return _optional_float(raw[0]), _optional_float(raw[1])
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    token = str(value).strip().lower()
+    if token in {"", "none", "null", "auto"}:
+        return None
+    return float(value)
 
 
 def _crop_to_mask_fixed_proximal_length(

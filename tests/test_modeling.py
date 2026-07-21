@@ -747,6 +747,66 @@ def test_model_preprocessing_fixed_proximal_length_keeps_high_z_side(tmp_path: P
     assert origin == pytest.approx((-8.0, -8.0, 30.0))
 
 
+def test_model_preprocessing_bbox_range_mm_can_keep_high_z_interval(tmp_path: Path):
+    density = np.zeros((140, 12, 12), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[10:130, 3:9, 3:9] = 10.0
+    mask[10:130, 3:9, 3:9] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "bbox_range_mm": {
+                "enabled": True,
+                "range": [[0, -100], [None, None], [None, None]],
+                "target_labels": [2],
+            }
+        },
+    )
+
+    assert cropped_density.shape == (100, 6, 6)
+    assert cropped_mask.shape == (100, 6, 6)
+    assert spacing == pytest.approx((1.0, 1.0, 1.0))
+    assert origin == pytest.approx((-8.0, -8.0, 30.0))
+
+
+def test_model_preprocessing_bbox_range_mm_can_keep_low_z_interval(tmp_path: Path):
+    density = np.zeros((140, 12, 12), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[10:130, 3:9, 3:9] = 10.0
+    mask[10:130, 3:9, 3:9] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    cropped_density, cropped_mask, spacing, origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "bbox_range_mm": {
+                "enabled": True,
+                "range": [[0, 100], [None, None], [None, None]],
+                "target_labels": [2],
+            }
+        },
+    )
+
+    assert cropped_density.shape == (100, 6, 6)
+    assert cropped_mask.shape == (100, 6, 6)
+    assert spacing == pytest.approx((1.0, 1.0, 1.0))
+    assert origin == pytest.approx((-8.0, -8.0, 10.0))
+
+
 def test_model_custom_preprocessing_selects_named_option(tmp_path: Path):
     density = np.ones((4, 4, 4), dtype=np.float32)
     mask = np.ones_like(density, dtype=np.uint8)
