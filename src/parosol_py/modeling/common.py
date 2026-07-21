@@ -405,6 +405,7 @@ def _crop_to_mask_aspect_ratio(
     )
     if not np.any(active):
         raise ValueError("model mask has no foreground voxels")
+    active = _largest_connected_boolean_component(active)
 
     numeric_axes = [axis for axis, value in enumerate(ratio) if value is not None]
     if not numeric_axes:
@@ -418,47 +419,15 @@ def _crop_to_mask_aspect_ratio(
         raise ValueError(
             "normalize_aspect_ratio.ratio must contain one preserved axis with value 1"
         )
-    coords = np.argwhere(active)
-    lo_zyx = coords.min(axis=0).astype(np.int64)
-    hi_zyx = (coords.max(axis=0) + 1).astype(np.int64)
-    size_zyx = hi_zyx - lo_zyx
     spacing_zyx = np.asarray((spacing[2], spacing[1], spacing[0]), dtype=np.float64)
-    physical_size_zyx = size_zyx.astype(np.float64) * spacing_zyx
-    reference_axis = min(reference_axes, key=lambda axis: float(physical_size_zyx[axis]))
-    reference_length_mm = float(size_zyx[reference_axis]) * float(spacing_zyx[reference_axis])
     crop_from = crop_from or (None, None, None)
-
-    out_lo = lo_zyx.copy()
-    out_hi = hi_zyx.copy()
-    for axis, axis_ratio in enumerate(ratio):
-        if axis_ratio is None:
-            continue
-        target_mm = reference_length_mm * float(axis_ratio)
-        requested_voxels = max(1, int(round(target_mm / float(spacing_zyx[axis]))))
-        available_voxels = int(size_zyx[axis])
-        if requested_voxels > available_voxels:
-            axis_name = ("z", "y", "x")[axis]
-            warnings.warn(
-                "bbox_ratio cannot reach requested bbox_ratio on "
-                f"{axis_name} axis: requested {target_mm:g} mm "
-                f"({requested_voxels} voxels) exceeds foreground extent "
-                f"{float(physical_size_zyx[axis]):g} mm ({available_voxels} voxels); "
-                f"using the full available {axis_name} extent.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-        target_voxels = min(available_voxels, requested_voxels)
-        mode = crop_from[axis]
-        if mode == "min":
-            start = int(hi_zyx[axis]) - target_voxels
-        elif mode == "max":
-            start = int(lo_zyx[axis])
-        else:
-            center = 0.5 * (float(lo_zyx[axis]) + float(hi_zyx[axis]))
-            start = int(round(center - 0.5 * float(target_voxels)))
-        start = max(int(lo_zyx[axis]), min(start, int(hi_zyx[axis]) - target_voxels))
-        out_lo[axis] = start
-        out_hi[axis] = start + target_voxels
+    out_lo, out_hi = _stable_aspect_crop_bounds_zyx(
+        active=active,
+        spacing_zyx=spacing_zyx,
+        ratio=ratio,
+        crop_from=crop_from,
+        reference_axes=reference_axes,
+    )
 
     slices = tuple(slice(int(out_lo[axis]), int(out_hi[axis])) for axis in range(3))
     lo_xyz = out_lo[[2, 1, 0]]
@@ -467,6 +436,90 @@ def _crop_to_mask_aspect_ratio(
         for index in range(3)
     )
     return density_zyx[slices], mask_zyx[slices], cropped_origin
+
+
+def _stable_aspect_crop_bounds_zyx(
+    *,
+    active: np.ndarray,
+    spacing_zyx: np.ndarray,
+    ratio: tuple[float | None, float | None, float | None],
+    crop_from: tuple[str | None, str | None, str | None],
+    reference_axes: list[int],
+    max_iterations: int = 8,
+) -> tuple[np.ndarray, np.ndarray]:
+    coords = np.argwhere(active)
+    lo_zyx = coords.min(axis=0).astype(np.int64)
+    hi_zyx = (coords.max(axis=0) + 1).astype(np.int64)
+    out_lo = lo_zyx.copy()
+    out_hi = hi_zyx.copy()
+    warned_axes: set[int] = set()
+
+    for _iteration in range(1, int(max_iterations) + 1):
+        retained = active[
+            tuple(slice(int(out_lo[axis]), int(out_hi[axis])) for axis in range(3))
+        ]
+        retained_coords = np.argwhere(retained)
+        if not len(retained_coords):
+            raise ValueError("bbox_ratio crop removed all foreground voxels")
+        lo_zyx = out_lo + retained_coords.min(axis=0).astype(np.int64)
+        hi_zyx = out_lo + (retained_coords.max(axis=0) + 1).astype(np.int64)
+        size_zyx = hi_zyx - lo_zyx
+        physical_size_zyx = size_zyx.astype(np.float64) * spacing_zyx
+        reference_axis = min(reference_axes, key=lambda axis: float(physical_size_zyx[axis]))
+        reference_length_mm = float(size_zyx[reference_axis]) * float(spacing_zyx[reference_axis])
+
+        next_lo = lo_zyx.copy()
+        next_hi = hi_zyx.copy()
+        for axis, axis_ratio in enumerate(ratio):
+            if axis_ratio is None:
+                continue
+            target_mm = reference_length_mm * float(axis_ratio)
+            requested_voxels = max(1, int(round(target_mm / float(spacing_zyx[axis]))))
+            available_voxels = int(size_zyx[axis])
+            if requested_voxels > available_voxels and axis not in warned_axes:
+                axis_name = ("z", "y", "x")[axis]
+                warnings.warn(
+                    "bbox_ratio cannot reach requested bbox_ratio on "
+                    f"{axis_name} axis: requested {target_mm:g} mm "
+                    f"({requested_voxels} voxels) exceeds foreground extent "
+                    f"{float(physical_size_zyx[axis]):g} mm ({available_voxels} voxels); "
+                    f"using the full available {axis_name} extent.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                warned_axes.add(axis)
+            target_voxels = min(available_voxels, requested_voxels)
+            mode = crop_from[axis]
+            if mode == "min":
+                start = int(hi_zyx[axis]) - target_voxels
+            elif mode == "max":
+                start = int(lo_zyx[axis])
+            else:
+                center = 0.5 * (float(lo_zyx[axis]) + float(hi_zyx[axis]))
+                start = int(round(center - 0.5 * float(target_voxels)))
+            start = max(int(lo_zyx[axis]), min(start, int(hi_zyx[axis]) - target_voxels))
+            next_lo[axis] = start
+            next_hi[axis] = start + target_voxels
+
+        if np.array_equal(next_lo, out_lo) and np.array_equal(next_hi, out_hi):
+            break
+        out_lo, out_hi = next_lo, next_hi
+
+    return out_lo, out_hi
+
+
+def _largest_connected_boolean_component(active: np.ndarray) -> np.ndarray:
+    try:
+        from scipy import ndimage
+    except ImportError:
+        return np.asarray(largest_connected_component(active, background=False), dtype=bool)
+
+    labeled, count = ndimage.label(active)
+    if count <= 1:
+        return active
+    sizes = np.bincount(labeled.ravel())
+    sizes[0] = 0
+    return labeled == int(np.argmax(sizes))
 
 
 def _aspect_ratio_zyx(value: Any) -> tuple[float | None, float | None, float | None]:

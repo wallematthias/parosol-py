@@ -363,6 +363,38 @@ def test_model_preprocessing_bbox_ratio_can_crop_from_constrained_min_end(
     assert origin == pytest.approx((-21.0, -13.0, 6.0))
 
 
+def test_model_preprocessing_bbox_ratio_recomputes_reference_after_crop(
+    tmp_path: Path,
+):
+    density = np.zeros((90, 60, 12), dtype=np.float32)
+    mask = np.zeros_like(density, dtype=np.uint8)
+    density[0:10, 5:55, 2:10] = 700.0
+    mask[0:10, 5:55, 2:10] = 2
+    density[10:80, 20:40, 2:10] = 700.0
+    mask[10:80, 20:40, 2:10] = 2
+    sitk.WriteImage(sitk.GetImageFromArray(density), str(tmp_path / "density.nii.gz"))
+    sitk.WriteImage(sitk.GetImageFromArray(mask), str(tmp_path / "mask.nii.gz"))
+
+    _cropped_density, cropped_mask, _spacing, _origin = load_density_and_mask(
+        {
+            "density_image": "density.nii.gz",
+            "mask_image": "mask.nii.gz",
+            "labels": {"femur": 2},
+        },
+        base_dir=tmp_path,
+        preprocessing_config={
+            "bbox_ratio": [1.0, 1.3, None],
+            "bbox_crop_from": [None, "min", None],
+        },
+    )
+
+    coords = np.argwhere(cropped_mask == 2)
+    final_size = coords.max(axis=0) - coords.min(axis=0) + 1
+
+    assert final_size[1] == 20
+    assert final_size[0] <= 26
+
+
 def test_workflow_replay_bbox_crop_from_uses_slicer_ijk_z_direction(
     tmp_path: Path,
 ):
