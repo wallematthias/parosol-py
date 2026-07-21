@@ -343,7 +343,7 @@ def test_hip_workflow_cap_geometry_matches_maintained_sideways_fall_settings():
         assert "fixed_proximal_length" not in loaded["preprocessing"]
         assert loaded["preprocessing"]["bbox_range_mm"] == {
             "enabled": True,
-            "range": [[0, -100.0], [None, None], [None, None]],
+            "range": [[0, -120.0], [None, None], [None, None]],
             "target_labels": [2],
         }
         custom = loaded["custom_preprocessing"]
