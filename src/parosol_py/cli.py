@@ -10,6 +10,7 @@ from .batch import run_batch_config
 from .bundle import create_bundle, inspect_bundle, is_bundle_path, run_bundle
 from .config import run_case_config
 from .config_templates import available_config_profiles, read_config_template
+from .derivatives import fea_derivative_output_paths
 from .load_history import estimate_load_history_from_files
 from .paths import image_stem, suffix_text
 from .reports import parse_legacy_analysis_file, parse_pistoia_file, write_summary_json
@@ -228,6 +229,18 @@ def _build_shortcut_parser() -> argparse.ArgumentParser:
             "SlicerParOSol workflows contain workflow.yaml plus optional reference files."
         ),
     )
+    parser.add_argument(
+        "--dataset-root",
+        help="Dataset root for writing this shortcut run as an FEA derivative.",
+    )
+    parser.add_argument(
+        "--subject",
+        help="Subject ID without the 'sub-' prefix; requires --dataset-root and --site.",
+    )
+    parser.add_argument(
+        "--site",
+        help="Site identifier; requires --dataset-root and --subject.",
+    )
     parser.set_defaults(func=_shortcut)
     return parser
 
@@ -437,12 +450,29 @@ def _shortcut(args: argparse.Namespace) -> int:
 def _shortcut_config(args: argparse.Namespace) -> dict[str, Any]:
     image_path = Path(args.image).expanduser().resolve()
     mask_path = Path(args.mask).expanduser().resolve() if args.mask else None
-    output_dir = (
-        Path(args.output).expanduser().resolve()
-        if args.output
-        else image_path.parent / f"{_case_stem(image_path)}_parosol"
-    )
     case_name = args.name or _case_stem(image_path)
+    derivative_context = (
+        getattr(args, "dataset_root", None),
+        getattr(args, "subject", None),
+        getattr(args, "site", None),
+    )
+    if any(derivative_context) and not all(derivative_context):
+        raise ValueError("--dataset-root, --subject, and --site must be used together")
+    if all(derivative_context):
+        if args.output:
+            raise ValueError("--output cannot be combined with FEA derivative context")
+        output_dir = fea_derivative_output_paths(
+            args.dataset_root,
+            subject_id=args.subject,
+            site=args.site,
+            case_id=case_name,
+        )["output_dir"]
+    else:
+        output_dir = (
+            Path(args.output).expanduser().resolve()
+            if args.output
+            else image_path.parent / f"{_case_stem(image_path)}_parosol"
+        )
     if getattr(args, "template", None):
         template, workflow_path = load_workflow_template(args.template)
         return apply_workflow_template(
