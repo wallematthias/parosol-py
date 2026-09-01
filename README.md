@@ -1,9 +1,15 @@
+<p align="center">
+  <img src="resources/parosol-py.png" alt="parosol-py icon" width="240">
+</p>
+
 # parosol-py
 
 `parosol-py` is the Python package and runtime wrapper for the ParOSol
 micro-FE solver. It provides Python helpers for creating solver inputs, running
 the bundled native executable, reading outputs, and mapping label or density
 images to material stiffness.
+
+Author: Matthias Walle.
 
 The bundled native ParOSol solver was written by Cyril Flaig and is distributed
 under the GNU General Public License, version 2 or later. The Python package is
