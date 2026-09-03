@@ -79,6 +79,7 @@ LOAD_HISTORY_SUFFIXES = {
         "torsion_z",
     ),
 }
+LOAD_HISTORY_SOLVER_TOLERANCE = 1.0e-4
 LOAD_HISTORY_3_MATERIALS = {
     100: {"E": 8748.0, "nu": 0.3},
     127: {"E": 8748.0, "nu": 0.3},
@@ -263,6 +264,14 @@ def _validate_family_semantics(
 
     expected_suffixes = LOAD_HISTORY_SUFFIXES.get(profile)
     if expected_suffixes is not None:
+        _require_float(
+            issues,
+            profile=profile,
+            code="invalid_solver_tolerance",
+            path="solver.tolerance",
+            actual=solver.get("tolerance"),
+            expected=LOAD_HISTORY_SOLVER_TOLERANCE,
+        )
         batch = _mapping(config.get("batch", {}))
         actual_suffixes = _batch_name_suffixes(batch.get("cases"))
         if actual_suffixes != expected_suffixes:

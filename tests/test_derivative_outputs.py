@@ -16,7 +16,7 @@ def test_fea_derivative_output_paths_use_the_shared_family_layout(tmp_path: Path
         case_id="baseline",
     )
 
-    output_dir = tmp_path / "derivatives" / "FEA" / "sub-001" / "site-tibia" / "runs" / "baseline"
+    output_dir = tmp_path / "derivatives" / "FEA" / "sub-001" / "xct" / "runs" / "baseline"
     assert paths["output_dir"] == output_dir
     assert paths["solver_input"] == output_dir / "parosol_input.h5"
     assert paths["sed_map"] == output_dir / "sed.nii.gz"
@@ -46,5 +46,5 @@ def test_shortcut_uses_fea_derivative_output_when_dataset_context_is_provided(tm
     config = _shortcut_config(args)
 
     assert config["execution"]["output_dir"] == str(
-        tmp_path / "derivatives" / "FEA" / "sub-001" / "site-tibia" / "runs" / "baseline"
+        tmp_path / "derivatives" / "FEA" / "sub-001" / "xct" / "runs" / "baseline"
     )

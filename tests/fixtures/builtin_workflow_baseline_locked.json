@@ -122,16 +122,16 @@
     "load_history_3": {
       "batch_case_count": 3,
       "bundle_member_sha256": {
-        "workflow.yaml": "a6ada871a325906632a6f79ffca8e3352f6682534bbe22a1017e9f2f4dfa331c"
+        "workflow.yaml": "c0faf25bf35933fe72fc550a99ef3e1753f3a4fe99234b3ec125c434879e0135"
       },
-      "config_sha256": "c6874ce85cf0c2332513c6ecb20fc053fc9998da1a53101e4f136cf575ce547b",
+      "config_sha256": "42c13efc8b2874d56f7c4f7ddc0a74570a56bc6751bd74137036aa4f39b66abe",
       "load_case_type": null,
       "load_count": 0,
       "model_type": null,
       "plane_count": 0,
       "profile": "load_history_3",
       "registration_enabled": false,
-      "solver_tolerance": null,
+      "solver_tolerance": 0.0001,
       "workflow_replay_enabled": false,
       "workflow_replay_model_space": null,
       "workflow_type": "load_history"
@@ -139,16 +139,16 @@
     "load_history_6": {
       "batch_case_count": 6,
       "bundle_member_sha256": {
-        "workflow.yaml": "7fa39190686c5394d52f61c3a8d06fb39dd44fdd4b1bed1a9043967cdcfc7f28"
+        "workflow.yaml": "a0e2d3dd02b167f3acbf4b739680e51bee37fcbb8b56f228cb500ac4dfc0b26e"
       },
-      "config_sha256": "ad3b6b7c18a538bbb7917a81f537dcfdd72d21667a7e805cb1681068a71b032c",
+      "config_sha256": "fc0e0c8078e1d829de3e8ad41385b604de2eb4d9d14928b7adae28f03dad4ff2",
       "load_case_type": null,
       "load_count": 0,
       "model_type": null,
       "plane_count": 0,
       "profile": "load_history_6",
       "registration_enabled": false,
-      "solver_tolerance": null,
+      "solver_tolerance": 0.0001,
       "workflow_replay_enabled": false,
       "workflow_replay_model_space": null,
       "workflow_type": "load_history"

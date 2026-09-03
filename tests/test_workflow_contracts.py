@@ -322,6 +322,25 @@ def test_validator_requires_public_solver_tolerance(profile):
     assert any(issue.code == "invalid_solver_tolerance" for issue in issues)
 
 
+@pytest.mark.parametrize("profile", ["load_history_3", "load_history_6"])
+def test_validator_requires_load_history_solver_tolerance(profile):
+    issues = validate_workflow_config(
+        {
+            "solver": {"tolerance": 1.0e-6},
+            "batch": {
+                "cases": [
+                    {"name_suffix": suffix}
+                    for suffix in workflow_contracts.LOAD_HISTORY_SUFFIXES[profile]
+                ]
+            },
+        },
+        profile=profile,
+        bundle_members=(),
+    )
+
+    assert any(issue.code == "invalid_solver_tolerance" for issue in issues)
+
+
 @pytest.mark.parametrize("profile", ["XtremeCTI", "XtremeCTII"])
 def test_validator_requires_xtremect_axial_load_case(profile):
     issues = validate_workflow_config(

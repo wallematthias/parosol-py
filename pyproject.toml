@@ -13,7 +13,7 @@ authors = [{ name = "Matthias Walle" }]
 maintainers = [{ name = "Matthias Walle" }]
 keywords = ["finite-element-analysis", "bone", "hr-pqct", "parosol"]
 dependencies = [
-  "bone-imaging-derivatives>=0.1.2",
+  "bone-imaging-derivatives>=0.1.4",
   "numpy>=1.24",
   "h5py>=3.10",
   "SimpleITK>=2.3",
