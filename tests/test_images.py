@@ -1,9 +1,15 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 import SimpleITK as sitk
 
-from parosol_py.images import ImageGrid, export_scalar_image, normalize_array
+from parosol_py.images import (
+    ImageGrid,
+    export_scalar_image,
+    normalize_array,
+    restore_scalar_image_to_reference_grid,
+)
 from parosol_py.modeling.io import read_image_zyx
 
 
@@ -69,3 +75,61 @@ def test_export_scalar_image_roundtrips_nii_gz(tmp_path: Path):
     assert data_zyx[1, 2, 3] == 7.0
     assert tuple(round(v, 6) for v in spacing) == (0.1, 0.2, 0.3)
     assert origin == (-1.0, -2.0, 3.0)
+
+
+def test_restore_scalar_image_to_reference_grid_preserves_position_and_array_size(tmp_path: Path):
+    reference = sitk.Image((8, 7, 6), sitk.sitkFloat32)
+    reference.SetSpacing((0.4, 0.5, 0.6))
+    reference.SetOrigin((12.0, -8.0, 3.0))
+    reference.SetDirection((-1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0))
+    reference_path = tmp_path / "reference.nii.gz"
+    sitk.WriteImage(reference, str(reference_path))
+
+    crop_start_xyz = (2, 1, 3)
+    crop_array = np.arange(2 * 3 * 4, dtype=np.float32).reshape((2, 3, 4)) + 1.0
+    cropped = sitk.GetImageFromArray(crop_array)
+    cropped.SetSpacing(reference.GetSpacing())
+    cropped.SetDirection(reference.GetDirection())
+    cropped.SetOrigin(reference.TransformIndexToPhysicalPoint(crop_start_xyz))
+    field_path = tmp_path / "sed.nii.gz"
+    sitk.WriteImage(cropped, str(field_path))
+
+    restored_path = restore_scalar_image_to_reference_grid(field_path, reference_path)
+
+    restored = sitk.ReadImage(str(restored_path))
+    saved_reference = sitk.ReadImage(str(reference_path))
+    restored_array = sitk.GetArrayFromImage(restored)
+    expected = np.zeros((6, 7, 8), dtype=np.float32)
+    expected[3:5, 1:4, 2:6] = crop_array
+    np.testing.assert_array_equal(restored_array, expected)
+    assert restored.GetSize() == saved_reference.GetSize()
+    assert restored.GetSpacing() == saved_reference.GetSpacing()
+    assert restored.GetOrigin() == saved_reference.GetOrigin()
+    assert restored.GetDirection() == saved_reference.GetDirection()
+
+
+def test_restore_scalar_image_uses_parosol_reference_reader_for_non_itk_inputs(tmp_path: Path):
+    reference_path = tmp_path / "reference.npz"
+    np.savez_compressed(
+        reference_path,
+        image=np.ones((5, 6, 7), dtype=np.float32),
+        spacing_xyz=np.asarray((0.2, 0.3, 0.4)),
+        origin_xyz=np.asarray((10.0, 20.0, 30.0)),
+    )
+    crop_array = np.ones((2, 3, 4), dtype=np.float32)
+    cropped = sitk.GetImageFromArray(crop_array)
+    cropped.SetSpacing((0.2, 0.3, 0.4))
+    cropped.SetOrigin((-10.2, -20.6, 30.8))
+    cropped.SetDirection((-1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0))
+    field_path = tmp_path / "sed.nii.gz"
+    sitk.WriteImage(cropped, str(field_path))
+
+    restore_scalar_image_to_reference_grid(field_path, reference_path)
+
+    restored = sitk.ReadImage(str(field_path))
+    expected = np.zeros((5, 6, 7), dtype=np.float32)
+    expected[2:4, 2:5, 1:5] = crop_array
+    np.testing.assert_array_equal(sitk.GetArrayFromImage(restored), expected)
+    assert restored.GetSize() == (7, 6, 5)
+    assert restored.GetSpacing() == pytest.approx((0.2, 0.3, 0.4))
+    assert restored.GetOrigin() == pytest.approx((-10.0, -20.0, 30.0))

@@ -82,6 +82,86 @@ def export_scalar_image(grid: ImageGrid, output_path: str | Path) -> Path:
     return out
 
 
+def restore_scalar_image_to_reference_grid(
+    field_path: str | Path,
+    reference_path: str | Path,
+    *,
+    output_path: str | Path | None = None,
+) -> Path:
+    """Write a scalar field on the reference image grid, preserving crop position."""
+    field = sitk.ReadImage(str(Path(field_path).expanduser().resolve()))
+    reference = _read_reference_grid_image(reference_path)
+    if field.GetNumberOfComponentsPerPixel() != 1:
+        raise ValueError("field image must be scalar")
+    if reference.GetDimension() != 3 or field.GetDimension() != 3:
+        raise ValueError("field and reference images must be three-dimensional")
+
+    same_grid = (
+        field.GetSize() == reference.GetSize()
+        and np.allclose(field.GetSpacing(), reference.GetSpacing(), rtol=1e-6, atol=1e-7)
+        and np.allclose(field.GetOrigin(), reference.GetOrigin(), rtol=1e-6, atol=1e-6)
+        and np.allclose(field.GetDirection(), reference.GetDirection(), rtol=1e-6, atol=1e-7)
+    )
+    if same_grid:
+        restored = field
+    else:
+        continuous_start = np.asarray(
+            reference.TransformPhysicalPointToContinuousIndex(field.GetOrigin()),
+            dtype=float,
+        )
+        start = np.rint(continuous_start).astype(np.int64)
+        end = start + np.asarray(field.GetSize(), dtype=np.int64)
+        exact_crop = (
+            np.allclose(field.GetSpacing(), reference.GetSpacing(), rtol=1e-6, atol=1e-7)
+            and np.allclose(field.GetDirection(), reference.GetDirection(), rtol=1e-6, atol=1e-7)
+            and np.allclose(continuous_start, start, rtol=0.0, atol=1e-4)
+            and np.all(start >= 0)
+            and np.all(end <= np.asarray(reference.GetSize(), dtype=np.int64))
+        )
+        if exact_crop:
+            restored = sitk.Image(reference.GetSize(), field.GetPixelID())
+            restored.CopyInformation(reference)
+            restored = sitk.Paste(
+                restored,
+                field,
+                field.GetSize(),
+                (0, 0, 0),
+                tuple(int(value) for value in start),
+            )
+        else:
+            restored = sitk.Resample(
+                field,
+                reference,
+                sitk.Transform(3, sitk.sitkIdentity),
+                sitk.sitkLinear,
+                0.0,
+                field.GetPixelID(),
+            )
+
+    out = Path(output_path or field_path).expanduser().resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    sitk.WriteImage(restored, str(out))
+    return out
+
+
+def _read_reference_grid_image(reference_path: str | Path) -> sitk.Image:
+    path = Path(reference_path).expanduser().resolve()
+    try:
+        return sitk.ReadImage(str(path))
+    except RuntimeError:
+        from .modeling.io import read_image_zyx
+
+        array_zyx, spacing, origin_ras = read_image_zyx(path)
+        reference = sitk.Image(
+            tuple(int(value) for value in reversed(array_zyx.shape)),
+            sitk.sitkUInt8,
+        )
+        reference.SetSpacing(spacing)
+        reference.SetOrigin(_ras_origin_to_sitk_lps(origin_ras))
+        reference.SetDirection(SLICER_RAS_TO_SITK_LPS_DIRECTION)
+        return reference
+
+
 def _ras_origin_to_sitk_lps(
     origin: tuple[float, float, float],
 ) -> tuple[float, float, float]:

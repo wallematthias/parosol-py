@@ -19,6 +19,7 @@ from .images import (
     export_scalar_image,
     largest_connected_component,
     normalize_array,
+    restore_scalar_image_to_reference_grid,
 )
 from .load_cases import (
     Bending,
@@ -416,6 +417,19 @@ def run_case_config(
             )
         )
 
+    if not dry and export_fields:
+        reference_path = _original_input_image_path(
+            input_cfg,
+            model_cfg,
+            base_dir=base_dir,
+        )
+        if reference_path is not None:
+            _restore_exported_fields_to_original_grid(
+                result,
+                output_fields=output_fields,
+                reference_path=reference_path,
+            )
+
     load_type = str(load_case_cfg.get("type", "constrained_axial")).strip().lower()
     load_case_summary = _load_case_summary(
         load_case_cfg,
@@ -478,6 +492,34 @@ def _output_fields(output_cfg: dict[str, Any], output_profile) -> tuple[str, ...
     if fields is None:
         return tuple(output_profile.image_fields)
     return tuple(str(value) for value in fields)
+
+
+def _original_input_image_path(
+    input_cfg: dict[str, Any],
+    model_cfg: dict[str, Any],
+    *,
+    base_dir: Path,
+) -> Path | None:
+    value = model_cfg.get("density_image") if model_cfg else input_cfg.get("image")
+    if value is None:
+        return None
+    return _resolve_path(value, base_dir=base_dir)
+
+
+def _restore_exported_fields_to_original_grid(
+    result: SolveResult,
+    *,
+    output_fields: tuple[str, ...],
+    reference_path: Path,
+) -> None:
+    for field_name in output_fields:
+        field_path = result.exported.get(field_name)
+        if field_path is None:
+            continue
+        result.exported[field_name] = restore_scalar_image_to_reference_grid(
+            field_path,
+            reference_path,
+        )
 
 
 def _pistoia_config(postprocess_cfg: dict[str, Any]) -> dict[str, Any]:

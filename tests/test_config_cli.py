@@ -305,6 +305,65 @@ def test_generic_config_uses_input_mask_as_postprocess_mask(
     assert not captured["postprocess_mask"][0, 1, 1]
 
 
+def test_run_case_config_always_restores_exported_fields_to_original_input_grid(
+    monkeypatch, tmp_path: Path
+):
+    reference = sitk.GetImageFromArray(np.full((6, 7, 8), 1000.0, dtype=np.float32))
+    reference.SetSpacing((0.4, 0.5, 0.6))
+    reference.SetOrigin((12.0, -8.0, 3.0))
+    reference.SetDirection((-1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0))
+    reference_path = tmp_path / "material.nii.gz"
+    sitk.WriteImage(reference, str(reference_path))
+    config_path = tmp_path / "case.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "image": "material.nii.gz",
+                    "image_type": "material_mpa",
+                    "spacing": "auto",
+                },
+                "output": {
+                    "summary": "summary.json",
+                    "fields": ["sed"],
+                    "export_fields": True,
+                    "fields_dir": "fields",
+                },
+                "postprocess": {"fields": {"restore_original_grid": False}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_solve(**kwargs):
+        crop_start_xyz = (2, 1, 3)
+        crop_array = np.arange(2 * 3 * 4, dtype=np.float32).reshape((2, 3, 4)) + 1.0
+        cropped = sitk.GetImageFromArray(crop_array)
+        cropped.SetSpacing(reference.GetSpacing())
+        cropped.SetDirection(reference.GetDirection())
+        cropped.SetOrigin(reference.TransformIndexToPhysicalPoint(crop_start_xyz))
+        field_path = tmp_path / "fields" / "sed.nii.gz"
+        field_path.parent.mkdir(parents=True, exist_ok=True)
+        sitk.WriteImage(cropped, str(field_path))
+        return SolveResult(
+            input_file=tmp_path / "input.h5",
+            command=["parosol"],
+            fields={},
+            summary=SolveSummary((4, 3, 2), reference.GetSpacing(), cropped.GetOrigin()),
+            exported={"sed": field_path},
+        )
+
+    monkeypatch.setattr("parosol_py.config.solve", fake_solve)
+
+    result = run_case_config(config_path)
+
+    restored = sitk.ReadImage(str(result.exported["sed"]))
+    expected = np.zeros((6, 7, 8), dtype=np.float32)
+    expected[3:5, 1:4, 2:6] = np.arange(2 * 3 * 4, dtype=np.float32).reshape((2, 3, 4)) + 1.0
+    np.testing.assert_array_equal(sitk.GetArrayFromImage(restored), expected)
+    assert restored.GetSize() == sitk.ReadImage(str(reference_path)).GetSize()
+
+
 def test_run_case_config_reads_compressed_npz_label_image(tmp_path: Path):
     labels = np.ones((2, 2, 2), dtype=np.uint8)
     np.savez_compressed(

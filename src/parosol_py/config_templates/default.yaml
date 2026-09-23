@@ -267,9 +267,8 @@ postprocess:
     # fields to that mask for visualization. Without an explicit mask, fields
     # are exported for the full solved model.
     mask_to_segmentation: true
-    # For crop_to_bb preprocessing, paste image fields back into the original
-    # image grid when the run did not also change orientation/registration.
-    restore_original_grid: true
+    # Exported image fields are always restored to the original input grid.
+    # crop_to_bb still reduces the model used during the solve.
 
 output:
   # result.json is the compact report-ready file most users should open first.
