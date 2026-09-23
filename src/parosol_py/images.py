@@ -105,30 +105,8 @@ def restore_scalar_image_to_reference_grid(
     if same_grid:
         restored = field
     else:
-        continuous_start = np.asarray(
-            reference.TransformPhysicalPointToContinuousIndex(field.GetOrigin()),
-            dtype=float,
-        )
-        start = np.rint(continuous_start).astype(np.int64)
-        end = start + np.asarray(field.GetSize(), dtype=np.int64)
-        exact_crop = (
-            np.allclose(field.GetSpacing(), reference.GetSpacing(), rtol=1e-6, atol=1e-7)
-            and np.allclose(field.GetDirection(), reference.GetDirection(), rtol=1e-6, atol=1e-7)
-            and np.allclose(continuous_start, start, rtol=0.0, atol=1e-4)
-            and np.all(start >= 0)
-            and np.all(end <= np.asarray(reference.GetSize(), dtype=np.int64))
-        )
-        if exact_crop:
-            restored = sitk.Image(reference.GetSize(), field.GetPixelID())
-            restored.CopyInformation(reference)
-            restored = sitk.Paste(
-                restored,
-                field,
-                field.GetSize(),
-                (0, 0, 0),
-                tuple(int(value) for value in start),
-            )
-        else:
+        restored = _restore_on_reference_lattice(field, reference)
+        if restored is None:
             restored = sitk.Resample(
                 field,
                 reference,
@@ -142,6 +120,63 @@ def restore_scalar_image_to_reference_grid(
     out.parent.mkdir(parents=True, exist_ok=True)
     sitk.WriteImage(restored, str(out))
     return out
+
+
+def _restore_on_reference_lattice(
+    field: sitk.Image,
+    reference: sitk.Image,
+) -> sitk.Image | None:
+    """Restore an axis-aligned crop exactly, including signed axis changes."""
+    field_direction = np.asarray(field.GetDirection(), dtype=float).reshape((3, 3))
+    reference_direction = np.asarray(reference.GetDirection(), dtype=float).reshape((3, 3))
+    field_basis = field_direction @ np.diag(np.asarray(field.GetSpacing(), dtype=float))
+    reference_basis = reference_direction @ np.diag(
+        np.asarray(reference.GetSpacing(), dtype=float)
+    )
+    index_transform = np.linalg.solve(reference_basis, field_basis)
+    signed_permutation = np.rint(index_transform).astype(np.int64)
+    if not (
+        np.allclose(index_transform, signed_permutation, rtol=0.0, atol=1e-6)
+        and np.all(np.sum(np.abs(signed_permutation), axis=0) == 1)
+        and np.all(np.sum(np.abs(signed_permutation), axis=1) == 1)
+    ):
+        return None
+
+    continuous_origin = np.asarray(
+        reference.TransformPhysicalPointToContinuousIndex(field.GetOrigin()),
+        dtype=float,
+    )
+    origin_index = np.rint(continuous_origin).astype(np.int64)
+    if not np.allclose(continuous_origin, origin_index, rtol=0.0, atol=1e-4):
+        return None
+
+    field_size = np.asarray(field.GetSize(), dtype=np.int64)
+    source_axes = np.argmax(np.abs(signed_permutation), axis=1)
+    signs = signed_permutation[np.arange(3), source_axes]
+    lower = origin_index.copy()
+    for reference_axis, (field_axis, sign) in enumerate(zip(source_axes, signs)):
+        if sign < 0:
+            lower[reference_axis] -= field_size[field_axis] - 1
+    oriented_shape = field_size[source_axes]
+    upper = lower + oriented_shape
+    reference_size = np.asarray(reference.GetSize(), dtype=np.int64)
+    if np.any(lower < 0) or np.any(upper > reference_size):
+        return None
+
+    field_xyz = np.transpose(sitk.GetArrayFromImage(field), (2, 1, 0))
+    oriented_xyz = np.transpose(field_xyz, tuple(int(axis) for axis in source_axes))
+    for axis, sign in enumerate(signs):
+        if sign < 0:
+            oriented_xyz = np.flip(oriented_xyz, axis=axis)
+
+    restored_xyz = np.zeros(tuple(int(value) for value in reference_size), dtype=field_xyz.dtype)
+    destination = tuple(
+        slice(int(start), int(stop)) for start, stop in zip(lower, upper)
+    )
+    restored_xyz[destination] = oriented_xyz
+    restored = sitk.GetImageFromArray(np.transpose(restored_xyz, (2, 1, 0)))
+    restored.CopyInformation(reference)
+    return restored
 
 
 def _read_reference_grid_image(reference_path: str | Path) -> sitk.Image:

@@ -108,6 +108,37 @@ def test_restore_scalar_image_to_reference_grid_preserves_position_and_array_siz
     assert restored.GetDirection() == saved_reference.GetDirection()
 
 
+def test_restore_scalar_image_to_reference_grid_exactly_reorients_signed_axes(tmp_path: Path):
+    reference = sitk.Image((8, 7, 2), sitk.sitkFloat32)
+    reference.SetSpacing((0.4, 0.5, 0.6))
+    reference.SetOrigin((12.0, -8.0, 3.0))
+    reference_path = tmp_path / "reference.nii.gz"
+    sitk.WriteImage(reference, str(reference_path))
+
+    crop_array = np.zeros((2, 3, 4), dtype=np.float32)
+    crop_array[:, 1, 2] = (1.25, 2.5)
+    cropped = sitk.GetImageFromArray(crop_array)
+    cropped.SetSpacing(reference.GetSpacing())
+    cropped.SetDirection((-1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0))
+    # Small header round-off must not force interpolation of an integer lattice mapping.
+    cropped.SetOrigin((14.80001, -5.00001, 3.0))
+    field_path = tmp_path / "sed.nii.gz"
+    sitk.WriteImage(cropped, str(field_path))
+
+    restore_scalar_image_to_reference_grid(field_path, reference_path)
+
+    restored = sitk.ReadImage(str(field_path))
+    saved_reference = sitk.ReadImage(str(reference_path))
+    expected = np.zeros((2, 7, 8), dtype=np.float32)
+    expected[:, 4:7, 4:8] = crop_array[:, ::-1, ::-1]
+    np.testing.assert_array_equal(sitk.GetArrayFromImage(restored), expected)
+    assert np.count_nonzero(sitk.GetArrayFromImage(restored)) == 2
+    assert restored.GetSize() == saved_reference.GetSize()
+    assert restored.GetSpacing() == saved_reference.GetSpacing()
+    assert restored.GetOrigin() == saved_reference.GetOrigin()
+    assert restored.GetDirection() == saved_reference.GetDirection()
+
+
 def test_restore_scalar_image_uses_parosol_reference_reader_for_non_itk_inputs(tmp_path: Path):
     reference_path = tmp_path / "reference.npz"
     np.savez_compressed(
