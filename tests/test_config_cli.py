@@ -9,7 +9,11 @@ import SimpleITK as sitk
 
 from parosol_py.api import SolveResult, SolveSummary
 from parosol_py.cli import main
-from parosol_py.config import run_case_config
+from parosol_py.config import (
+    _sync_nonlinear_material_to_final_material,
+    run_case_config,
+)
+from parosol_py.nonlinear import spine_nonlinear
 from parosol_py.workflow_template import create_workflow_bundle, load_workflow_template
 from parosol_py.workflow_template import apply_workflow_template
 
@@ -642,6 +646,24 @@ def test_run_case_config_resampled_density_keeps_nonlinear_map_in_sync(
         youngs = h5["Nonlinear"]["YoungsModulusMPa"][...] / 1000.0
         assert image.shape == youngs.shape
         np.testing.assert_allclose(image, youngs)
+
+
+def test_sync_nonlinear_material_clamps_interpolation_undershoot():
+    material = np.ones((2, 2, 2), dtype=np.float64)
+    nonlinear = spine_nonlinear(material * 1000.0)
+    nonlinear.compressive_yield_mpa[0, 0, 0] = -1.0e-12
+    nonlinear.tensile_yield_mpa[0, 0, 1] = -1.0e-12
+    nonlinear.plateau_mpa[0, 1, 0] = -1.0e-12
+
+    synced = _sync_nonlinear_material_to_final_material(
+        nonlinear,
+        material,
+        poisson_ratio=0.3,
+    )
+
+    assert np.all(synced.compressive_yield_mpa >= 0.0)
+    assert np.all(synced.tensile_yield_mpa >= 0.0)
+    assert np.all(synced.plateau_mpa >= 0.0)
 
 
 def test_run_case_config_writes_hip_nonlinear_map_for_rho_app(

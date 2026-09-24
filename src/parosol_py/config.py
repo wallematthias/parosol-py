@@ -879,7 +879,9 @@ def _sync_nonlinear_material_to_final_material(
                 "nonlinear material map shape must match final material shape; "
                 f"{name} has shape {values.shape}, material has shape {final_material.shape}"
             )
-        return np.where(active, values, 0.0)
+        # Higher-order interpolation can introduce tiny negative ringing at
+        # material boundaries. Physical material properties remain non-negative.
+        return np.where(active, np.maximum(values, 0.0), 0.0)
 
     poisson = nonlinear_material.poisson_ratio
     if (
