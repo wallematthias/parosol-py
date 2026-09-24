@@ -10,6 +10,7 @@ import SimpleITK as sitk
 from parosol_py.api import SolveResult, SolveSummary
 from parosol_py.cli import main
 from parosol_py.config import (
+    _resample_nonlinear_material_zyx,
     _sync_nonlinear_material_to_final_material,
     run_case_config,
 )
@@ -664,6 +665,27 @@ def test_sync_nonlinear_material_clamps_interpolation_undershoot():
     assert np.all(synced.compressive_yield_mpa >= 0.0)
     assert np.all(synced.tensile_yield_mpa >= 0.0)
     assert np.all(synced.plateau_mpa >= 0.0)
+
+
+def test_resample_nonlinear_material_uses_linear_scalar_interpolation(monkeypatch):
+    interpolations = []
+
+    def fake_resample(array, *, spacing, target_spacing, interpolation):
+        interpolations.append(interpolation)
+        return np.asarray(array)
+
+    monkeypatch.setattr("parosol_py.config._resample_array_zyx", fake_resample)
+    nonlinear = spine_nonlinear(np.ones((2, 2, 2), dtype=np.float64) * 1000.0)
+
+    _resample_nonlinear_material_zyx(
+        nonlinear,
+        spacing=(1.0, 1.0, 2.0),
+        target_spacing=(1.0, 1.0, 1.0),
+        interpolation="bspline",
+    )
+
+    assert interpolations[:-1] == ["linear"] * 4
+    assert interpolations[-1] == "nearest"
 
 
 def test_run_case_config_writes_hip_nonlinear_map_for_rho_app(

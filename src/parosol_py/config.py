@@ -798,7 +798,9 @@ def _resample_nonlinear_material_zyx(
     if nonlinear_material is None:
         return None
 
-    def resample_field(name: str, *, field_interpolation: str = interpolation):
+    scalar_interpolation = "linear" if interpolation == "bspline" else interpolation
+
+    def resample_field(name: str, *, field_interpolation: str = scalar_interpolation):
         return _resample_array_zyx(
             np.asarray(getattr(nonlinear_material, name)),
             spacing=spacing,
@@ -812,7 +814,7 @@ def _resample_nonlinear_material_zyx(
             poisson,
             spacing=spacing,
             target_spacing=target_spacing,
-            interpolation=interpolation,
+            interpolation=scalar_interpolation,
         )
     return replace(
         nonlinear_material,
