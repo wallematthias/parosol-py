@@ -417,7 +417,10 @@ def run_case_config(
             )
         )
 
-    if not dry and export_fields:
+    if not dry and export_fields and _restore_exported_fields_enabled(
+        postprocess_cfg,
+        model_cfg,
+    ):
         reference_path = _original_input_image_path(
             input_cfg,
             model_cfg,
@@ -504,6 +507,25 @@ def _original_input_image_path(
     if value is None:
         return None
     return _resolve_path(value, base_dir=base_dir)
+
+
+def _restore_exported_fields_enabled(
+    postprocess_cfg: dict[str, Any],
+    model_cfg: dict[str, Any],
+) -> bool:
+    fields_cfg = postprocess_cfg.get("fields", {})
+    if isinstance(fields_cfg, dict) and "restore_original_grid" in fields_cfg:
+        return bool(fields_cfg["restore_original_grid"])
+    if "restore_original_grid" in postprocess_cfg:
+        return bool(postprocess_cfg["restore_original_grid"])
+
+    replay_cfg = model_cfg.get("workflow_replay", {}) if model_cfg else {}
+    if isinstance(replay_cfg, dict) and replay_cfg.get("enabled"):
+        model_space = str(replay_cfg.get("model_space", "sample")).strip().lower()
+        if model_space == "reference":
+            return False
+
+    return True
 
 
 def _restore_exported_fields_to_original_grid(
