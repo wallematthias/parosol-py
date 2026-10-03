@@ -211,7 +211,7 @@ int main(int argc, char *argv[])
 
 	// Setting up the problem
 	timer.Start("Setup");
-    Problem<t_Ogrid> problem(matr, file, "%s.sv_%d");                       // Startvector naming scheme: [filename].sv_[thread_id]
+    Problem<t_Ogrid> problem(matr, file);                                  // Startvector naming scheme: [filename].sv_[thread_id]
     if (problem.Impose(startvector_flag))                                   // READ STARTVECTOR  
     {                
         std::cout << "Error in impose\n";
