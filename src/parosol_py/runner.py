@@ -196,7 +196,7 @@ def _missing_mpi_launcher_message(requested: str) -> str:
 def mpi_runtime_environment(
     command: list[str], base_env: dict[str, str] | None = None
 ) -> dict[str, str] | None:
-    """Return subprocess environment for bundled MPI launchers.
+    """Return subprocess environment for bundled MPI launchers and direct solves.
 
     OpenMPI embeds its installation prefix in help/config lookup paths. The
     bundled runtime is relocated into site-packages, so launcher subprocesses
@@ -206,6 +206,12 @@ def mpi_runtime_environment(
     if not command:
         return base_env
     launcher = Path(command[0])
+    # A one-rank solve still links MPI and needs the relocated bundled libraries.
+    if (
+        launcher.name in _platform_executable_names("parosol")
+        and launcher.resolve() == packaged_executable().resolve()
+    ):
+        launcher = packaged_mpi_launcher() or launcher
     msmpi_dir = _packaged_msmpi_dir_for_launcher(launcher)
     if msmpi_dir is not None:
         env = dict(os.environ if base_env is None else base_env)
