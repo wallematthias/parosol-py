@@ -19,6 +19,8 @@
 #ifndef PROBLEM_H
 #define PROBLEM_H
 
+#include <string>
+
 #include "GenericMatrix.h"
 #include "BoundaryCondition.h"
 #include "Solver.h"
@@ -34,7 +36,7 @@ class Problem
 {
   public:
 	//!Problem constructor
-    Problem(GenericMatrix<Grid> &mat, std::string file, const char *sv_format) : 
+    Problem(GenericMatrix<Grid> &mat, std::string file) :
         _ldofs(mat.GetNrDofs()), 
         _mat(mat), 
         _bcond(mat.GetBC()), 
@@ -46,12 +48,12 @@ class Problem
         _x0 = new Eigen::VectorXd(_ldofs);
         _b = new Eigen::VectorXd(_ldofs);
         
-        // Startvector filename
+        // Workflow paths can exceed 256 bytes; never store them in a fixed buffer.
         MPI_Comm_rank(MPI_COMM_WORLD, &MyPID);
-        sprintf(_startVectorFile, sv_format, _file.c_str(), MyPID);
+        _startVectorFile = _file + ".sv_" + std::to_string(MyPID);
     }
     std::string _file;
-    char _startVectorFile[256];
+    std::string _startVectorFile;
     bool _startvectorSet;
 
 	//! Problem destructor
@@ -88,7 +90,7 @@ class Problem
 
         // Store startvector
         MPI_File myfile; 
-        if(startvector_flag && extrapolation && MPI_File_open(MPI_COMM_SELF, _startVectorFile, MPI_MODE_RDONLY, MPI_INFO_NULL, &myfile) == 0)
+        if(startvector_flag && extrapolation && MPI_File_open(MPI_COMM_SELF, _startVectorFile.c_str(), MPI_MODE_RDONLY, MPI_INFO_NULL, &myfile) == 0)
         {
             // Read last startvector (Separate file for each thread)
             MPI_File_read(myfile, _x0->data(), _ldofs, MPI_DOUBLE, MPI_STATUS_IGNORE);
@@ -100,7 +102,7 @@ class Problem
             *_x0 = 2*(*_x) - *_x0;
 
             // Store startvector to file (Separate file for each thread)
-            MPI_File_open(MPI_COMM_SELF, _startVectorFile, MPI_MODE_WRONLY | MPI_MODE_CREATE, MPI_INFO_NULL, &myfile);
+            MPI_File_open(MPI_COMM_SELF, _startVectorFile.c_str(), MPI_MODE_WRONLY | MPI_MODE_CREATE, MPI_INFO_NULL, &myfile);
             MPI_File_set_size(myfile, 0);
             MPI_File_write(myfile, _x0->data(), _ldofs, MPI_DOUBLE, MPI_STATUS_IGNORE); 
             MPI_File_close(&myfile);
@@ -111,7 +113,7 @@ class Problem
         else if(startvector_flag)
         {
             // Store startvector to file (Separate file for each thread)
-            MPI_File_open(MPI_COMM_SELF, _startVectorFile, MPI_MODE_WRONLY | MPI_MODE_CREATE, MPI_INFO_NULL, &myfile); 
+            MPI_File_open(MPI_COMM_SELF, _startVectorFile.c_str(), MPI_MODE_WRONLY | MPI_MODE_CREATE, MPI_INFO_NULL, &myfile);
             MPI_File_set_size(myfile, 0);
             MPI_File_write(myfile, _x->data(), _ldofs, MPI_DOUBLE, MPI_STATUS_IGNORE); 
             MPI_File_close(&myfile);
@@ -240,7 +242,7 @@ int Problem<Grid>::Impose(int startvector_flag)
 
     // Read startvector (Separate file per thread)
     MPI_File myfile; 
-    if(startvector_flag && MPI_File_open(MPI_COMM_SELF, _startVectorFile, MPI_MODE_RDONLY, MPI_INFO_NULL, &myfile) == 0)
+    if(startvector_flag && MPI_File_open(MPI_COMM_SELF, _startVectorFile.c_str(), MPI_MODE_RDONLY, MPI_INFO_NULL, &myfile) == 0)
     {
         MPI_File_read(myfile, x.data(), _ldofs, MPI_DOUBLE, MPI_STATUS_IGNORE); 
         MPI_File_close(&myfile);
