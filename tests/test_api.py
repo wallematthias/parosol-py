@@ -61,6 +61,45 @@ def test_solve_dry_run_accepts_export_dir(tmp_path):
     assert result.exported == {}
 
 
+@pytest.mark.parametrize("mpi_processes", [1, 4])
+def test_solve_executes_short_input_name_in_deep_work_dir(
+    monkeypatch, tmp_path, mpi_processes
+):
+    work_dir = tmp_path / "case with spaces"
+    while len(str(work_dir / "parosol_input.h5").encode()) < 320:
+        work_dir /= "nested-" + "x" * 40
+    original_cwd = Path.cwd()
+    captured = {}
+
+    def fake_run(command, *, cwd=None, stream=False):
+        captured.update(command=command, cwd=cwd)
+        assert command[-1] == "parosol_input.h5"
+        assert (Path(cwd) / command[-1]).is_file()
+        return RunResult(
+            command=command,
+            stdout="",
+            stderr="",
+            returncode=0,
+            summary=RunSummary(),
+        )
+
+    monkeypatch.setattr("parosol_py.api.run_parosol", fake_run)
+    monkeypatch.setattr("parosol_py.api.read_solution_fields", lambda *a, **k: {})
+    monkeypatch.setattr("parosol_py.runner.resolve_mpi_launcher", lambda _: "mpirun")
+    result = solve(
+        material=np.full((3, 3, 3), 1000.0),
+        spacing=(1.0, 1.0, 1.0),
+        mpi_processes=mpi_processes,
+        work_dir=work_dir,
+    )
+
+    assert captured["cwd"] == work_dir
+    assert result.input_file == work_dir / "parosol_input.h5"
+    assert result.command == captured["command"]
+    assert Path.cwd() == original_cwd
+    assert result.exported["command_log"].read_text().split()[-1] == "parosol_input.h5"
+
+
 def test_solve_accepts_scanner_rounding_in_isotropic_spacing(tmp_path):
     material_zyx = np.ones((4, 3, 2)) * 1000.0
 

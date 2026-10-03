@@ -289,6 +289,34 @@ def test_mpi_runtime_environment_leaves_explicit_system_mpi_alone(monkeypatch, t
     assert mpi_runtime_environment(["/cluster/mpiexec", "-np", "2"]) is None
 
 
+def test_mpi_runtime_environment_sets_bundled_libraries_for_direct_solver(
+    monkeypatch, tmp_path
+):
+    package_bin = tmp_path / "bin"
+    executable = package_bin / "parosol"
+    launcher = package_bin / "openmpi" / "bin" / "mpirun"
+    launcher.parent.mkdir(parents=True)
+    monkeypatch.setattr(runner, "_package_bin_dir", lambda: package_bin)
+    monkeypatch.setattr(runner, "packaged_executable", lambda: executable)
+    monkeypatch.setattr(runner, "packaged_mpi_launcher", lambda: launcher)
+
+    env = mpi_runtime_environment([str(executable), "parosol_input.h5"], base_env={})
+
+    assert env is not None
+    assert env["OPAL_PREFIX"] == str(package_bin / "openmpi")
+    assert env["LD_LIBRARY_PATH"].split(os.pathsep)[0] == str(
+        package_bin / "openmpi" / "lib"
+    )
+
+
+def test_mpi_runtime_environment_leaves_external_native_solver_alone(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(runner, "_package_bin_dir", lambda: tmp_path / "bin")
+    monkeypatch.setattr(runner, "packaged_executable", lambda: tmp_path / "bin/parosol")
+    assert mpi_runtime_environment(["/cluster/parosol", "parosol_input.h5"]) is None
+
+
 def test_packaged_mpi_launcher_returns_none_when_not_bundled(monkeypatch, tmp_path):
     monkeypatch.setattr("parosol_py.runner._package_bin_dir", lambda: tmp_path)
     monkeypatch.setattr(

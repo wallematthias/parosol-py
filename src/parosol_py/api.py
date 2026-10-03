@@ -39,6 +39,8 @@ class SolveSummary:
 
 @dataclass(frozen=True)
 class SolveResult:
+    """Solver results; executed commands use ``input_file.parent`` as their cwd."""
+
     input_file: Path
     command: list[str]
     fields: dict[str, Any]
@@ -164,6 +166,9 @@ def solve(
             summary=summary,
         )
 
+    # Native solver and MPI restart-file code can have fixed-size path buffers.
+    # Keep the full artifact path in Python, but pass only the local filename.
+    command[-1] = input_file.name
     run = run_parosol(command, cwd=case_dir, stream=stream_output)
     exported = _write_run_logs(case_dir, command=command, run=run)
     if run.returncode != 0:
